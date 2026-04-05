@@ -1,0 +1,5 @@
+modelo,mAP50,mAP50_95,precision,recall,inferencia_ms,params_M,tamano_MB,epochs,hardware_entrenamiento,hardware_eval,observaciones
+YOLOv8n,0.4175,0.2102,0.6622,0.3529,11.3,3.2,6.0,100,Colab T4,RTX 3050,Evaluado en test set local
+YOLO11m,0.4383,0.2226,0.4353,0.4941,36.0,20.1,39.0,100,Colab T4,RTX 3050,Evaluado en test set local
+RT-DETR-L,0.4752,0.2450,0.5523,0.4353,51.8,32.8,64.0,100,Colab CPU,RTX 3050,Entrenado sin GPU en Colab - mayor mAP50 en test
+EfficientDet-D2,,,,,,,8.1,26.0,,,Pendiente de entrenamiento

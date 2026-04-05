@@ -1,0 +1,2 @@
+modelo,mAP50,mAP50_95,precision,recall,inferencia_ms,hardware_entrenamiento,hardware_eval,epochs_completados,observaciones
+YOLOv8n,0.4175,0.2102,0.6622,0.3529,11.3,Colab T4,RTX 3050 6GB,100,Metricas obtenidas evaluando best.pt en test set (43 imagenes). Curvas de entrenamiento epoch-por-epoch perdidas por expiracion de sesion Colab.

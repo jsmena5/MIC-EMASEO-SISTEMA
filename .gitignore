@@ -1,0 +1,45 @@
+# ── Pesos de modelos (archivos grandes — almacenados en OneDrive/Drive) ────────
+*.pt
+*.onnx
+*.engine
+*.pth
+
+# ── Carpetas generadas por Ultralytics ─────────────────────────────────────────
+runs/
+
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Entornos virtuales ─────────────────────────────────────────────────────────
+venv*/
+.venv/
+env/
+
+# ── Variables de entorno (secretos) ────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Node.js ────────────────────────────────────────────────────────────────────
+node_modules/
+
+# ── Expo / React Native ────────────────────────────────────────────────────────
+.expo/
+dist/
+build/
+*.orig.*
+web-build/
+
+# ── Herramientas del IDE ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
+
+# ── Sistema operativo ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

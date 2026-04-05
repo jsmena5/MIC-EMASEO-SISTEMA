@@ -1,0 +1,20 @@
+# ── Dataset (miles de imágenes — se descarga con: python evaluar_modelos.py) ───
+dataset/
+
+# ── Pesos entrenados (almacenados en OneDrive/Drive) ──────────────────────────
+modelos/
+*.pt
+*.onnx
+
+# ── Entorno virtual Python ─────────────────────────────────────────────────────
+venv_emaseo/
+
+# ── Runs generados por Ultralytics ─────────────────────────────────────────────
+runs/
+
+# ── Archivos temporales de evaluación ──────────────────────────────────────────
+resultados/eval_output.txt
+
+# ── Python cache ───────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
