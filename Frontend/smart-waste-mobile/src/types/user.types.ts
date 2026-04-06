@@ -4,7 +4,6 @@ export interface RegisterUser {
   username: string
   email: string
   password: string
-  ciudad: string
   cedula: string
 }
 export interface LoginUser {

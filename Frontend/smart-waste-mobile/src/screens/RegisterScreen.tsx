@@ -2,7 +2,9 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useState } from "react"
 import {
+  ActivityIndicator,
   Alert,
+  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -21,7 +23,6 @@ type FormType = {
   email: string
   password: string
   confirmPassword: string
-  ciudad: string
 }
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">
@@ -35,21 +36,21 @@ export default function RegisterScreen({ navigation }: Props) {
     username: "",
     email: "",
     password: "",
-    confirmPassword: "",
-    ciudad: ""
+    confirmPassword: ""
   })
 
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [loading, setLoading] = useState(false)
 
   const handleChange = (name: keyof FormType, value: string) => {
     setForm({ ...form, [name]: value })
   }
 
-  // ✅ VALIDACIÓN MEJORADA
+  //  VALIDACIÓN
   const validate = () => {
-    if (!form.nombre) return "Ingrese su nombre"
-    if (!form.apellido) return "Ingrese su apellido"
+    if (!form.nombre.trim()) return "Ingrese su nombre"
+    if (!form.apellido.trim()) return "Ingrese su apellido"
 
     if (!/^\d{10}$/.test(form.cedula))
       return "La cédula debe tener 10 dígitos"
@@ -75,82 +76,66 @@ export default function RegisterScreen({ navigation }: Props) {
     if (error) return Alert.alert("Error", error)
 
     try {
+      setLoading(true)
+
       const { confirmPassword, ...data } = form
+
       await registerUser(data)
+      
 
       Alert.alert("Éxito", "Registrado correctamente")
       navigation.navigate("Login")
 
-    } catch {
-      Alert.alert("Error", "No se pudo registrar")
+
+    } catch (err: any) {
+      console.error("ERROR COMPLETO:", err)
+      console.error("ERROR RESPONSE:", err?.response)
+      console.error("ERROR DATA:", err?.response?.data)
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo registrar")
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
     <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-         flexGrow: 1,
-         padding: 20
-        }}
-         showsVerticalScrollIndicator={false}
-         keyboardShouldPersistTaps="handled"
-          >
-      <View style={globalStyles.card}>
+      style={{ flex: 1, backgroundColor: "#f5f7fb" }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        padding: 20,
+        justifyContent: "center"
+      }}
+      keyboardShouldPersistTaps="always"
+    >
+      <View style={[globalStyles.card, { borderRadius: 20, elevation: 5 }]}>
 
-        <Text style={globalStyles.title}>Registro</Text>
-
-        {/* NOMBRE */}
-        <Text>Nombre</Text>
-        <TextInput
-          style={globalStyles.input}
-          onChangeText={(v) => handleChange("nombre", v)}
-        />
-
-        {/* APELLIDO */}
-        <Text>Apellido</Text>
-        <TextInput
-          style={globalStyles.input}
-          onChangeText={(v) => handleChange("apellido", v)}
-        />
-
-        {/* CEDULA */}
-        <Text>Cédula</Text>
-        <TextInput
-          style={globalStyles.input}
-          keyboardType="numeric"
-          onChangeText={(v) => handleChange("cedula", v)}
-        />
-        <Text style={{ fontSize: 12, color: "gray", marginBottom: 10 }}>
-          Debe contener 10 dígitos
+        <Text style={[globalStyles.title, { marginBottom: 20 }]}>
+          Crear Cuenta
         </Text>
 
-        {/* USERNAME */}
-        <Text>Username</Text>
-        <TextInput
-          style={globalStyles.input}
-          onChangeText={(v) => handleChange("username", v)}
-        />
-        <Text style={{ fontSize: 12, color: "gray", marginBottom: 10 }}>
-          Este será tu usuario para iniciar sesión (sin espacios)
-        </Text>
-
-        {/* EMAIL */}
-        <Text>Email</Text>
-        <TextInput
-          style={globalStyles.input}
-          keyboardType="email-address"
-          onChangeText={(v) => handleChange("email", v)}
-        />
-        <Text style={{ fontSize: 12, color: "gray", marginBottom: 10 }}>
-          Debe contener @ y un dominio válido
-        </Text>
+        {/* INPUT REUTILIZABLE */}
+        {[
+          { label: "Nombre", key: "nombre" },
+          { label: "Apellido", key: "apellido" },
+          { label: "Cédula", key: "cedula", keyboard: "numeric" },
+          { label: "Username", key: "username" },
+          { label: "Email", key: "email", keyboard: "email-address" }
+        ].map((field: any) => (
+          <View key={field.key}>
+            <Text>{field.label}</Text>
+            <TextInput
+              style={[globalStyles.input, { borderRadius: 12 }]}
+              keyboardType={field.keyboard || "default"}
+              onChangeText={(v) => handleChange(field.key, v)}
+            />
+          </View>
+        ))}
 
         {/* PASSWORD */}
         <Text>Contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1 }]}
+            style={[globalStyles.input, { flex: 1, borderRadius: 12 }]}
             secureTextEntry={!showPassword}
             onChangeText={(v) => handleChange("password", v)}
           />
@@ -165,7 +150,7 @@ export default function RegisterScreen({ navigation }: Props) {
         <Text>Confirmar Contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1 }]}
+            style={[globalStyles.input, { flex: 1, borderRadius: 12 }]}
             secureTextEntry={!showConfirm}
             onChangeText={(v) => handleChange("confirmPassword", v)}
           />
@@ -176,25 +161,37 @@ export default function RegisterScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* CIUDAD */}
-        <Text>Ciudad</Text>
-        <TextInput
-          style={globalStyles.input}
-          placeholder="Ej: Quito, Guayaquil..."
-          onChangeText={(v) => handleChange("ciudad", v)}
-        />
-
         {/* BOTÓN */}
-        <TouchableOpacity style={globalStyles.button} onPress={handleRegister}>
-          <Text style={globalStyles.buttonText}>Registrar</Text>
-        </TouchableOpacity>
+        <Pressable
+          onPress={() => {
+           console.log("CLICK REGISTRAR") // 👈 DEBUG
+           
+
+          handleRegister()
+          }}
+          style={({ pressed }) => [
+          globalStyles.button,
+             {
+               marginTop: 20,
+                borderRadius: 12,
+                 opacity: pressed ? 0.7 : 1
+             }
+          ]}
+          >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+           ) : (
+            <Text style={globalStyles.buttonText}>Registrar</Text>
+        )}
+        </Pressable>
 
         {/* VOLVER */}
         <TouchableOpacity onPress={() => navigation.navigate("Login")}>
           <Text style={{
             marginTop: 15,
             textAlign: "center",
-            color: "#3b82f6"
+            color: "#3b82f6",
+            fontWeight: "600"
           }}>
             ¿Ya tienes cuenta? Inicia sesión
           </Text>
