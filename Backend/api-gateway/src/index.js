@@ -28,6 +28,15 @@ app.use("/api/users", createProxyMiddleware({
   }
 }))
 
+app.use("/api/image", createProxyMiddleware({
+  target: "http://localhost:5000",
+  changeOrigin: true,
+  logLevel: "debug",
+  pathRewrite: (path, req) => {
+    return "/api/image" + path
+  }
+}))
+
 app.listen(4000, () => {
   console.log("API Gateway running on port 4000")
 })
