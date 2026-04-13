@@ -12,6 +12,6 @@ app.use(express.json())
 
 app.use("/api/auth", authRoutes)
 
-app.listen(process.env.PORT, () => {
+app.listen(process.env.PORT || 3002, () => {
   console.log("Auth service running on port 3002")
 })

@@ -1,15 +1,17 @@
 {
   "name": "image-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Microservicio de procesamiento de imagenes AI",
+  "main": "src/index.js",
+  "type": "module",
   "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",

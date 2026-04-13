@@ -6,5 +6,6 @@ export const pool = new Pool({
   host: "localhost",
   database: "MIC-EMASEO",
   password: "1234",
-  port: 5432
+  port: 5432,
+  max: 10
 })
