@@ -14,84 +14,75 @@ import {
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser } from "../services/user.service"
 import { globalStyles } from "../theme/styles"
+import { colors } from "../theme/colors"
+
+type Props = NativeStackScreenProps<RootStackParamList, "Register">
+
+// Algoritmo módulo 10 del Registro Civil del Ecuador
+const validarCedula = (cedula: string): boolean => {
+  if (!/^\d{10}$/.test(cedula)) return false
+  const provincia = parseInt(cedula.substring(0, 2))
+  if (provincia < 1 || provincia > 24) return false
+  if (parseInt(cedula[2]) >= 6) return false
+
+  const coeficientes = [2, 1, 2, 1, 2, 1, 2, 1, 2]
+  let suma = 0
+  for (let i = 0; i < 9; i++) {
+    let val = parseInt(cedula[i]) * coeficientes[i]
+    if (val >= 10) val -= 9
+    suma += val
+  }
+  const residuo = suma % 10
+  const digitoCalculado = residuo === 0 ? 0 : 10 - residuo
+  return digitoCalculado === parseInt(cedula[9])
+}
 
 type FormType = {
   nombre: string
   apellido: string
   cedula: string
-  username: string
   email: string
-  password: string
-  confirmPassword: string
 }
 
-type Props = NativeStackScreenProps<RootStackParamList, "Register">
-
 export default function RegisterScreen({ navigation }: Props) {
-
   const [form, setForm] = useState<FormType>({
-    nombre: "",
-    apellido: "",
-    cedula: "",
-    username: "",
-    email: "",
-    password: "",
-    confirmPassword: ""
+    nombre: "", apellido: "", cedula: "", email: ""
   })
-
-  const [showPassword, setShowPassword] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const handleChange = (name: keyof FormType, value: string) => {
-    setForm({ ...form, [name]: value })
+  const handleChange = (key: keyof FormType, value: string) => {
+    setForm({ ...form, [key]: value })
   }
 
-  //  VALIDACIÓN
-  const validate = () => {
-    if (!form.nombre.trim()) return "Ingrese su nombre"
-    if (!form.apellido.trim()) return "Ingrese su apellido"
-
-    if (!/^\d{10}$/.test(form.cedula))
-      return "La cédula debe tener 10 dígitos"
-
-    if (form.username.includes(" "))
-      return "El username no debe tener espacios"
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(form.email))
+  const validate = (): string | null => {
+    if (!form.nombre.trim())   return "Ingresa tu nombre"
+    if (!form.apellido.trim()) return "Ingresa tu apellido"
+    if (!validarCedula(form.cedula))
+      return "Número de cédula inválido"
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       return "Email inválido"
-
-    if (form.password.length < 6)
-      return "La contraseña debe tener al menos 6 caracteres"
-
-    if (form.password !== form.confirmPassword)
-      return "Las contraseñas no coinciden"
-
     return null
   }
 
-  const handleRegister = async () => {
+  const handleContinuar = async () => {
     const error = validate()
     if (error) return Alert.alert("Error", error)
 
     try {
       setLoading(true)
+      const res = await registerUser(form)
+      const { email, emailSent } = res.data
 
-      const { confirmPassword, ...data } = form
+      if (!emailSent) {
+        Alert.alert(
+          "Advertencia",
+          "No se pudo enviar el email. Revisa la consola del servidor para ver el código OTP e ingrésalo manualmente."
+        )
+      }
 
-      await registerUser(data)
-      
-
-      Alert.alert("Éxito", "Registrado correctamente")
-      navigation.navigate("Login")
-
-
+      navigation.navigate("OtpVerification", { email })
     } catch (err: any) {
-      console.error("ERROR COMPLETO:", err)
-      console.error("ERROR RESPONSE:", err?.response)
-      console.error("ERROR DATA:", err?.response?.data)
-      Alert.alert("Error", err?.response?.data?.message || "No se pudo registrar")
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo iniciar el registro")
     } finally {
       setLoading(false)
     }
@@ -99,100 +90,73 @@ export default function RegisterScreen({ navigation }: Props) {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: "#f5f7fb" }}
-      contentContainerStyle={{
-        flexGrow: 1,
-        padding: 20,
-        justifyContent: "center"
-      }}
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={{ flexGrow: 1, padding: 20, justifyContent: "center" }}
       keyboardShouldPersistTaps="always"
     >
       <View style={[globalStyles.card, { borderRadius: 20, elevation: 5 }]}>
 
-        <Text style={[globalStyles.title, { marginBottom: 20 }]}>
-          Crear Cuenta
+        <Text style={[globalStyles.title, { marginBottom: 4 }]}>Crear Cuenta</Text>
+        <Text style={{ color: colors.gray, marginBottom: 24, fontSize: 13 }}>
+          Paso 1 de 3 — Tus datos personales
         </Text>
 
-        {/* INPUT REUTILIZABLE */}
-        {[
-          { label: "Nombre", key: "nombre" },
-          { label: "Apellido", key: "apellido" },
-          { label: "Cédula", key: "cedula", keyboard: "numeric" },
-          { label: "Username", key: "username" },
-          { label: "Email", key: "email", keyboard: "email-address" }
-        ].map((field: any) => (
-          <View key={field.key}>
-            <Text>{field.label}</Text>
-            <TextInput
-              style={[globalStyles.input, { borderRadius: 12 }]}
-              keyboardType={field.keyboard || "default"}
-              onChangeText={(v) => handleChange(field.key, v)}
-            />
-          </View>
-        ))}
+        <Text style={{ color: colors.black, marginBottom: 4 }}>Nombre</Text>
+        <TextInput
+          style={[globalStyles.input, { borderRadius: 12 }]}
+          placeholder="Ej: Juan Carlos"
+          placeholderTextColor={colors.gray}
+          onChangeText={(v) => handleChange("nombre", v)}
+          value={form.nombre}
+        />
 
-        {/* PASSWORD */}
-        <Text>Contraseña</Text>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12 }]}
-            secureTextEntry={!showPassword}
-            onChangeText={(v) => handleChange("password", v)}
-          />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-            <Text style={{ marginLeft: 10 }}>
-              {showPassword ? "🙈" : "👁"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={{ color: colors.black, marginBottom: 4 }}>Apellido</Text>
+        <TextInput
+          style={[globalStyles.input, { borderRadius: 12 }]}
+          placeholder="Ej: Pérez Torres"
+          placeholderTextColor={colors.gray}
+          onChangeText={(v) => handleChange("apellido", v)}
+          value={form.apellido}
+        />
 
-        {/* CONFIRM PASSWORD */}
-        <Text>Confirmar Contraseña</Text>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12 }]}
-            secureTextEntry={!showConfirm}
-            onChangeText={(v) => handleChange("confirmPassword", v)}
-          />
-          <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)}>
-            <Text style={{ marginLeft: 10 }}>
-              {showConfirm ? "🙈" : "👁"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={{ color: colors.black, marginBottom: 4 }}>Cédula de identidad</Text>
+        <TextInput
+          style={[globalStyles.input, { borderRadius: 12 }]}
+          placeholder="10 dígitos"
+          placeholderTextColor={colors.gray}
+          keyboardType="number-pad"
+          maxLength={10}
+          onChangeText={(v) => handleChange("cedula", v)}
+          value={form.cedula}
+        />
 
-        {/* BOTÓN */}
+        <Text style={{ color: colors.black, marginBottom: 4 }}>Correo electrónico</Text>
+        <TextInput
+          style={[globalStyles.input, { borderRadius: 12 }]}
+          placeholder="ejemplo@correo.com"
+          placeholderTextColor={colors.gray}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          onChangeText={(v) => handleChange("email", v)}
+          value={form.email}
+        />
+
         <Pressable
-          onPress={() => {
-           console.log("CLICK REGISTRAR") // 👈 DEBUG
-           
-
-          handleRegister()
-          }}
+          onPress={handleContinuar}
+          disabled={loading}
           style={({ pressed }) => [
-          globalStyles.button,
-             {
-               marginTop: 20,
-                borderRadius: 12,
-                 opacity: pressed ? 0.7 : 1
-             }
+            globalStyles.button,
+            { marginTop: 8, borderRadius: 12, opacity: pressed || loading ? 0.7 : 1 }
           ]}
-          >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-           ) : (
-            <Text style={globalStyles.buttonText}>Registrar</Text>
-        )}
+        >
+          {loading
+            ? <ActivityIndicator color={colors.white} />
+            : <Text style={globalStyles.buttonText}>Continuar</Text>
+          }
         </Pressable>
 
-        {/* VOLVER */}
         <TouchableOpacity onPress={() => navigation.navigate("Login")}>
-          <Text style={{
-            marginTop: 15,
-            textAlign: "center",
-            color: "#3b82f6",
-            fontWeight: "600"
-          }}>
+          <Text style={{ marginTop: 16, textAlign: "center", color: colors.primary, fontWeight: "600" }}>
             ¿Ya tienes cuenta? Inicia sesión
           </Text>
         </TouchableOpacity>
