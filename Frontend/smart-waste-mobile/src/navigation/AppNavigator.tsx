@@ -7,8 +7,10 @@ import LoginScreen from "../screens/LoginScreen"
 import OtpVerificationScreen from "../screens/OtpVerificationScreen"
 import RegisterScreen from "../screens/RegisterScreen"
 import ScanScreen from "../screens/ScanScreen"
+import ScanResultScreen from "../screens/ScanResultScreen"
 import SetPasswordScreen from "../screens/SetPasswordScreen"
 import SplashScreen from "../screens/SplashScreen"
+import type { AnalysisResult } from "../services/image.service"
 
 export type RootStackParamList = {
   Splash: undefined
@@ -18,6 +20,7 @@ export type RootStackParamList = {
   SetPassword: { email: string }
   Home: undefined
   Scan: undefined
+  ScanResult: { result: AnalysisResult }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -34,6 +37,7 @@ export default function AppNavigator() {
         <Stack.Screen name="SetPassword"      component={SetPasswordScreen} />
         <Stack.Screen name="Home"             component={HomeScreen} />
         <Stack.Screen name="Scan"             component={ScanScreen} />
+        <Stack.Screen name="ScanResult"       component={ScanResultScreen} />
 
       </Stack.Navigator>
     </NavigationContainer>

@@ -55,10 +55,21 @@ app.post("/api/users/set-password", ...forwardPost("http://localhost:3000/api/us
 // ── Rutas PROTEGIDAS ──────────────────────────────────────────────────────────
 
 // Análisis de imagen: solo ciudadanos pueden reportar incidencias
+// on.proxyReq inyecta el user del JWT como headers HTTP al image-service
 app.use("/api/image", verifyToken, requireCiudadano, createProxyMiddleware({
   target: "http://localhost:5000",
   changeOrigin: true,
-  pathRewrite: (path) => "/api/image" + path
+  pathRewrite: (path) => "/api/image" + path,
+  proxyTimeout: 60000,
+  timeout: 60000,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.user) {
+        proxyReq.setHeader("x-user-id",  req.user.id)
+        proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+  },
 }))
 
 // Gestión de usuarios (consulta, edición, desactivación): solo ADMIN
