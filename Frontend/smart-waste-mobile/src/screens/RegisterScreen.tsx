@@ -80,7 +80,7 @@ export default function RegisterScreen({ navigation }: Props) {
         )
       }
 
-      navigation.navigate("OtpVerification", { email })
+      navigation.navigate("OtpVerification", { email, registrationData: form })
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "No se pudo iniciar el registro")
     } finally {

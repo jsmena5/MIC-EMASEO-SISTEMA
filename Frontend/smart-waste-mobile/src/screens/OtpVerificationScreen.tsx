@@ -1,6 +1,6 @@
 // src/screens/OtpVerificationScreen.tsx
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import React, { useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -11,34 +11,41 @@ import {
   View
 } from "react-native"
 import { RootStackParamList } from "../navigation/AppNavigator"
-import { verifyOtp } from "../services/user.service"
+import { registerUser, verifyOtp } from "../services/user.service"
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
 type Props = NativeStackScreenProps<RootStackParamList, "OtpVerification">
 
-export default function OtpVerificationScreen({ navigation, route }: Props) {
-  const { email } = route.params
+const RESEND_COOLDOWN = 60 // segundos
 
-  const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""])
-  const [loading, setLoading] = useState(false)
+export default function OtpVerificationScreen({ navigation, route }: Props) {
+  const { email, registrationData } = route.params
+
+  const [digits, setDigits]       = useState<string[]>(["", "", "", "", "", ""])
+  const [loading, setLoading]     = useState(false)
+  const [resending, setResending] = useState(false)
+  const [countdown, setCountdown] = useState(RESEND_COOLDOWN)
   const inputs = useRef<(TextInput | null)[]>([])
 
+  // Temporizador de reenvío
+  useEffect(() => {
+    if (countdown <= 0) return
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [countdown])
+
   const handleDigitChange = (value: string, index: number) => {
-    // Aceptar solo un dígito numérico
     const digit = value.replace(/[^0-9]/g, "").slice(-1)
     const next  = [...digits]
     next[index] = digit
     setDigits(next)
-
-    // Avanzar foco automáticamente al siguiente campo
     if (digit && index < 5) {
       inputs.current[index + 1]?.focus()
     }
   }
 
   const handleKeyPress = (key: string, index: number) => {
-    // Retroceder foco al borrar en campo vacío
     if (key === "Backspace" && !digits[index] && index > 0) {
       inputs.current[index - 1]?.focus()
     }
@@ -46,7 +53,6 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
 
   const handleVerify = async () => {
     const otp = digits.join("")
-
     if (otp.length !== 6) {
       return Alert.alert("Error", "Ingresa los 6 dígitos del código")
     }
@@ -54,13 +60,26 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     try {
       setLoading(true)
       await verifyOtp({ email, otp })
-
-      // Navegar al paso 3: crear contraseña
       navigation.navigate("SetPassword", { email })
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "Código incorrecto")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResend = async () => {
+    try {
+      setResending(true)
+      await registerUser(registrationData)
+      setDigits(["", "", "", "", "", ""])
+      setCountdown(RESEND_COOLDOWN)
+      inputs.current[0]?.focus()
+      Alert.alert("Código enviado", `Revisa tu correo: ${email}`)
+    } catch (err: any) {
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código")
+    } finally {
+      setResending(false)
     }
   }
 
@@ -121,11 +140,32 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
           }
         </Pressable>
 
+        {/* Reenviar código */}
+        <View style={{ marginTop: 20, alignItems: "center" }}>
+          {countdown > 0 ? (
+            <Text style={{ color: colors.gray, fontSize: 13 }}>
+              ¿No llegó el código? Reenviar en{" "}
+              <Text style={{ fontWeight: "bold", color: colors.black }}>{countdown}s</Text>
+            </Text>
+          ) : (
+            <TouchableOpacity onPress={handleResend} disabled={resending}>
+              {resending
+                ? <ActivityIndicator color={colors.primary} />
+                : (
+                  <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>
+                    Reenviar código
+                  </Text>
+                )
+              }
+            </TouchableOpacity>
+          )}
+        </View>
+
         <TouchableOpacity
           onPress={() => navigation.navigate("Login")}
-          style={{ marginTop: 18 }}
+          style={{ marginTop: 16 }}
         >
-          <Text style={{ textAlign: "center", color: colors.primary, fontWeight: "600" }}>
+          <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
             Volver al Login
           </Text>
         </TouchableOpacity>

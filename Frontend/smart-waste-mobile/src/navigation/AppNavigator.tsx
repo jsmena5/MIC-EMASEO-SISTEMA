@@ -16,7 +16,10 @@ export type RootStackParamList = {
   Splash: undefined
   Login: undefined
   Register: undefined
-  OtpVerification: { email: string }
+  OtpVerification: {
+    email: string
+    registrationData: { nombre: string; apellido: string; cedula: string; email: string }
+  }
   SetPassword: { email: string }
   Home: undefined
   Scan: undefined
