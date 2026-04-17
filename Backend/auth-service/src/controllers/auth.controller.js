@@ -1,5 +1,36 @@
 import { pool } from "../db.js"
 import jwt from "jsonwebtoken"
+import crypto from "crypto"
+
+// Access token de vida corta: con refresh token podemos usar ventanas pequeñas
+const ACCESS_TOKEN_TTL       = "15m"
+const REFRESH_TOKEN_TTL_DAYS = 7
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex")
+}
+
+function generateOpaqueToken() {
+  return crypto.randomBytes(64).toString("hex") // 128 chars, 512 bits de entropía
+}
+
+async function issueRefreshToken(userId) {
+  const raw       = generateOpaqueToken()
+  const hash      = hashToken(raw)
+  const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
+
+  await pool.query(
+    `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+     VALUES ($1, $2, $3)`,
+    [userId, hash, expiresAt]
+  )
+
+  return raw
+}
+
+// ─── Login ───────────────────────────────────────────────────────────────────
 
 export const login = async (req, res) => {
   try {
@@ -40,9 +71,7 @@ export const login = async (req, res) => {
       [user.password_hash, password]
     )
 
-    const validPassword = validPasswordResult.rows[0].valid
-
-    if (!validPassword) {
+    if (!validPasswordResult.rows[0].valid) {
       return res.status(401).json({ message: "Contraseña incorrecta" })
     }
 
@@ -53,21 +82,114 @@ export const login = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      {
-        id:          user.id,
-        username:    user.username,
-        rol:         user.rol,
-        nombre:      user.nombre,
-        tipo_perfil
-      },
+      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: ACCESS_TOKEN_TTL }
     )
 
-    res.json({ token })
+    const refreshToken = await issueRefreshToken(user.id)
+
+    res.json({ token, refreshToken })
 
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Error en login" })
+  }
+}
+
+// ─── Refresh ─────────────────────────────────────────────────────────────────
+// Valida el refresh token, lo revoca y emite un par nuevo (rotación segura).
+// Si el mismo token se usa dos veces → la segunda llamada falla con 401.
+
+export const refresh = async (req, res) => {
+  const { refreshToken } = req.body
+
+  if (!refreshToken) {
+    return res.status(400).json({ message: "refreshToken requerido" })
+  }
+
+  try {
+    const hash = hashToken(refreshToken)
+
+    const result = await pool.query(
+      `SELECT
+         rt.id,
+         rt.user_id,
+         u.username,
+         u.rol,
+         u.estado,
+         COALESCE(c.nombre,   o.nombre)   AS nombre,
+         COALESCE(c.apellido, o.apellido) AS apellido
+       FROM auth.refresh_tokens rt
+       JOIN auth.users u ON u.id = rt.user_id
+       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
+       LEFT JOIN operations.operarios o ON o.user_id = u.id
+       WHERE rt.token_hash = $1
+         AND rt.revoked    = FALSE
+         AND rt.expires_at > NOW()`,
+      [hash]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: "Refresh token inválido o expirado" })
+    }
+
+    const row = result.rows[0]
+
+    // Revocar si la cuenta fue suspendida tras emitir el token
+    if (row.estado !== "ACTIVO") {
+      await pool.query(
+        `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+        [hash]
+      )
+      return res.status(403).json({ message: "Cuenta suspendida o inactiva" })
+    }
+
+    // Rotación: revocar el token actual e emitir un par nuevo
+    await pool.query(
+      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      [hash]
+    )
+
+    const tipo_perfil = ["OPERARIO", "SUPERVISOR", "ADMIN"].includes(row.rol)
+      ? "operario"
+      : "ciudadano"
+
+    const token = jwt.sign(
+      { id: row.user_id, username: row.username, rol: row.rol, nombre: row.nombre, tipo_perfil },
+      process.env.JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_TTL }
+    )
+
+    const newRefreshToken = await issueRefreshToken(row.user_id)
+
+    res.json({ token, refreshToken: newRefreshToken })
+
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Error al renovar sesión" })
+  }
+}
+
+// ─── Logout ──────────────────────────────────────────────────────────────────
+// Revoca el refresh token en la BD. El access token expira solo (15 min).
+
+export const logout = async (req, res) => {
+  const { refreshToken } = req.body
+
+  if (!refreshToken) {
+    return res.status(400).json({ message: "refreshToken requerido" })
+  }
+
+  try {
+    const hash = hashToken(refreshToken)
+    await pool.query(
+      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      [hash]
+    )
+    res.status(204).send()
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Error al cerrar sesión" })
   }
 }

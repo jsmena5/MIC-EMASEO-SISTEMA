@@ -1,17 +1,27 @@
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LoginUser } from "../types/user.types"
 import api from "../utils/api"
-
-import AsyncStorage from "@react-native-async-storage/async-storage"
 
 export const loginUser = async (data: LoginUser) => {
   const res = await api.post("/auth/login", data)
 
-  const token = res.data.token
+  const { token, refreshToken } = res.data
 
-  // guardar token
-  await AsyncStorage.setItem("token", token)
-
-  api.defaults.headers.common["Authorization"] = `Bearer ${token}`
+  await AsyncStorage.multiSet([
+    ["token",        token],
+    ["refreshToken", refreshToken],
+  ])
 
   return res
+}
+
+// Notifica al backend para revocar el refresh token y limpia el almacenamiento local.
+// Si el backend falla igual limpiamos (el token expirará solo en 7 días).
+export const logoutUser = async () => {
+  try {
+    const refreshToken = await AsyncStorage.getItem("refreshToken")
+    if (refreshToken) await api.post("/auth/logout", { refreshToken })
+  } finally {
+    await AsyncStorage.multiRemove(["token", "refreshToken"])
+  }
 }

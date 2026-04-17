@@ -3,18 +3,33 @@ import express from "express"
 import cors from "cors"
 import morgan from "morgan"
 import { createProxyMiddleware } from "http-proxy-middleware"
+import { fileURLToPath } from "url"
+import path from "path"
 import { verifyToken } from "./middlewares/auth.middleware.js"
 import { requireCiudadano, requireAdmin } from "./middlewares/rbac.middleware.js"
+import {
+  globalLimiter,
+  authLimiter,
+  registrationLimiter,
+  otpLimiter,
+  imageLimiter,
+} from "./middlewares/rateLimiter.js"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 
 app.use(cors())
 app.use(morgan("dev"))
+app.use(globalLimiter)
+
+// ── Documentación API (Swagger UI) ────────────────────────────────────────────
+app.use("/docs", express.static(path.join(__dirname, "../public")))
 
 // ── Rutas PÚBLICAS (sin token) ────────────────────────────────────────────────
 
 // Login para cualquier tipo de usuario
-app.use("/api/auth", createProxyMiddleware({
+app.use("/api/auth", authLimiter, createProxyMiddleware({
   target: "http://localhost:3002",
   changeOrigin: true,
   pathRewrite: (path) => "/api/auth" + path
@@ -45,19 +60,19 @@ const forwardPost = (targetUrl) => [
 ]
 
 // Registro de ciudadanos — endpoint público (auto-registro desde la app móvil)
-app.post("/api/users/register",     ...forwardPost("http://localhost:3000/api/users/register"))
+app.post("/api/users/register",     registrationLimiter, ...forwardPost("http://localhost:3000/api/users/register"))
 
 // Verificación OTP — público (el ciudadano no tiene token todavía)
-app.post("/api/users/verify-email", ...forwardPost("http://localhost:3000/api/users/verify-email"))
+app.post("/api/users/verify-email", otpLimiter,          ...forwardPost("http://localhost:3000/api/users/verify-email"))
 
 // Creación de contraseña — público (paso 3 del wizard de registro)
-app.post("/api/users/set-password", ...forwardPost("http://localhost:3000/api/users/set-password"))
+app.post("/api/users/set-password", otpLimiter,          ...forwardPost("http://localhost:3000/api/users/set-password"))
 
 // ── Rutas PROTEGIDAS ──────────────────────────────────────────────────────────
 
 // Análisis de imagen: solo ciudadanos pueden reportar incidencias
 // on.proxyReq inyecta el user del JWT como headers HTTP al image-service
-app.use("/api/image", verifyToken, requireCiudadano, createProxyMiddleware({
+app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMiddleware({
   target: "http://localhost:5000",
   changeOrigin: true,
   pathRewrite: (path) => "/api/image" + path,

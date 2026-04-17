@@ -1,4 +1,3 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import api from "../utils/api"
 
 export const validateImage = async (imageBase64: string) => {
@@ -35,12 +34,6 @@ export const analyzeImage = async (
   longitude: number,
   descripcion?: string
 ): Promise<AnalysisResult> => {
-  // Asegurar que el token JWT esté en el header
-  const token = await AsyncStorage.getItem("token")
-  if (token) {
-    api.defaults.headers.common["Authorization"] = `Bearer ${token}`
-  }
-
   const res = await api.post("/image/analyze", {
     image: imageBase64,
     latitude,

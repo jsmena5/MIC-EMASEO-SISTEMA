@@ -9,7 +9,6 @@ Ejecutar:
 import base64
 import io
 import os
-import random
 import time
 from collections import Counter
 from pathlib import Path
@@ -71,24 +70,25 @@ def map_class_to_waste_type(class_name: str) -> str:
 
 
 # ── Heurística de estimación ───────────────────────────────────────────────────
+# Bandas: (coverage_min, coverage_max, volumen_min, volumen_max, nivel, prioridad)
+_BANDS = [
+    (0.00, 0.15, 0.1,  0.5,  "BAJO",    "BAJA"),
+    (0.15, 0.40, 0.5,  2.0,  "MEDIO",   "MEDIA"),
+    (0.40, 0.70, 2.0,  5.0,  "ALTO",    "ALTA"),
+    (0.70, 1.00, 5.0, 15.0,  "CRITICO", "CRITICA"),
+]
+
+
 def calcular_nivel_volumen_prioridad(coverage_ratio: float) -> dict:
-    if coverage_ratio < 0.15:
-        nivel = "BAJO"
-        prioridad = "BAJA"
-        volumen = round(random.uniform(0.1, 0.5), 2)
-    elif coverage_ratio < 0.40:
-        nivel = "MEDIO"
-        prioridad = "MEDIA"
-        volumen = round(random.uniform(0.5, 2.0), 2)
-    elif coverage_ratio < 0.70:
-        nivel = "ALTO"
-        prioridad = "ALTA"
-        volumen = round(random.uniform(2.0, 5.0), 2)
-    else:
-        nivel = "CRITICO"
-        prioridad = "CRITICA"
-        volumen = round(random.uniform(5.0, 15.0), 2)
-    return {"nivel": nivel, "prioridad": prioridad, "volumen": volumen}
+    """Estimación determinista: interpolación lineal del coverage_ratio dentro de cada banda."""
+    for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
+        if coverage_ratio < c_max or c_max == 1.00:
+            t = (coverage_ratio - c_min) / (c_max - c_min)
+            t = max(0.0, min(1.0, t))  # clamp por seguridad
+            volumen = round(v_min + t * (v_max - v_min), 2)
+            return {"nivel": nivel, "prioridad": prioridad, "volumen": volumen}
+    # Nunca debería llegar aquí, pero devuelve el caso crítico máximo
+    return {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
 
 
 # ── FastAPI ────────────────────────────────────────────────────────────────────

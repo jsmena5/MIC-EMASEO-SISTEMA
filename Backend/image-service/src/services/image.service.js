@@ -13,24 +13,103 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true })
 }
 
-// ── Stub original — se mantiene para no romper el flujo actual ─────────────────
+// ── Helpers: parseo de dimensiones desde cabeceras binarias (sin deps extra) ──
+
+/**
+ * Lee ancho y alto directamente de los bytes del buffer sin librerías externas.
+ * Soporta JPEG (busca marcadores SOF) y PNG (lee IHDR).
+ * Retorna null si el formato no es reconocido.
+ */
+function getImageDimensions(buf) {
+  // PNG: firma 8 bytes + chunk IHDR → width en offset 16, height en offset 20
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    if (buf.length < 24) return null
+    return {
+      format: "PNG",
+      width: buf.readUInt32BE(16),
+      height: buf.readUInt32BE(20),
+    }
+  }
+
+  // JPEG: recorrer segmentos buscando marcador SOF (FF C0–C3, C5–C7, C9–CB, CD–CF)
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2
+    while (i + 8 < buf.length) {
+      if (buf[i] !== 0xff) break
+      const marker = buf[i + 1]
+      const isSOF =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      if (isSOF) {
+        return {
+          format: "JPEG",
+          height: buf.readUInt16BE(i + 5),
+          width: buf.readUInt16BE(i + 7),
+        }
+      }
+      // segLen incluye los 2 bytes del propio campo de longitud
+      const segLen = buf.readUInt16BE(i + 2)
+      i += 2 + segLen
+    }
+    // JPEG válido (magic bytes OK) pero SOF no encontrado (imagen truncada)
+    return { format: "JPEG", width: 0, height: 0 }
+  }
+
+  return null // formato no reconocido
+}
+
+// Imagen < 1 KB imposible en fotos reales; rechaza payloads vacíos o mal codificados
+const MIN_FILE_BYTES = 1_000
+// Dimensión mínima que el modelo RT-DETR necesita para detectar objetos con fiabilidad
+const MIN_SIDE_PX = 320
+
 export const validateImage = async (req, res) => {
   try {
     const { image } = req.body
-
     if (!image) {
-      return res.status(400).json({ valid: false })
+      return res.status(400).json({ valid: false, message: "El campo 'image' (base64) es requerido." })
     }
 
-    const randomDistance = Math.random()
-
-    if (randomDistance > 0.5) {
-      return res.json({ valid: true, message: "Distancia correcta" })
+    // 1. Decodificar base64 — falla si el string está malformado
+    let buf
+    try {
+      buf = Buffer.from(image, "base64")
+    } catch {
+      return res.status(400).json({ valid: false, message: "Imagen corrupta o inválida." })
     }
 
-    return res.json({ valid: false, message: "Acércate más al objeto" })
+    if (buf.length < MIN_FILE_BYTES) {
+      return res.json({ valid: false, message: "Imagen demasiado pequeña o vacía. Vuelve a intentarlo." })
+    }
+
+    // 2. Verificar formato por magic bytes
+    const dims = getImageDimensions(buf)
+    if (!dims) {
+      return res.json({ valid: false, message: "Formato no soportado. Se aceptan JPEG y PNG." })
+    }
+
+    // 3. Validar dimensiones mínimas (proxy de distancia: foto muy pequeña = sujeto muy lejos)
+    if (dims.width > 0 && dims.height > 0) {
+      if (dims.width < MIN_SIDE_PX || dims.height < MIN_SIDE_PX) {
+        return res.json({
+          valid: false,
+          message: "Acércate más al objeto para capturar una imagen de mayor resolución.",
+        })
+      }
+    }
+
+    return res.json({
+      valid: true,
+      message: "Imagen lista para análisis.",
+      width: dims.width,
+      height: dims.height,
+      format: dims.format,
+    })
   } catch (error) {
-    res.status(500).json({ valid: false })
+    console.error("[image-service] validateImage error:", error.message)
+    res.status(500).json({ valid: false, message: "Error interno al validar la imagen." })
   }
 }
 

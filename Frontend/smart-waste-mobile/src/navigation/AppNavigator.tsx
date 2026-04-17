@@ -1,6 +1,7 @@
 // src/navigation/AppNavigator.tsx
 import { NavigationContainer } from "@react-navigation/native"
 import { createNativeStackNavigator } from "@react-navigation/native-stack"
+import { navigationRef } from "../utils/navigationService"
 
 import HomeScreen from "../screens/HomeScreen"
 import LoginScreen from "../screens/LoginScreen"
@@ -30,7 +31,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export default function AppNavigator() {
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
 
         <Stack.Screen name="Splash"           component={SplashScreen} />
