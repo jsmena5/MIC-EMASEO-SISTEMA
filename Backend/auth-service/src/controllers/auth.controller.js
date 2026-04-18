@@ -204,8 +204,8 @@ export const forgotPassword = async (req, res) => {
       [userId]
     )
 
-    // Generar OTP de 6 dígitos criptográficamente seguro
-    const otp      = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0")
+    // Generar OTP de 6 dígitos criptográficamente seguro (100000-999999, nunca ceros a la izquierda)
+    const otp      = String(crypto.randomInt(100_000, 1_000_000))
     const otpHash  = crypto.createHash("sha256").update(otp).digest("hex")
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MIN * 60_000)
 
@@ -215,13 +215,18 @@ export const forgotPassword = async (req, res) => {
       [userId, otpHash, expiresAt]
     )
 
+    let emailSent = false
     try {
       await sendPasswordResetEmail(email, otp)
+      emailSent = true
     } catch (emailError) {
       console.error("[forgotPassword] Error enviando email:", emailError)
     }
 
-    res.json({ message: "Si el email está registrado recibirás un código en breve." })
+    res.json({
+      message: "Si el email está registrado recibirás un código en breve.",
+      emailSent,
+    })
   } catch (error) {
     console.error("[forgotPassword]", error)
     res.status(500).json({ message: "Error al procesar la solicitud" })
@@ -241,7 +246,7 @@ export const verifyResetOtp = async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT id FROM auth.users WHERE email = $1`,
+      `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
@@ -322,8 +327,24 @@ export const resetPassword = async (req, res) => {
 
     const tokenId = tokenResult.rows[0].id
 
-    // Transacción con cliente dedicado para garantizar que BEGIN/COMMIT
-    // se ejecutan en la misma conexión del pool.
+    // Emitir JWT antes de la transacción para que cualquier fallo (ej: JWT_SECRET
+    // ausente) no deje la BD en estado inconsistente.
+    const tipo_perfil = ["OPERARIO", "SUPERVISOR", "ADMIN"].includes(user.rol)
+      ? "operario"
+      : "ciudadano"
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
+      process.env.JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_TTL }
+    )
+
+    // Transacción atómica: incluye la emisión del refresh token para que un
+    // fallo en cualquier paso revierta TODO y no deje estado inconsistente.
+    const rawRefreshToken = generateOpaqueToken()
+    const refreshHash     = hashToken(rawRefreshToken)
+    const refreshExpires  = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
+
     const client = await pool.connect()
     try {
       await client.query("BEGIN")
@@ -347,6 +368,13 @@ export const resetPassword = async (req, res) => {
         [user.id]
       )
 
+      // Insertar nuevo refresh token dentro de la misma transacción
+      await client.query(
+        `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, refreshHash, refreshExpires]
+      )
+
       await client.query("COMMIT")
     } catch (txError) {
       await client.query("ROLLBACK")
@@ -355,19 +383,7 @@ export const resetPassword = async (req, res) => {
       client.release()
     }
 
-    // Emitir un nuevo par de tokens para que el usuario quede logueado
-    const tipo_perfil = ["OPERARIO", "SUPERVISOR", "ADMIN"].includes(user.rol)
-      ? "operario"
-      : "ciudadano"
-
-    const token        = jwt.sign(
-      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
-      process.env.JWT_SECRET,
-      { expiresIn: ACCESS_TOKEN_TTL }
-    )
-    const refreshToken = await issueRefreshToken(user.id)
-
-    res.json({ message: "Contraseña actualizada correctamente", token, refreshToken })
+    res.json({ message: "Contraseña actualizada correctamente", token, refreshToken: rawRefreshToken })
   } catch (error) {
     console.error("[resetPassword]", error)
     res.status(500).json({ message: "Error al restablecer la contraseña" })

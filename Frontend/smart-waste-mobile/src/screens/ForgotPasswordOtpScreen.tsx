@@ -71,11 +71,18 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
   const handleResend = async () => {
     try {
       setResending(true)
-      await requestPasswordReset(email)
+      const res = await requestPasswordReset(email)
       setDigits(["", "", "", "", "", ""])
       setCountdown(RESEND_COOLDOWN)
       inputs.current[0]?.focus()
-      Alert.alert("Código enviado", `Revisa tu correo: ${email}`)
+      if (res.data?.emailSent === false) {
+        Alert.alert(
+          "Problema al enviar",
+          "No se pudo entregar el correo. Verifica tu dirección o intenta en unos minutos."
+        )
+      } else {
+        Alert.alert("Código enviado", `Revisa tu correo: ${email}`)
+      }
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código")
     } finally {
