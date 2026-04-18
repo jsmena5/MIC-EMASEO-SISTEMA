@@ -20,6 +20,12 @@ export interface SetPasswordData {
   password: string
 }
 
+export interface PasswordResetData {
+  email: string
+  otp: string
+  newPassword: string
+}
+
 /** @deprecated Reemplazado por el wizard de 3 pasos */
 export interface RegisterUser extends PreRegisterUser {
   username: string

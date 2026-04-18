@@ -13,6 +13,7 @@ import {
   registrationLimiter,
   otpLimiter,
   imageLimiter,
+  passwordResetLimiter,
 } from "./middlewares/rateLimiter.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -26,15 +27,7 @@ app.use(globalLimiter)
 // ── Documentación API (Swagger UI) ────────────────────────────────────────────
 app.use("/docs", express.static(path.join(__dirname, "../public")))
 
-// ── Rutas PÚBLICAS (sin token) ────────────────────────────────────────────────
-
-// Login para cualquier tipo de usuario
-app.use("/api/auth", authLimiter, createProxyMiddleware({
-  target: "http://localhost:3002",
-  changeOrigin: true,
-  pathRewrite: (path) => "/api/auth" + path
-}))
-
+// ── Helper: reenvío POST directo al microservicio ─────────────────────────────
 // http-proxy-middleware v3 no hace pipe correcto del response cuando se usa como
 // route handler (app.post) en Express 5 — usamos fetch nativo como workaround.
 const parseJson = express.json()
@@ -58,6 +51,21 @@ const forwardPost = (targetUrl) => [
     }
   }
 ]
+
+// ── Rutas PÚBLICAS (sin token) ────────────────────────────────────────────────
+
+// Recuperación de contraseña — rate limit propio (más restrictivo) para evitar
+// abuso de envío de emails. Se registran ANTES del proxy general de /api/auth.
+app.post("/api/auth/forgot-password",  passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/forgot-password"))
+app.post("/api/auth/verify-reset-otp", passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/verify-reset-otp"))
+app.post("/api/auth/reset-password",   passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/reset-password"))
+
+// Login / Refresh / Logout para cualquier tipo de usuario
+app.use("/api/auth", authLimiter, createProxyMiddleware({
+  target: "http://localhost:3002",
+  changeOrigin: true,
+  pathRewrite: (path) => "/api/auth" + path
+}))
 
 // Registro de ciudadanos — endpoint público (auto-registro desde la app móvil)
 app.post("/api/users/register",     registrationLimiter, ...forwardPost("http://localhost:3000/api/users/register"))

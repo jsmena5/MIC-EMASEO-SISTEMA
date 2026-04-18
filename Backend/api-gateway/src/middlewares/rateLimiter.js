@@ -54,3 +54,13 @@ export const imageLimiter = rateLimit({
   legacyHeaders: false,
   message: message429("Límite de análisis de imágenes alcanzado. Inténtalo de nuevo en 1 hora."),
 })
+
+// ── Recuperación de contraseña — previene abuso de envío de emails ────────────
+// 5 solicitudes por IP cada 15 minutos
+export const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: message429("Demasiadas solicitudes de recuperación. Inténtalo de nuevo en 15 minutos."),
+})

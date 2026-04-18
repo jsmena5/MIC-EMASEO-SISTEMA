@@ -6,7 +6,7 @@ import { pool } from "../db.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads")
-const ML_SERVICE_URL = "http://localhost:8000/predict"
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
 
 // Crear directorio de uploads si no existe
 if (!fs.existsSync(UPLOADS_DIR)) {

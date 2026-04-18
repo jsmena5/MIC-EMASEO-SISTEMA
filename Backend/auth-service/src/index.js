@@ -1,10 +1,10 @@
+import dotenv from "dotenv"
+dotenv.config()
+
 import express from "express"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import authRoutes from "./routes/auth.routes.js"
-import dotenv from "dotenv"
-
-dotenv.config()
 
 const app = express()
 
