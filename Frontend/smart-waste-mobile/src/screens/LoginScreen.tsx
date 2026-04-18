@@ -34,7 +34,7 @@ export default function LoginScreen({ navigation }: Props) {
 
         <TextInput
           style={globalStyles.input}
-          placeholder="Username"
+          placeholder="Email"
           value={username}
           onChangeText={setUsername}
         />

@@ -1,6 +1,6 @@
 // src/screens/RegisterScreen.tsx
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import React, { useRef, useState, useCallback } from "react"
+import React, { useRef, useState, useCallback, memo } from "react"
 import {
   Animated,
   KeyboardAvoidingView,
@@ -20,13 +20,17 @@ import Reanimated, {
   useSharedValue,
   withSequence,
   withSpring,
-  withTiming,
 } from "react-native-reanimated"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser } from "../services/user.service"
 import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">
+
+// FIX 1: Objeto de animación estable fuera del componente.
+// Si se crea inline (dentro del render), Reanimated recibe una referencia nueva
+// en cada re-render y puede re-disparar la animación de entrada → flickering.
+const CARD_ENTERING = FadeInDown.duration(400).springify()
 
 // Algoritmo módulo 10 del Registro Civil del Ecuador
 const validarCedula = (cedula: string): boolean => {
@@ -80,11 +84,16 @@ interface AnimatedInputProps {
   maxLength?: number
   returnKeyType?: TextInput["props"]["returnKeyType"]
   onSubmitEditing?: () => void
-  inputRef?: React.RefObject<TextInput>
+  // FIX 2: El tipo correcto para useRef<TextInput>(null) en React 18+ es
+  // RefObject<TextInput | null>, no RefObject<TextInput>.
+  inputRef?: React.RefObject<TextInput | null>
   autoCorrect?: boolean
 }
 
-function AnimatedInput({
+// FIX 3: memo() evita que AnimatedInput se re-renderice cuando el padre
+// (RegisterScreen) re-renderiza pero sus props no han cambiado.
+// Sin esto, los 4 inputs se re-renderizan en cada pulsación de tecla.
+const AnimatedInput = memo(function AnimatedInput({
   label,
   value,
   error,
@@ -109,9 +118,6 @@ function AnimatedInput({
   const shakeStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: shakeX.value }],
   }))
-
-  // Exponer shake para el padre via ref si fuera necesario
-  // (lo manejamos desde el padre con una ref al TextInput)
 
   const handleFocus = () => {
     Animated.timing(borderColor, {
@@ -154,14 +160,14 @@ function AnimatedInput({
             maxLength={maxLength}
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
-            blurOnSubmit={false}
+            submitBehavior="submit"
           />
         </Animated.View>
       </Reanimated.View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   )
-}
+})
 
 // --- Pantalla Principal ---
 export default function RegisterScreen({ navigation }: Props) {
@@ -182,17 +188,33 @@ export default function RegisterScreen({ navigation }: Props) {
     transform: [{ scale: buttonScale.value }],
   }))
 
+  // FIX 4: handleChange ya no depende de `errors`.
+  // Antes: [errors] en el array de deps → handleChange se recreaba cada vez que
+  // cambiaba errors → todos los AnimatedInput recibían onChangeText nuevo → re-render
+  // en cascada de los 4 inputs en cada pulsación cuando había un error activo.
+  // Solución: usar el patrón de actualización funcional de setErrors para leer el
+  // valor previo sin cerrarse sobre la variable `errors` del render.
   const handleChange = useCallback((key: FormField, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }))
-    // Limpiar error del campo al escribir
-    if (errors[key]) setErrors(prev => ({ ...prev, [key]: undefined }))
-  }, [errors])
+    setErrors(prev => {
+      if (!prev[key]) return prev           // sin error → misma referencia, sin re-render
+      return { ...prev, [key]: undefined }  // limpia el error del campo al escribir
+    })
+  }, [])
+
+  // FIX 5: Handlers estables por campo (deps vacías porque handleChange es estable).
+  // Sin esto, las arrow functions inline `v => handleChange("nombre", v)` son objetos
+  // nuevos en cada render, haciendo inútil el memo() de AnimatedInput.
+  const handleNombreChange   = useCallback((v: string) => handleChange("nombre",   v), [handleChange])
+  const handleApellidoChange = useCallback((v: string) => handleChange("apellido", v), [handleChange])
+  const handleCedulaChange   = useCallback((v: string) => handleChange("cedula",   v), [handleChange])
+  const handleEmailChange    = useCallback((v: string) => handleChange("email",    v), [handleChange])
 
   const validate = (): ErrorType | null => {
     const newErrors: ErrorType = {}
-    if (!form.nombre.trim())       newErrors.nombre   = "Ingresa tu nombre"
-    if (!form.apellido.trim())     newErrors.apellido = "Ingresa tu apellido"
-    if (!validarCedula(form.cedula)) newErrors.cedula = "Cédula inválida (10 dígitos, provincia 01-24)"
+    if (!form.nombre.trim())         newErrors.nombre   = "Ingresa tu nombre"
+    if (!form.apellido.trim())       newErrors.apellido = "Ingresa tu apellido"
+    if (!validarCedula(form.cedula)) newErrors.cedula   = "Cédula inválida (10 dígitos, provincia 01-24)"
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) newErrors.email = "Formato de email inválido"
     return Object.keys(newErrors).length > 0 ? newErrors : null
   }
@@ -215,28 +237,19 @@ export default function RegisterScreen({ navigation }: Props) {
       const { email, emailSent } = res.data
 
       if (!emailSent) {
-        // Sin Alert — el OTP igual llega: se maneja en la siguiente pantalla
         console.warn("[Register] Email no enviado — revisar servidor SMTP")
       }
 
       navigation.navigate("OtpVerification", { email, registrationData: form })
     } catch (err: any) {
       const msg = err?.response?.data?.message || "No se pudo iniciar el registro"
-      setErrors({ email: msg }) // Muestra el error server en el último campo relevante
+      setErrors({ email: msg })
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    /*
-     * SOLUCIÓN AL TECLADO:
-     * KeyboardAvoidingView + behavior="padding" en iOS desplaza el contenido
-     * hacia arriba cuando aparece el teclado. En Android, el manifest
-     * windowSoftInputMode="adjustResize" (por defecto en Expo) ya lo maneja,
-     * por eso usamos behavior="height" solo en Android como fallback seguro.
-     * El keyboardVerticalOffset compensa la altura del header nativo.
-     */
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -248,25 +261,32 @@ export default function RegisterScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Card animada: entra deslizando desde abajo al montar */}
+        {/* Card con animación de entrada estable (CARD_ENTERING es constante) */}
         <Reanimated.View
-          entering={FadeInDown.duration(400).springify()}
+          entering={CARD_ENTERING}
           style={styles.card}
         >
           {/* Cabecera */}
           <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              style={styles.backButton}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={styles.backButtonText}>← Atrás</Text>
+            </TouchableOpacity>
             <Text style={styles.title}>Crear Cuenta</Text>
             <Text style={styles.subtitle}>Paso 1 de 3 — Datos personales</Text>
             <ProgressBar step={1} total={3} />
           </View>
 
-          {/* Campos */}
+          {/* Campos — onChangeText recibe handlers estables para que memo() funcione */}
           <AnimatedInput
             label="Nombre"
             value={form.nombre}
             error={errors.nombre}
             placeholder="Ej: Juan Carlos"
-            onChangeText={v => handleChange("nombre", v)}
+            onChangeText={handleNombreChange}
             returnKeyType="next"
             onSubmitEditing={() => apellidoRef.current?.focus()}
           />
@@ -276,7 +296,7 @@ export default function RegisterScreen({ navigation }: Props) {
             value={form.apellido}
             error={errors.apellido}
             placeholder="Ej: Pérez Torres"
-            onChangeText={v => handleChange("apellido", v)}
+            onChangeText={handleApellidoChange}
             inputRef={apellidoRef}
             returnKeyType="next"
             onSubmitEditing={() => cedulaRef.current?.focus()}
@@ -290,7 +310,7 @@ export default function RegisterScreen({ navigation }: Props) {
             keyboardType="number-pad"
             maxLength={10}
             autoCapitalize="none"
-            onChangeText={v => handleChange("cedula", v)}
+            onChangeText={handleCedulaChange}
             inputRef={cedulaRef}
             returnKeyType="next"
             onSubmitEditing={() => emailRef.current?.focus()}
@@ -303,7 +323,7 @@ export default function RegisterScreen({ navigation }: Props) {
             placeholder="ejemplo@correo.com"
             keyboardType="email-address"
             autoCapitalize="none"
-            onChangeText={v => handleChange("email", v)}
+            onChangeText={handleEmailChange}
             inputRef={emailRef}
             returnKeyType="done"
             onSubmitEditing={handleContinuar}
@@ -327,7 +347,7 @@ export default function RegisterScreen({ navigation }: Props) {
           </Reanimated.View>
 
           <TouchableOpacity
-            onPress={() => navigation.navigate("Login")}
+            onPress={() => navigation.goBack()}
             hitSlop={{ top: 12, bottom: 12, left: 0, right: 0 }}
           >
             <Text style={styles.loginLink}>
@@ -350,7 +370,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     borderRadius: 20,
     padding: 24,
-    // Sombra correcta para iOS (elevation solo funciona en Android)
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
@@ -432,6 +451,15 @@ const styles = StyleSheet.create({
     marginTop: 20,
     textAlign: "center",
     color: colors.primary,
+    fontSize: 14,
+  },
+  backButton: {
+    alignSelf: "flex-start",
+    marginBottom: 12,
+  },
+  backButtonText: {
+    color: colors.primary,
+    fontWeight: "600",
     fontSize: 14,
   },
 })

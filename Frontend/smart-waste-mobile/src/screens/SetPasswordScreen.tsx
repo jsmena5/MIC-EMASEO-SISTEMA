@@ -56,6 +56,14 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
     <View style={globalStyles.container}>
       <View style={[globalStyles.card, { borderRadius: 20 }]}>
 
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{ alignSelf: "flex-start", marginBottom: 12 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>← Atrás</Text>
+        </TouchableOpacity>
+
         <Text style={[globalStyles.title, { marginBottom: 4 }]}>
           Crear Contraseña
         </Text>
@@ -111,8 +119,8 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
           onPress={() => navigation.navigate("Login")}
           style={{ marginTop: 16 }}
         >
-          <Text style={{ textAlign: "center", color: colors.primary, fontWeight: "600" }}>
-            Volver al Login
+          <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
+            Cancelar registro
           </Text>
         </TouchableOpacity>
 

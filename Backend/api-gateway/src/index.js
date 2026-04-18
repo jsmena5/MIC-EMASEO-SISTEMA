@@ -13,6 +13,7 @@ import {
   registrationLimiter,
   otpLimiter,
   imageLimiter,
+  forgotPasswordLimiter,
   passwordResetLimiter,
 } from "./middlewares/rateLimiter.js"
 
@@ -54,11 +55,14 @@ const forwardPost = (targetUrl) => [
 
 // ── Rutas PÚBLICAS (sin token) ────────────────────────────────────────────────
 
-// Recuperación de contraseña — rate limit propio (más restrictivo) para evitar
-// abuso de envío de emails. Se registran ANTES del proxy general de /api/auth.
-app.post("/api/auth/forgot-password",  passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/forgot-password"))
-app.post("/api/auth/verify-reset-otp", passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/verify-reset-otp"))
-app.post("/api/auth/reset-password",   passwordResetLimiter, ...forwardPost("http://localhost:3002/api/auth/reset-password"))
+// Recuperación de contraseña — limitadores separados por propósito:
+// • forgot-password usa forgotPasswordLimiter (5/hora) para evitar spam de emails
+//   sin penalizar al usuario que abandona y vuelve a pedir un código.
+// • verify-reset-otp y reset-password usan passwordResetLimiter (5/15 min)
+//   para bloquear fuerza bruta sobre el código OTP de 6 dígitos.
+app.post("/api/auth/forgot-password",  forgotPasswordLimiter, ...forwardPost("http://localhost:3002/api/auth/forgot-password"))
+app.post("/api/auth/verify-reset-otp", passwordResetLimiter,  ...forwardPost("http://localhost:3002/api/auth/verify-reset-otp"))
+app.post("/api/auth/reset-password",   passwordResetLimiter,  ...forwardPost("http://localhost:3002/api/auth/reset-password"))
 
 // Login / Refresh / Logout para cualquier tipo de usuario
 app.use("/api/auth", authLimiter, createProxyMiddleware({

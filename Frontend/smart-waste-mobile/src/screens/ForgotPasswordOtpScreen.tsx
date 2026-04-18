@@ -94,6 +94,14 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
     <View style={globalStyles.container}>
       <View style={[globalStyles.card, { borderRadius: 20 }]}>
 
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={{ alignSelf: "flex-start", marginBottom: 12 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>← Atrás</Text>
+        </TouchableOpacity>
+
         <Text style={[globalStyles.title, { textAlign: "center", marginBottom: 4 }]}>
           Verificar código
         </Text>
@@ -169,11 +177,11 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
         </View>
 
         <TouchableOpacity
-          onPress={() => navigation.navigate("ForgotPassword")}
+          onPress={() => navigation.navigate("Login")}
           style={{ marginTop: 16 }}
         >
           <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
-            Cambiar correo
+            Cancelar recuperación
           </Text>
         </TouchableOpacity>
 
