@@ -10,16 +10,16 @@ type Props = NativeStackScreenProps<RootStackParamList, "Login">
 
 
 export default function LoginScreen({ navigation }: Props) {
-  const [username, setUsername] = useState("")
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
 
   const handleLogin = async () => {
-    if (!username || !password) {
+    if (!email || !password) {
       return Alert.alert("Error", "Campos requeridos")
     }
 
     try {
-      await loginUser({ username, password })
+      await loginUser({ email, password })
       navigation.navigate("Home")
     } catch {
       Alert.alert("Error", "Credenciales incorrectas")
@@ -35,8 +35,10 @@ export default function LoginScreen({ navigation }: Props) {
         <TextInput
           style={globalStyles.input}
           placeholder="Email"
-          value={username}
-          onChangeText={setUsername}
+          value={email}
+          onChangeText={setEmail}
+          keyboardType="email-address"
+          autoCapitalize="none"
         />
 
         <TextInput

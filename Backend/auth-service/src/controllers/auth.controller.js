@@ -37,7 +37,11 @@ async function issueRefreshToken(userId) {
 
 export const login = async (req, res) => {
   try {
-    const { username, password } = req.body
+    const { email, password } = req.body
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email y contraseña son requeridos" })
+    }
 
     // JOIN con ambas tablas de perfil para recuperar nombre sin importar el rol.
     // COALESCE toma el primer valor no-NULL: ciudadano o operario.
@@ -53,12 +57,12 @@ export const login = async (req, res) => {
        FROM auth.users u
        LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
        LEFT JOIN operations.operarios o ON o.user_id = u.id
-       WHERE u.username = $1`,
-      [username]
+       WHERE u.email = $1`,
+      [email.toLowerCase().trim()]
     )
 
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Usuario no existe" })
+      return res.status(401).json({ message: "Credenciales incorrectas" })
     }
 
     const user = result.rows[0]
