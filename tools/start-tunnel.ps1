@@ -1,7 +1,7 @@
 # Inicia Cloudflare Quick Tunnel -> API Gateway (puerto 4000)
 # y actualiza .env.development del app movil con la nueva URL.
 
-$ENV_FILE = "Frontend\smart-waste-mobile\.env.development"
+$ENV_FILE = Join-Path $PSScriptRoot "..\Frontend\smart-waste-mobile\.env.development"
 $LOG_FILE = "$env:TEMP\cloudflared-tunnel.log"
 $PORT = 4000
 
