@@ -1,3 +1,6 @@
+import { Ionicons } from "@expo/vector-icons"
+import { useNavigation } from "@react-navigation/native"
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
 import { CameraView, useCameraPermissions } from "expo-camera"
 import * as Haptics from "expo-haptics"
 import * as Location from "expo-location"
@@ -20,18 +23,14 @@ import Animated, {
   SlideInUp,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withRepeat,
   withSequence,
   withSpring,
-  withTiming,
+  withTiming
 } from "react-native-reanimated"
-import { useNavigation } from "@react-navigation/native"
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
-import { Ionicons } from "@expo/vector-icons"
 
-import { analyzeImage } from "../services/image.service"
 import type { RootStackParamList } from "../navigation/AppNavigator"
+import { analyzeImage } from "../services/image.service"
 import { colors } from "../theme/colors"
 
 type ScanNavProp = NativeStackNavigationProp<RootStackParamList, "Scan">
