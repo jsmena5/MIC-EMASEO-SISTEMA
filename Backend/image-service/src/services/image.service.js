@@ -1,17 +1,20 @@
-import fs from "fs"
-import path from "path"
-import { fileURLToPath } from "url"
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
 import { v4 as uuidv4 } from "uuid"
 import { pool } from "../db.js"
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const UPLOADS_DIR = path.join(__dirname, "..", "..", "uploads")
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
+const BUCKET = process.env.S3_BUCKET ?? "emaseo-incidents"
+const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL ?? "http://localhost:9000"
 
-// Crear directorio de uploads si no existe
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true })
-}
+const s3 = new S3Client({
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION ?? "us-east-1",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY,
+    secretAccessKey: process.env.S3_SECRET_KEY,
+  },
+  forcePathStyle: true, // requerido para MinIO y S3 con path-style URLs
+})
 
 // ── Helpers: parseo de dimensiones desde cabeceras binarias (sin deps extra) ──
 
@@ -129,17 +132,30 @@ export const analyzeImage = async (req, res) => {
     return res.status(401).json({ error: "No se pudo identificar al usuario. Token inválido o ausente." })
   }
 
-  // 1. Guardar imagen en disco
+  // 1. Subir imagen a S3/MinIO
   const imageId = uuidv4()
-  const fileName = `${imageId}.jpg`
-  const filePath = path.join(UPLOADS_DIR, fileName)
-  const imageUrl = `uploads/${fileName}`
+  const s3Key = `incidents/${imageId}.jpg`
+  const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
+
+  let buffer
+  try {
+    buffer = Buffer.from(image, "base64")
+  } catch {
+    return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
+  }
 
   try {
-    const buffer = Buffer.from(image, "base64")
-    await fs.promises.writeFile(filePath, buffer)
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: "image/jpeg",
+      })
+    )
   } catch (err) {
-    return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
+    console.error("[image-service] Error al subir imagen a S3:", err.message)
+    return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
   }
 
   // 2. Llamar al microservicio Python de inferencia
@@ -222,8 +238,12 @@ export const analyzeImage = async (req, res) => {
   } catch (dbErr) {
     await client.query("ROLLBACK")
     console.error("[image-service] Error en transacción DB:", dbErr.message)
-    // Limpiar imagen guardada si la DB falló
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    // Limpiar imagen en S3 si la DB falló
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
+    } catch (s3Err) {
+      console.error("[image-service] No se pudo limpiar la imagen en S3:", s3Err.message)
+    }
     return res.status(500).json({ error: "Error al registrar el incidente en la base de datos.", detail: dbErr.message })
   } finally {
     client.release()
