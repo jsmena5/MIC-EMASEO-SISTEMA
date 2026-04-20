@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from PIL import Image
 
@@ -137,6 +138,7 @@ class Detection(BaseModel):
 
 
 class PredictResponse(BaseModel):
+    has_waste: bool
     nivel_acumulacion: str
     volumen_estimado_m3: float
     prioridad: str
@@ -154,7 +156,7 @@ def health():
     return {"status": "ok", "model": MODEL_NAME, "model_path": str(MODEL_PATH)}
 
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post("/predict")
 def predict(req: PredictRequest):
     # 1. Decodificar imagen
     try:
@@ -202,14 +204,24 @@ def predict(req: PredictRequest):
                     "bbox": [x1, y1, x2, y2]
                 })
 
-    # 4. Métricas
+    # 4. Rechazo amigable: ninguna detección válida tras ambos filtros
+    if not detecciones:
+        return JSONResponse(content={
+            "success": True,
+            "has_waste": False,
+            "message": "No se detectaron residuos válidos en la imagen",
+            "tiempo_inferencia_ms": tiempo_ms,
+            "modelo_nombre": MODEL_NAME,
+        })
+
+    # 5. Métricas
     num_detecciones = len(detecciones)
     coverage_ratio = round(total_bbox_area / img_area, 4) if img_area > 0 else 0.0
     confianza = round(
         sum(d["confidence"] for d in detecciones) / num_detecciones, 4
     ) if num_detecciones > 0 else 0.0
 
-    # 5. Clase dominante → tipo de residuo general de la foto
+    # 6. Clase dominante → tipo de residuo general de la foto
     # La clase más frecuente se traduce al ENUM ai.waste_type de PostgreSQL.
     if detecciones:
         dominant_class = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
@@ -217,14 +229,11 @@ def predict(req: PredictRequest):
     else:
         tipo_residuo = "OTRO"
 
-    # 6. Heurística: nivel, volumen, prioridad (con corrección por calidad)
+    # 7. Heurística: nivel, volumen, prioridad (con corrección por calidad)
     metricas = calcular_nivel_volumen_prioridad(coverage_ratio, num_detecciones, confianza)
 
-    # 0 detecciones → nivel mínimo, volumen 0
-    if num_detecciones == 0:
-        metricas["volumen"] = 0.0
-
     return PredictResponse(
+        has_waste=True,
         nivel_acumulacion=metricas["nivel"],
         volumen_estimado_m3=metricas["volumen"],
         prioridad=metricas["prioridad"],

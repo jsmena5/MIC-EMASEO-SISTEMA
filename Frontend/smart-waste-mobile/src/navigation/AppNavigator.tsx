@@ -15,7 +15,8 @@ import ForgotPasswordScreen from "../screens/ForgotPasswordScreen"
 import ForgotPasswordOtpScreen from "../screens/ForgotPasswordOtpScreen"
 import ResetPasswordScreen from "../screens/ResetPasswordScreen"
 import HistorialScreen from "../screens/HistorialScreen"
-import type { AnalysisResult } from "../services/image.service"
+import ReportDetailScreen from "../screens/ReportDetailScreen"
+import type { AnalysisResult, Incident } from "../services/image.service"
 
 export type RootStackParamList = {
   Splash: undefined
@@ -28,11 +29,12 @@ export type RootStackParamList = {
   SetPassword: { email: string }
   Home: undefined
   Scan: undefined
-  ScanResult: { result: AnalysisResult }
+  ScanResult: { result: AnalysisResult; latitude: number; longitude: number }
   ForgotPassword: undefined
   ForgotPasswordOtp: { email: string }
   ResetPassword: { email: string; otp: string }
   Historial: undefined
+  ReportDetail: { incident: Incident }
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -54,6 +56,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ForgotPasswordOtp"  component={ForgotPasswordOtpScreen} />
         <Stack.Screen name="ResetPassword"      component={ResetPasswordScreen} />
         <Stack.Screen name="Historial"          component={HistorialScreen} />
+        <Stack.Screen name="ReportDetail"       component={ReportDetailScreen} />
 
       </Stack.Navigator>
     </NavigationContainer>

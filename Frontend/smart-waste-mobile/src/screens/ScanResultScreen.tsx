@@ -1,5 +1,6 @@
 import React from "react"
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import MapView, { Marker } from "react-native-maps"
 import { useNavigation, useRoute } from "@react-navigation/native"
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack"
 import type { RootStackParamList } from "../navigation/AppNavigator"
@@ -24,11 +25,18 @@ const NIVEL_LABELS: Record<string, string> = {
 export default function ScanResultScreen() {
   const navigation = useNavigation<NavProp>()
   const route = useRoute<Props["route"]>()
-  const { result } = route.params
+  const { result, latitude, longitude } = route.params
 
   const color = NIVEL_COLORS[result.nivel_acumulacion] ?? "#6B7280"
   const label = NIVEL_LABELS[result.nivel_acumulacion] ?? result.nivel_acumulacion
   const shortId = result.incident_id.slice(-8).toUpperCase()
+
+  const region = {
+    latitude,
+    longitude,
+    latitudeDelta: 0.003,
+    longitudeDelta: 0.003,
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -37,6 +45,21 @@ export default function ScanResultScreen() {
       <View style={[styles.header, { backgroundColor: color }]}>
         <Text style={styles.headerTitle}>{label}</Text>
         <Text style={styles.headerSub}>Reporte #{shortId}</Text>
+      </View>
+
+      {/* Minimapa — ubicación del reporte */}
+      <View style={styles.mapCard}>
+        <MapView
+          style={styles.map}
+          initialRegion={region}
+          scrollEnabled={false}
+          zoomEnabled={false}
+          pitchEnabled={false}
+          rotateEnabled={false}
+          pointerEvents="none"
+        >
+          <Marker coordinate={{ latitude, longitude }} />
+        </MapView>
       </View>
 
       {/* Tarjetas de métricas */}
@@ -113,6 +136,22 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.85)",
     fontSize: 14,
     marginTop: 6,
+  },
+  mapCard: {
+    marginHorizontal: 12,
+    marginTop: 16,
+    marginBottom: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  map: {
+    width: "100%",
+    height: 200,
   },
   grid: {
     flexDirection: "row",

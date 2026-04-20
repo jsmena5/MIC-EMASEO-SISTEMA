@@ -135,149 +135,188 @@ export const analyzeImage = async (req, res) => {
     return res.status(401).json({ error: "No se pudo identificar al usuario. Token inválido o ausente." })
   }
 
-  // 1. Subir imagen a S3/MinIO
-  const imageId = uuidv4()
-  const s3Key = `incidents/${imageId}.jpg`
-  const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
-
-  let buffer
+  // s3Key se declara aquí para que el catch externo pueda limpiar MinIO ante cualquier fallo fatal
+  // (p.ej. res.json() lanzando ECONNRESET si el cliente ya cerró el socket)
+  let s3Key
   try {
-    buffer = Buffer.from(image, "base64")
-  } catch {
-    return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
-  }
+    // 1. Subir imagen a S3/MinIO
+    const imageId = uuidv4()
+    s3Key = `incidents/${imageId}.jpg`
+    const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
 
-  console.log(`[image-service] [+${Date.now()-reqStart}ms] Iniciando upload a MinIO — bucket=${BUCKET} key=${s3Key} size=${buffer.length}B`)
-  try {
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: BUCKET,
-        Key: s3Key,
-        Body: buffer,
-        ContentType: "image/jpeg",
-      })
-    )
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Upload MinIO completado`)
-  } catch (err) {
-    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al subir imagen a S3: code=${err.Code ?? err.code} msg=${err.message}`)
-    return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
-  }
-
-  // 2. Llamar al microservicio Python de inferencia
-  console.log(`[image-service] [+${Date.now()-reqStart}ms] Llamando ML Service → ${ML_SERVICE_URL}`)
-  let mlResult
-  try {
-    const mlResponse = await fetch(ML_SERVICE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        image_base64: image,
-        image_width: 1280,
-        image_height: 960,
-      }),
-      signal: AbortSignal.timeout(110_000),
-    })
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] ML Service respondió HTTP ${mlResponse.status}`)
-
-    if (!mlResponse.ok) {
-      const errText = await mlResponse.text()
-      console.error("[image-service] ML Service respondió con error:", mlResponse.status, errText)
-      return res.status(502).json({ error: "Error en el servicio de análisis.", detail: errText })
-    }
-
-    mlResult = await mlResponse.json()
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ ML inference ok nivel=${mlResult.nivel_acumulacion} t=${mlResult.tiempo_inferencia_ms}ms`)
-  } catch (err) {
-    if (err.name === "AbortError" || err.code === "ECONNREFUSED" || err.code === "UND_ERR_CONNECT_TIMEOUT") {
-      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ ML Service no disponible: code=${err.code ?? err.name}`)
-      return res.status(503).json({
-        error: "Servicio de análisis no disponible.",
-        detail: "Asegúrate de que el ML Service esté corriendo en el puerto 8000.",
-      })
-    }
-    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al llamar ML Service: ${err.message}`)
-    return res.status(503).json({ error: "Servicio de análisis no disponible.", detail: err.message })
-  }
-
-  // 3. Transacción en base de datos
-  console.log(`[image-service] [+${Date.now()-reqStart}ms] Adquiriendo conexión DB…`)
-  const client = await pool.connect()
-  let incidentId, zonaId
-
-  try {
-    await client.query("BEGIN")
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] DB BEGIN ok`)
-
-    // a) Crear incidente
-    const incidentResult = await client.query(
-      `INSERT INTO incidents.incidents
-         (reportado_por, descripcion, ubicacion, estado, prioridad)
-       VALUES
-         ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), 'PENDIENTE', $5)
-       RETURNING id, zona_id`,
-      [userId, descripcion || null, longitude, latitude, mlResult.prioridad]
-    )
-    incidentId = incidentResult.rows[0].id
-    zonaId = incidentResult.rows[0].zona_id
-
-    // b) Guardar referencia de imagen
-    await client.query(
-      `INSERT INTO incidents.incident_images (incident_id, image_url, es_principal)
-       VALUES ($1, $2, TRUE)`,
-      [incidentId, imageUrl]
-    )
-
-    // c) Guardar resultado de análisis IA
-    await client.query(
-      `INSERT INTO ai.analysis_results
-         (incident_id, modelo_nombre, tipo_residuo, nivel_acumulacion,
-          volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms)
-       VALUES ($1, $2, $3::ai.waste_type, $4::ai.accumulation_level, $5, $6, $7::jsonb, $8)`,
-      [
-        incidentId,
-        mlResult.modelo_nombre,
-        mlResult.tipo_residuo,
-        mlResult.nivel_acumulacion,
-        mlResult.volumen_estimado_m3,
-        mlResult.confianza,
-        JSON.stringify(mlResult.detecciones),
-        mlResult.tiempo_inferencia_ms,
-      ]
-    )
-
-    await client.query("COMMIT")
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ DB COMMIT ok incidentId=${incidentId}`)
-  } catch (dbErr) {
-    await client.query("ROLLBACK")
-    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error en transacción DB: ${dbErr.message}`)
-    // Limpiar imagen en S3 si la DB falló
+    let buffer
     try {
-      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
-    } catch (s3Err) {
-      console.error("[image-service] No se pudo limpiar la imagen en S3:", s3Err.message)
+      buffer = Buffer.from(image, "base64")
+    } catch {
+      return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
     }
-    return res.status(500).json({ error: "Error al registrar el incidente en la base de datos.", detail: dbErr.message })
-  } finally {
-    client.release()
-  }
 
-  // 4. Respuesta exitosa
-  console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ analyzeImage completado incidentId=${incidentId}`)
-  return res.status(201).json({
-    success: true,
-    incident_id: incidentId,
-    zona_id: zonaId,
-    nivel_acumulacion: mlResult.nivel_acumulacion,
-    volumen_estimado_m3: mlResult.volumen_estimado_m3,
-    prioridad: mlResult.prioridad,
-    tipo_residuo: mlResult.tipo_residuo,
-    confianza: mlResult.confianza,
-    num_detecciones: mlResult.num_detecciones,
-    coverage_ratio: mlResult.coverage_ratio,
-    tiempo_inferencia_ms: mlResult.tiempo_inferencia_ms,
-    estado: "PENDIENTE",
-    message: "Incidente registrado exitosamente.",
-  })
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] Iniciando upload a MinIO — bucket=${BUCKET} key=${s3Key} size=${buffer.length}B`)
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET,
+          Key: s3Key,
+          Body: buffer,
+          ContentType: "image/jpeg",
+        })
+      )
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Upload MinIO completado`)
+    } catch (err) {
+      s3Key = undefined // upload falló: no hay objeto que limpiar
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al subir imagen a S3: code=${err.Code ?? err.code} msg=${err.message}`)
+      return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
+    }
+
+    // 2. Llamar al microservicio Python de inferencia
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] Llamando ML Service → ${ML_SERVICE_URL}`)
+    let mlResult
+    try {
+      const mlResponse = await fetch(ML_SERVICE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image_base64: image,
+          image_width: 1280,
+          image_height: 960,
+        }),
+        signal: AbortSignal.timeout(110_000),
+      })
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ML Service respondió HTTP ${mlResponse.status}`)
+
+      if (!mlResponse.ok) {
+        const errText = await mlResponse.text()
+        console.error("[image-service] ML Service respondió con error:", mlResponse.status, errText)
+        return res.status(502).json({ error: "Error en el servicio de análisis.", detail: errText })
+      }
+
+      mlResult = await mlResponse.json()
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ ML inference ok has_waste=${mlResult.has_waste} nivel=${mlResult.nivel_acumulacion} t=${mlResult.tiempo_inferencia_ms}ms`)
+    } catch (err) {
+      if (err.name === "AbortError" || err.code === "ECONNREFUSED" || err.code === "UND_ERR_CONNECT_TIMEOUT") {
+        console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ ML Service no disponible: code=${err.code ?? err.name}`)
+        return res.status(503).json({
+          error: "Servicio de análisis no disponible.",
+          detail: "Asegúrate de que el ML Service esté corriendo en el puerto 8000.",
+        })
+      }
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al llamar ML Service: ${err.message}`)
+      return res.status(503).json({ error: "Servicio de análisis no disponible.", detail: err.message })
+    }
+
+    // 3. Rechazo amigable: el ML no encontró residuos válidos
+    if (mlResult.has_waste === false) {
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ML no detectó residuos — eliminando imagen de MinIO y abortando`)
+      try {
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
+        s3Key = undefined // borrado exitoso: el catch externo no debe intentarlo de nuevo
+        console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Imagen eliminada de MinIO`)
+      } catch (s3Err) {
+        console.error("[image-service] No se pudo eliminar la imagen de MinIO:", s3Err.message)
+      }
+      return res.status(422).json({
+        error: "NO_WASTE_DETECTED",
+        message: "No hemos detectado residuos en esta imagen. Asegúrate de enfocar bien la basura e intenta de nuevo.",
+      })
+    }
+
+    // 4. Transacción en base de datos
+    // pool.connect() está dentro del try externo: un fallo aquí es capturado y no tumba el proceso
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] Adquiriendo conexión DB…`)
+    let client
+    let incidentId, zonaId
+
+    try {
+      client = await pool.connect()
+      await client.query("BEGIN")
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] DB BEGIN ok`)
+
+      // a) Crear incidente
+      const incidentResult = await client.query(
+        `INSERT INTO incidents.incidents
+           (reportado_por, descripcion, ubicacion, estado, prioridad)
+         VALUES
+           ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), 'PENDIENTE', $5)
+         RETURNING id, zona_id`,
+        [userId, descripcion || null, longitude, latitude, mlResult.prioridad]
+      )
+      incidentId = incidentResult.rows[0].id
+      zonaId = incidentResult.rows[0].zona_id
+
+      // b) Guardar referencia de imagen
+      await client.query(
+        `INSERT INTO incidents.incident_images (incident_id, image_url, es_principal)
+         VALUES ($1, $2, TRUE)`,
+        [incidentId, imageUrl]
+      )
+
+      // c) Guardar resultado de análisis IA
+      await client.query(
+        `INSERT INTO ai.analysis_results
+           (incident_id, modelo_nombre, tipo_residuo, nivel_acumulacion,
+            volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms)
+         VALUES ($1, $2, $3::ai.waste_type, $4::ai.accumulation_level, $5, $6, $7::jsonb, $8)`,
+        [
+          incidentId,
+          mlResult.modelo_nombre,
+          mlResult.tipo_residuo,
+          mlResult.nivel_acumulacion,
+          mlResult.volumen_estimado_m3,
+          mlResult.confianza,
+          JSON.stringify(mlResult.detecciones),
+          mlResult.tiempo_inferencia_ms,
+        ]
+      )
+
+      await client.query("COMMIT")
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ DB COMMIT ok incidentId=${incidentId}`)
+    } catch (dbErr) {
+      await client?.query("ROLLBACK").catch(() => {})
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error en transacción DB: ${dbErr.message}`)
+      try {
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
+        s3Key = undefined
+      } catch (s3Err) {
+        console.error("[image-service] No se pudo limpiar la imagen en S3:", s3Err.message)
+      }
+      return res.status(500).json({ error: "Error al registrar el incidente en la base de datos.", detail: dbErr.message })
+    } finally {
+      client?.release()
+    }
+
+    // 5. Respuesta exitosa
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ analyzeImage completado incidentId=${incidentId}`)
+    return res.status(201).json({
+      success: true,
+      incident_id: incidentId,
+      zona_id: zonaId,
+      nivel_acumulacion: mlResult.nivel_acumulacion,
+      volumen_estimado_m3: mlResult.volumen_estimado_m3,
+      prioridad: mlResult.prioridad,
+      tipo_residuo: mlResult.tipo_residuo,
+      confianza: mlResult.confianza,
+      num_detecciones: mlResult.num_detecciones,
+      coverage_ratio: mlResult.coverage_ratio,
+      tiempo_inferencia_ms: mlResult.tiempo_inferencia_ms,
+      estado: "PENDIENTE",
+      message: "Incidente registrado exitosamente.",
+    })
+  } catch (fatalErr) {
+    // Captura cualquier error que escape los bloques internos (p.ej. res.json() lanzando
+    // write ECONNRESET cuando el socket ya fue cerrado por timeout del API Gateway)
+    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error fatal en analyzeImage: ${fatalErr.message}`, fatalErr)
+    if (s3Key) {
+      try {
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
+        console.log("[image-service] Imagen limpiada de MinIO tras error fatal")
+      } catch (s3CleanupErr) {
+        console.error("[image-service] No se pudo limpiar MinIO tras error fatal:", s3CleanupErr.message)
+      }
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Error interno del servidor." })
+    }
+  }
 }
 
 // ── Historial de incidentes del usuario autenticado ───────────────────────────
@@ -295,8 +334,11 @@ export const getMyIncidents = async (req, res) => {
          i.prioridad,
          i.descripcion,
          i.created_at,
+         ST_Y(i.ubicacion::geometry) AS latitud,
+         ST_X(i.ubicacion::geometry) AS longitud,
          ii.image_url,
          ar.nivel_acumulacion,
+         ar.volumen_estimado_m3,
          ar.tipo_residuo,
          ar.confianza,
          jsonb_array_length(ar.detecciones) AS num_detecciones

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react"
+import React, { useState, useCallback, useEffect } from "react"
 import {
   View,
   Text,
@@ -9,12 +9,12 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
-  Dimensions,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useFocusEffect } from "@react-navigation/native"
 import Animated, { FadeInDown } from "react-native-reanimated"
+import * as Location from "expo-location"
 
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { getMyIncidents, Incident } from "../services/image.service"
@@ -22,9 +22,7 @@ import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Historial">
 
-const { width: SW } = Dimensions.get("window")
-
-const ESTADO_CONFIG: Record<
+export const ESTADO_CONFIG: Record<
   Incident["estado"],
   { label: string; color: string; bg: string; icon: React.ComponentProps<typeof Ionicons>["name"] }
 > = {
@@ -34,17 +32,102 @@ const ESTADO_CONFIG: Record<
   RECHAZADA:   { label: "Rechazado",  color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
 }
 
-const NIVEL_COLOR: Record<string, string> = {
+export const NIVEL_COLOR: Record<string, string> = {
   BAJO:    colors.bajo,
   MEDIO:   colors.medio,
   ALTO:    colors.alto,
   CRITICO: colors.critico,
 }
 
-function formatDate(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
+export function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
+
+// ─── ReportCard ───────────────────────────────────────────────────────────────
+
+interface CardProps {
+  item: Incident
+  index: number
+  onPress: () => void
+}
+
+function ReportCard({ item, index, onPress }: CardProps) {
+  const [address, setAddress] = useState<string | null>(null)
+  const [imgError, setImgError] = useState(false)
+
+  useEffect(() => {
+    if (item.latitud != null && item.longitud != null) {
+      Location.reverseGeocodeAsync({ latitude: item.latitud, longitude: item.longitud })
+        .then(([result]) => {
+          if (result) {
+            const street = result.street ?? ""
+            const area = result.district ?? result.subregion ?? result.city ?? ""
+            const parts = [street, area].filter(Boolean)
+            setAddress(parts.length > 0 ? parts.join(", ") : null)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [item.latitud, item.longitud])
+
+  const cfg = ESTADO_CONFIG[item.estado] ?? ESTADO_CONFIG.PENDIENTE
+  const nivelColor = item.nivel_acumulacion
+    ? (NIVEL_COLOR[item.nivel_acumulacion] ?? colors.gray400)
+    : colors.gray400
+
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 60).duration(380)}>
+      <TouchableOpacity activeOpacity={0.82} onPress={onPress} style={styles.card}>
+        {/* Thumbnail */}
+        <View style={styles.thumbWrap}>
+          {item.image_url && !imgError ? (
+            <Image
+              source={{ uri: item.image_url }}
+              style={styles.thumbImage}
+              resizeMode="cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <View style={[styles.thumbImage, styles.thumbFallback]}>
+              <Ionicons name="image-outline" size={28} color={colors.gray400} />
+            </View>
+          )}
+        </View>
+
+        {/* Content */}
+        <View style={styles.cardContent}>
+          <View style={[styles.estadoBadge, { backgroundColor: cfg.bg }]}>
+            <Ionicons name={cfg.icon} size={11} color={cfg.color} />
+            <Text style={[styles.estadoText, { color: cfg.color }]}>{cfg.label}</Text>
+          </View>
+
+          {address ? (
+            <Text style={styles.cardAddress} numberOfLines={1}>{address}</Text>
+          ) : null}
+
+          <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
+
+          {item.nivel_acumulacion && (
+            <Text style={[styles.cardNivel, { color: nivelColor }]}>
+              {item.nivel_acumulacion}
+              {item.tipo_residuo ? ` · ${item.tipo_residuo}` : ""}
+            </Text>
+          )}
+        </View>
+
+        {/* Chevron */}
+        <Ionicons name="chevron-forward" size={16} color={colors.gray300} style={styles.chevronIcon} />
+
+        {/* Nivel bar */}
+        {item.nivel_acumulacion && (
+          <View style={[styles.nivelBar, { backgroundColor: nivelColor }]} />
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  )
+}
+
+// ─── HistorialScreen ──────────────────────────────────────────────────────────
 
 export default function HistorialScreen({ navigation }: Props) {
   const [incidents, setIncidents] = useState<Incident[]>([])
@@ -74,55 +157,12 @@ export default function HistorialScreen({ navigation }: Props) {
   )
 
   function renderItem({ item, index }: { item: Incident; index: number }) {
-    const cfg = ESTADO_CONFIG[item.estado] ?? ESTADO_CONFIG.PENDIENTE
-    const nivelColor = item.nivel_acumulacion ? (NIVEL_COLOR[item.nivel_acumulacion] ?? colors.gray400) : colors.gray400
-
     return (
-      <Animated.View entering={FadeInDown.delay(index * 60).duration(380)}>
-        <View style={styles.card}>
-          {/* Thumbnail */}
-          <View style={styles.thumbWrap}>
-            {item.image_url ? (
-              <Image
-                source={{ uri: item.image_url }}
-                style={styles.thumbImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[styles.thumbImage, styles.thumbFallback]}>
-                <Ionicons name="image-outline" size={24} color={colors.gray400} />
-              </View>
-            )}
-          </View>
-
-          {/* Content */}
-          <View style={styles.cardContent}>
-            {/* Estado badge */}
-            <View style={[styles.estadoBadge, { backgroundColor: cfg.bg }]}>
-              <Ionicons name={cfg.icon} size={11} color={cfg.color} />
-              <Text style={[styles.estadoText, { color: cfg.color }]}>{cfg.label}</Text>
-            </View>
-
-            <Text style={styles.cardDate}>{formatDate(item.created_at)}</Text>
-
-            {item.nivel_acumulacion && (
-              <Text style={[styles.cardNivel, { color: nivelColor }]}>
-                {item.nivel_acumulacion}
-                {item.tipo_residuo ? ` · ${item.tipo_residuo}` : ""}
-              </Text>
-            )}
-
-            {item.descripcion ? (
-              <Text style={styles.cardDesc} numberOfLines={1}>{item.descripcion}</Text>
-            ) : null}
-          </View>
-
-          {/* Nivel indicator bar */}
-          {item.nivel_acumulacion && (
-            <View style={[styles.nivelBar, { backgroundColor: nivelColor }]} />
-          )}
-        </View>
-      </Animated.View>
+      <ReportCard
+        item={item}
+        index={index}
+        onPress={() => navigation.navigate("ReportDetail", { incident: item })}
+      />
     )
   }
 
@@ -362,6 +402,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.3,
   },
+  cardAddress: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
   cardDate: {
     fontSize: 12,
     color: colors.textSecondary,
@@ -372,9 +417,9 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  cardDesc: {
-    fontSize: 12,
-    color: colors.textTertiary,
+  chevronIcon: {
+    marginLeft: 4,
+    marginRight: 10,
   },
   nivelBar: {
     width: 4,

@@ -39,6 +39,8 @@ export interface Incident {
   tipo_residuo: string | null
   confianza: number | null
   num_detecciones: number | null
+  latitud?: number | null
+  longitud?: number | null
 }
 
 export const getMyIncidents = async (): Promise<Incident[]> => {

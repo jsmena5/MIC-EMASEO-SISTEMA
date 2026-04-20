@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons"
 import { useNavigation } from "@react-navigation/native"
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
-import { CameraView, useCameraPermissions } from "expo-camera"
+import { Camera, CameraView } from "expo-camera"
 import * as Haptics from "expo-haptics"
 import * as Location from "expo-location"
 import React, { useEffect, useRef, useState } from "react"
@@ -10,6 +10,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Linking,
   Platform,
   StatusBar,
   StyleSheet,
@@ -46,19 +47,19 @@ const THICKNESS = 4
 
 export default function ScanScreen() {
   const navigation = useNavigation<ScanNavProp>()
-  const [camPerm, requestCamPerm] = useCameraPermissions()
-  const [, requestLocPerm] = Location.useForegroundPermissions()
+  const [camGranted, setCamGranted] = useState<boolean | null>(null)
+  const [locDenied, setLocDenied] = useState(false)
 
   const [phase, setPhase] = useState<Phase>("scanning")
   const [capturedUri, setCapturedUri] = useState<string | null>(null)
   const [capturedB64, setCapturedB64] = useState<string | null>(null)
+  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null)
   const [capturing, setCapturing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [restartKey, setRestartKey] = useState(0)
 
   const cameraRef = useRef<any>(null)
-  const locationRef = useRef<Location.LocationObject | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   // Animations
@@ -67,8 +68,47 @@ export default function ScanScreen() {
   const statusOpacity = useSharedValue(1)
   const frameGlow = useSharedValue(0)
 
+  // Request both permissions sequentially on mount — two dialogs can't overlap on
+  // iOS/Android; requesting location before camera is granted silently suppresses it.
   useEffect(() => {
-    requestLocPerm()
+    ;(async () => {
+      const { status: camStatus, canAskAgain: camCanAsk } =
+        await Camera.requestCameraPermissionsAsync()
+      if (camStatus !== "granted") {
+        setCamGranted(false)
+        if (!camCanAsk) {
+          Alert.alert(
+            "Permisos Denegados",
+            "Por favor, habilita la cámara y ubicación en la configuración de tu celular",
+            [
+              { text: "Abrir Configuración", onPress: () => Linking.openSettings() },
+              { text: "Cancelar", style: "cancel" },
+            ],
+          )
+        }
+        return
+      }
+      setCamGranted(true)
+
+      const { status: locStatus, canAskAgain: locCanAsk } =
+        await Location.requestForegroundPermissionsAsync()
+      if (locStatus !== "granted") {
+        setLocDenied(true)
+        if (!locCanAsk) {
+          Alert.alert(
+            "Permisos Denegados",
+            "Por favor, habilita la cámara y ubicación en la configuración de tu celular",
+            [
+              { text: "Abrir Configuración", onPress: () => Linking.openSettings() },
+              { text: "Cancelar", style: "cancel" },
+            ],
+          )
+        }
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
     return () => { abortControllerRef.current?.abort() }
   }, [])
 
@@ -115,15 +155,20 @@ export default function ScanScreen() {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
 
-      try {
-        locationRef.current = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        })
-      } catch (_) {}
-
+      console.log('1. Tomando foto...')
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.82 })
       setCapturedUri(photo.uri)
       setCapturedB64(photo.base64 ?? null)
+
+      console.log('2. Obteniendo GPS...')
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+        console.log('3. Coordenadas obtenidas:', loc.coords)
+        setLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude })
+      } catch (_) {
+        setLocation(null)
+      }
+
       setPhase("captured")
       frameGlow.value = withTiming(0, { duration: 300 })
     } catch {
@@ -150,13 +195,14 @@ export default function ScanScreen() {
     abortControllerRef.current = controller
 
     try {
-      const lat = locationRef.current?.coords.latitude ?? 0
-      const lng = locationRef.current?.coords.longitude ?? 0
+      const lat = location?.latitude ?? 0
+      const lng = location?.longitude ?? 0
+      console.log('Payload a enviar:', { latitude: lat, longitude: lng, imageBytes: capturedB64?.length })
       const result = await analyzeImage(capturedB64, lat, lng, undefined, {
         signal: controller.signal,
         onUploadProgress: setUploadProgress,
       })
-      navigation.navigate("ScanResult", { result })
+      navigation.navigate("ScanResult", { result, latitude: lat, longitude: lng })
     } catch (e: any) {
       if (e?.code === "ERR_CANCELED") {
         retake()
@@ -179,7 +225,7 @@ export default function ScanScreen() {
   const frameStyle = useAnimatedStyle(() => ({ transform: [{ scale: frameScale.value }] }))
 
   // ── Permission screen ──────────────────────────────────────────────────────
-  if (!camPerm) {
+  if (camGranted === null) {
     return (
       <View style={styles.permScreen}>
         <Ionicons name="camera-outline" size={72} color={colors.gray400} />
@@ -188,7 +234,7 @@ export default function ScanScreen() {
     )
   }
 
-  if (!camPerm.granted) {
+  if (camGranted === false) {
     return (
       <View style={styles.permScreen}>
         <View style={styles.permIconWrap}>
@@ -198,9 +244,31 @@ export default function ScanScreen() {
         <Text style={styles.permBody}>
           EMASEO necesita acceso a la cámara para fotografiar y reportar acumulaciones de basura.
         </Text>
-        <TouchableOpacity style={styles.permBtn} onPress={requestCamPerm}>
-          <Ionicons name="camera" size={20} color="#fff" />
-          <Text style={styles.permBtnText}>Permitir acceso</Text>
+        <TouchableOpacity style={styles.permBtn} onPress={() => Linking.openSettings()}>
+          <Ionicons name="settings-outline" size={20} color="#fff" />
+          <Text style={styles.permBtnText}>Abrir Configuración</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.backLink} onPress={() => navigation.goBack()}>
+          <Text style={styles.backLinkText}>Volver</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  if (locDenied) {
+    return (
+      <View style={styles.permScreen}>
+        <View style={styles.permIconWrap}>
+          <Ionicons name="location-outline" size={48} color={colors.primary} />
+        </View>
+        <Text style={styles.permTitle}>Ubicación requerida</Text>
+        <Text style={styles.permBody}>
+          EMASEO necesita tu ubicación para registrar con precisión dónde se encuentra la
+          acumulación de basura y asignarla a la zona correcta.
+        </Text>
+        <TouchableOpacity style={styles.permBtn} onPress={() => Linking.openSettings()}>
+          <Ionicons name="settings-outline" size={20} color="#fff" />
+          <Text style={styles.permBtnText}>Abrir Configuración</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.backLink} onPress={() => navigation.goBack()}>
           <Text style={styles.backLinkText}>Volver</Text>
