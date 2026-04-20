@@ -351,8 +351,10 @@ curl http://localhost:4000/health
 cd Backend/ml-service
 
 # Activar venv (si no está activo)
-# Windows:
-source venv/Scripts/activate
+# Navego a la carpte:
+cd Backend\ml-service
+#Activo en entorno virtual
+.\venv\Scripts\activate
 # macOS / Linux:
 source venv/bin/activate
 
