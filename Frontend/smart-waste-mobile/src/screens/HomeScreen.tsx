@@ -152,7 +152,7 @@ export default function HomeScreen({ navigation }: Props) {
             label="Historial"
             sublabel="Mis reportes"
             color={colors.primary}
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Historial")}
           />
           <GridCard
             icon="leaf-outline"

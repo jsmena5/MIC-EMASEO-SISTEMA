@@ -6,6 +6,7 @@ import * as Haptics from "expo-haptics"
 import * as Location from "expo-location"
 import React, { useEffect, useRef, useState } from "react"
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -49,39 +50,37 @@ export default function ScanScreen() {
   const [, requestLocPerm] = Location.useForegroundPermissions()
 
   const [phase, setPhase] = useState<Phase>("scanning")
-  const [countdown, setCountdown] = useState(3)
   const [capturedUri, setCapturedUri] = useState<string | null>(null)
   const [capturedB64, setCapturedB64] = useState<string | null>(null)
+  const [capturing, setCapturing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [restartKey, setRestartKey] = useState(0)
 
   const cameraRef = useRef<any>(null)
   const locationRef = useRef<Location.LocationObject | null>(null)
-  const cdRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Animations
   const scanY = useSharedValue(0)
   const frameScale = useSharedValue(1)
-  const cdScale = useSharedValue(1)
   const statusOpacity = useSharedValue(1)
   const frameGlow = useSharedValue(0)
 
   useEffect(() => {
     requestLocPerm()
+    return () => { abortControllerRef.current?.abort() }
   }, [])
 
   // Restart scanning cycle whenever restartKey changes
   useEffect(() => {
     setPhase("scanning")
-    setCountdown(3)
     startScanLine()
     startCornerPulse()
 
+    // After 2.6 s the frame transitions to "ready" — purely visual, no auto-capture
     const readyTimer = setTimeout(() => transitionToReady(), 2600)
-    return () => {
-      clearTimeout(readyTimer)
-      if (cdRef.current) clearTimeout(cdRef.current)
-    }
+    return () => clearTimeout(readyTimer)
   }, [restartKey])
 
   const startScanLine = () => {
@@ -105,28 +104,14 @@ export default function ScanScreen() {
   const transitionToReady = () => {
     setPhase("ready")
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-
     frameScale.value = withSequence(withTiming(1.06, { duration: 180 }), withSpring(1))
     frameGlow.value = withTiming(1, { duration: 400 })
-
     statusOpacity.value = withSequence(withTiming(0, { duration: 200 }), withTiming(1, { duration: 200 }))
-
-    runCountdown(3)
-  }
-
-  const runCountdown = (n: number) => {
-    setCountdown(n)
-    if (n === 0) {
-      doCapture()
-      return
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    cdScale.value = withSequence(withTiming(1.6, { duration: 120 }), withSpring(1, { damping: 8 }))
-    cdRef.current = setTimeout(() => runCountdown(n - 1), 1000)
   }
 
   const doCapture = async () => {
-    if (!cameraRef.current) return
+    if (!cameraRef.current || capturing) return
+    setCapturing(true)
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
 
@@ -144,11 +129,12 @@ export default function ScanScreen() {
     } catch {
       Alert.alert("Error", "No se pudo capturar la imagen. Intenta de nuevo.")
       retake()
+    } finally {
+      setCapturing(false)
     }
   }
 
   const retake = () => {
-    if (cdRef.current) clearTimeout(cdRef.current)
     setCapturedUri(null)
     setCapturedB64(null)
     frameGlow.value = 0
@@ -158,22 +144,39 @@ export default function ScanScreen() {
   const handleAnalyze = async () => {
     if (!capturedB64) return
     setAnalyzing(true)
+    setUploadProgress(0)
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     try {
       const lat = locationRef.current?.coords.latitude ?? 0
       const lng = locationRef.current?.coords.longitude ?? 0
-      const result = await analyzeImage(capturedB64, lat, lng)
+      const result = await analyzeImage(capturedB64, lat, lng, undefined, {
+        signal: controller.signal,
+        onUploadProgress: setUploadProgress,
+      })
       navigation.navigate("ScanResult", { result })
     } catch (e: any) {
+      if (e?.code === "ERR_CANCELED") {
+        retake()
+        return
+      }
       Alert.alert("Error", e?.response?.data?.error ?? "No se pudo procesar la imagen.")
     } finally {
       setAnalyzing(false)
+      setUploadProgress(0)
+      abortControllerRef.current = null
     }
+  }
+
+  const handleCancelAnalysis = () => {
+    abortControllerRef.current?.abort()
   }
 
   // Animated styles
   const scanStyle = useAnimatedStyle(() => ({ transform: [{ translateY: scanY.value }] }))
   const frameStyle = useAnimatedStyle(() => ({ transform: [{ scale: frameScale.value }] }))
-  const cdStyle = useAnimatedStyle(() => ({ transform: [{ scale: cdScale.value }] }))
 
   // ── Permission screen ──────────────────────────────────────────────────────
   if (!camPerm) {
@@ -189,7 +192,7 @@ export default function ScanScreen() {
     return (
       <View style={styles.permScreen}>
         <View style={styles.permIconWrap}>
-          <Ionicons name="camera-off-outline" size={48} color={colors.primary} />
+          <Ionicons name="camera-outline" size={48} color={colors.primary} />
         </View>
         <Text style={styles.permTitle}>Cámara requerida</Text>
         <Text style={styles.permBody}>
@@ -237,8 +240,12 @@ export default function ScanScreen() {
           >
             {analyzing ? (
               <>
-                <Ionicons name="hourglass-outline" size={20} color="#fff" />
-                <Text style={styles.analyzeBtnText}>Analizando incidencia...</Text>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.analyzeBtnText}>
+                  {uploadProgress < 100
+                    ? `Enviando imagen… ${uploadProgress}%`
+                    : "Analizando incidencia…"}
+                </Text>
               </>
             ) : (
               <>
@@ -250,12 +257,17 @@ export default function ScanScreen() {
 
           <TouchableOpacity
             style={styles.retakeBtn}
-            onPress={retake}
-            disabled={analyzing}
+            onPress={analyzing ? handleCancelAnalysis : retake}
             activeOpacity={0.7}
           >
-            <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
-            <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
+            <Ionicons
+              name={analyzing ? "close-circle-outline" : "camera-reverse-outline"}
+              size={20}
+              color={colors.textSecondary}
+            />
+            <Text style={styles.retakeBtnText}>
+              {analyzing ? "Cancelar envío" : "Tomar otra foto"}
+            </Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -294,7 +306,7 @@ export default function ScanScreen() {
         >
           <View style={[styles.statusDot, isReady ? styles.dotGreen : styles.dotBlue]} />
           <Text style={styles.statusText}>
-            {isReady ? "¡Posición óptima detectada!" : "Buscando área óptima..."}
+            {isReady ? "¡Área lista! Pulsa para capturar" : "Buscando área óptima..."}
           </Text>
         </Animated.View>
 
@@ -316,14 +328,7 @@ export default function ScanScreen() {
               <Animated.View style={[styles.scanLine, scanStyle]} />
             )}
 
-            {/* Countdown (ready phase) */}
-            {isReady && countdown > 0 && (
-              <View style={styles.cdOverlay}>
-                <Animated.Text style={[styles.cdNumber, cdStyle]}>{countdown}</Animated.Text>
-              </View>
-            )}
-
-            {/* Capture flash ring */}
+            {/* Capture flash ring when ready */}
             {isReady && (
               <Animated.View
                 entering={FadeIn.delay(100)}
@@ -334,8 +339,8 @@ export default function ScanScreen() {
 
           <View style={styles.overlaySide} />
         </View>
-        <View style={styles.overlayBottom}>
 
+        <View style={styles.overlayBottom}>
           {/* Hints */}
           <View style={styles.hintRow}>
             <HintChip icon="resize-outline" label="1–2 metros del área" />
@@ -356,8 +361,26 @@ export default function ScanScreen() {
 
           <Text style={styles.bottomHint}>
             {isReady
-              ? "Mantén el dispositivo estable"
+              ? "Presiona el botón cuando la basura esté bien encuadrada"
               : "Centra la acumulación de basura en el marco"}
+          </Text>
+
+          {/* ── Shutter button ── */}
+          <TouchableOpacity
+            style={[styles.shutterBtn, capturing && styles.shutterBtnDisabled]}
+            onPress={doCapture}
+            disabled={capturing}
+            activeOpacity={0.8}
+          >
+            {capturing ? (
+              <ActivityIndicator size="large" color="#fff" />
+            ) : (
+              <View style={styles.shutterInner} />
+            )}
+          </TouchableOpacity>
+
+          <Text style={styles.shutterLabel}>
+            {capturing ? "Capturando..." : "Tomar foto"}
           </Text>
         </View>
 
@@ -422,7 +445,6 @@ function HintChip({ icon, label }: { icon: React.ComponentProps<typeof Ionicons>
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const OVERLAY_V = (SH - FRAME) / 2 - 60
-const OVERLAY_H = (SW - FRAME) / 2
 
 const styles = StyleSheet.create({
   // ── Permissions
@@ -592,22 +614,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 
-  // Countdown
-  cdOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.18)",
-  },
-  cdNumber: {
-    fontSize: 86,
-    fontWeight: "800",
-    color: "#fff",
-    textShadowColor: "rgba(0,168,89,0.8)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 20,
-  },
-
   // Hints
   hintRow: {
     flexDirection: "row",
@@ -664,6 +670,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
     paddingHorizontal: 24,
+    marginBottom: 4,
+  },
+
+  // ── Shutter button
+  shutterBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 4,
+    borderColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 18,
+  },
+  shutterBtnDisabled: {
+    borderColor: "rgba(255,255,255,0.35)",
+    opacity: 0.7,
+  },
+  shutterInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#fff",
+  },
+  shutterLabel: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 8,
+    letterSpacing: 0.5,
   },
 
   // ── Photo review

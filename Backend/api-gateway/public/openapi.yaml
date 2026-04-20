@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EMASEO — Smart Waste Detection API
-  version: 1.0.0
+  version: 2.0.0
   description: |
     API del sistema de detección de acumulación de basura para EMASEO EP (Ecuador).
 
@@ -12,27 +12,32 @@ info:
     | Servicio         | Puerto | Descripción                                      |
     |------------------|--------|--------------------------------------------------|
     | api-gateway      | 4000   | Punto de entrada único; authn/authz + proxy      |
-    | auth-service     | 3002   | Login, refresh y logout                          |
+    | auth-service     | 3002   | Login, refresh, logout y recuperación de clave   |
     | users-service    | 3000   | Registro de ciudadanos (wizard 3 pasos)          |
-    | image-service    | 5000   | Validación y análisis de imágenes con IA         |
+    | image-service    | 5000   | Análisis de imágenes con IA + almacenamiento S3  |
     | ml-service       | 8000   | Inferencia RT-DETR-L (FastAPI, uso interno)      |
 
     ## Autenticación
     Los endpoints protegidos requieren un **Bearer JWT** en el header `Authorization`.
-    El token se obtiene con `POST /api/auth/login` o al finalizar el registro
-    con `POST /api/users/set-password`.
+    El token se obtiene con `POST /api/auth/login` (credenciales) o al completar el
+    registro con `POST /api/users/set-password`.
 
     **TTL access token:** 15 minutos
     **TTL refresh token:** 7 días (rotación automática en cada uso)
 
     ## Roles
 
-    | Rol          | Acceso                                                       |
-    |--------------|--------------------------------------------------------------|
-    | `CIUDADANO`  | Reportar incidencias — `/api/image/*`                        |
-    | `OPERARIO`   | Gestión de incidencias asignadas                            |
-    | `SUPERVISOR` | Supervisión de operarios                                    |
-    | `ADMIN`      | Gestión completa de usuarios — `/api/users/*` (protegido)   |
+    | Rol          | Acceso                                                        |
+    |--------------|---------------------------------------------------------------|
+    | `CIUDADANO`  | Reportar incidencias — `/api/image/*`                         |
+    | `OPERARIO`   | Gestión de incidencias asignadas                              |
+    | `SUPERVISOR` | Supervisión de operarios                                      |
+    | `ADMIN`      | Gestión completa de usuarios — `/api/users/**` (protegido)    |
+
+    ## Almacenamiento de imágenes
+    Las imágenes enviadas en `/api/image/analyze` se almacenan en **MinIO / AWS S3**.
+    La respuesta incluye el campo `image_url` con la URL pública permanente de la imagen
+    subida al bucket configurado (`emaseo-incidents`).
 
 servers:
   - url: http://localhost:4000
@@ -43,6 +48,8 @@ servers:
 tags:
   - name: Auth
     description: Autenticación y gestión de sesión
+  - name: Recuperación de Contraseña
+    description: Flujo de 3 pasos para restablecer la contraseña vía OTP por email
   - name: Registro
     description: Wizard de registro de ciudadanos (3 pasos, sin token requerido)
   - name: Usuarios (Admin)
@@ -51,6 +58,10 @@ tags:
     description: Validación y análisis de imágenes — requiere rol CIUDADANO
   - name: ML Service
     description: Endpoints internos del servicio de inferencia RT-DETR (puerto 8000)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPONENTS
+# ═══════════════════════════════════════════════════════════════════════════════
 
 components:
   securitySchemes:
@@ -68,16 +79,126 @@ components:
 
   schemas:
 
+    # ── Modelos de dominio (reutilizables) ────────────────────────────────────
+
+    Usuario:
+      type: object
+      description: Perfil de usuario del sistema
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único del usuario
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          example: "maria.garcia@ejemplo.com"
+        username:
+          type: string
+          description: Número de cédula ecuatoriana (asignado automáticamente)
+          example: "1712345678"
+        rol:
+          type: string
+          enum: [CIUDADANO, OPERARIO, SUPERVISOR, ADMIN]
+          example: "CIUDADANO"
+        estado:
+          type: string
+          enum: [ACTIVO, SUSPENDIDO, INACTIVO]
+          example: "ACTIVO"
+        nombre:
+          type: string
+          example: "María"
+        apellido:
+          type: string
+          example: "García"
+        cedula:
+          type: string
+          pattern: "^[0-9]{10}$"
+          description: Cédula ecuatoriana de 10 dígitos
+          example: "1712345678"
+
+    Incidente:
+      type: object
+      description: Incidente de acumulación de basura registrado en el sistema
+      properties:
+        incident_id:
+          type: string
+          format: uuid
+          description: UUID del incidente creado en la BD
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        zona_id:
+          description: ID de zona geográfica asignada por PostGIS (null si fuera de cobertura)
+          oneOf:
+            - type: string
+            - type: "null"
+          example: "zona-norte-01"
+        estado:
+          type: string
+          enum: [PENDIENTE, EN_PROCESO, RESUELTO, CANCELADO]
+          example: "PENDIENTE"
+        prioridad:
+          type: string
+          enum: [BAJA, MEDIA, ALTA, CRITICA]
+          example: "ALTA"
+        nivel_acumulacion:
+          type: string
+          enum: [BAJO, MEDIO, ALTO, CRITICO]
+          description: |
+            Nivel calculado según `coverage_ratio` del modelo RT-DETR:
+            BAJO (0–15%), MEDIO (15–40%), ALTO (40–70%), CRITICO (70–100%)
+          example: "ALTO"
+        tipo_residuo:
+          type: string
+          enum: [MIXTO, RECICLABLE, ORGANICO, ESCOMBROS, PELIGROSO, DOMESTICO, OTRO]
+          description: Clase dominante detectada, mapeada al ENUM `ai.waste_type`
+          example: "MIXTO"
+        volumen_estimado_m3:
+          type: number
+          format: double
+          description: Volumen estimado de residuos en m³ (interpolación lineal por banda)
+          example: 3.45
+        confianza:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Promedio de confianza de todas las detecciones (0–1)
+          example: 0.87
+        num_detecciones:
+          type: integer
+          description: Número de bounding boxes detectadas por el modelo RT-DETR-L
+          example: 5
+        coverage_ratio:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Proporción del área de imagen cubierta por detecciones
+          example: 0.52
+        tiempo_inferencia_ms:
+          type: integer
+          description: Tiempo de inferencia RT-DETR en milisegundos
+          example: 342
+        image_url:
+          type: string
+          format: uri
+          description: |
+            URL pública de la imagen almacenada en MinIO / S3.
+            Formato: `{S3_PUBLIC_URL}/{bucket}/incidents/{uuid}.jpg`
+          example: "http://localhost:9000/emaseo-incidents/incidents/550e8400-e29b-41d4-a716-446655440000.jpg"
+
     # ── Auth ──────────────────────────────────────────────────────────────────
 
     LoginRequest:
       type: object
-      required: [username, password]
+      required: [email, password]
       properties:
-        username:
+        email:
           type: string
-          description: Número de cédula ecuatoriana (username = cédula)
-          example: "1712345678"
+          format: email
+          description: Correo electrónico registrado en el sistema
+          example: "maria.garcia@ejemplo.com"
         password:
           type: string
           format: password
@@ -102,6 +223,79 @@ components:
         refreshToken:
           type: string
           example: "a3f2c1d4e5b6c7d8e9f0a1b2c3d4e5f6..."
+
+    # ── Recuperación de contraseña ────────────────────────────────────────────
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Correo electrónico asociado a la cuenta
+          example: "maria.garcia@ejemplo.com"
+
+    ForgotPasswordResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Mensaje genérico (igual si el email existe o no, para evitar enumeración)
+          example: "Si el correo está registrado, recibirás un código de recuperación."
+        emailSent:
+          type: boolean
+          description: "`false` si hubo un error SMTP (el OTP igual se guardó en BD)"
+          example: true
+
+    VerifyResetOtpRequest:
+      type: object
+      required: [email, otp]
+      properties:
+        email:
+          type: string
+          format: email
+          example: "maria.garcia@ejemplo.com"
+        otp:
+          type: string
+          description: Código de 6 dígitos recibido por correo (válido 15 minutos)
+          pattern: "^[0-9]{6}$"
+          example: "738291"
+
+    ResetPasswordRequest:
+      type: object
+      required: [email, otp, newPassword]
+      properties:
+        email:
+          type: string
+          format: email
+          example: "maria.garcia@ejemplo.com"
+        otp:
+          type: string
+          description: Código de 6 dígitos recibido por correo
+          pattern: "^[0-9]{6}$"
+          example: "738291"
+        newPassword:
+          type: string
+          format: password
+          minLength: 6
+          description: Nueva contraseña (mínimo 6 caracteres)
+          example: "NuevaClave456"
+
+    ResetPasswordResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Contraseña actualizada correctamente"
+        token:
+          type: string
+          description: Access token JWT listo para usar — no requiere nuevo login
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refreshToken:
+          type: string
+          description: Nuevo refresh token — todos los anteriores quedan revocados
+          example: "b4g3d2e1f0a7c6b5..."
 
     # ── Registro wizard ───────────────────────────────────────────────────────
 
@@ -186,8 +380,7 @@ components:
           type: string
           description: |
             Access token JWT de 1 hora emitido tras el registro exitoso.
-            Usar para autenticar llamadas inmediatas; luego hacer login normal
-            para obtener el par access + refresh token estándar.
+            Para sesiones largas usar `POST /api/auth/login` y obtener el par completo.
           example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
     # ── Image Service ─────────────────────────────────────────────────────────
@@ -215,16 +408,16 @@ components:
           example: "Imagen lista para análisis."
         width:
           type: integer
-          description: "Ancho en píxeles (presente solo si valid=true)"
+          description: Ancho en píxeles (presente solo si valid=true)
           example: 1280
         height:
           type: integer
-          description: "Alto en píxeles (presente solo si valid=true)"
+          description: Alto en píxeles (presente solo si valid=true)
           example: 960
         format:
           type: string
           enum: [JPEG, PNG]
-          description: "Formato detectado por magic bytes (presente solo si valid=true)"
+          description: Formato detectado por magic bytes (presente solo si valid=true)
 
     AnalyzeRequest:
       type: object
@@ -251,70 +444,31 @@ components:
 
     AnalyzeResponse:
       type: object
+      description: Resultado del análisis IA y datos del incidente creado
+      allOf:
+        - $ref: '#/components/schemas/Incidente'
       properties:
         success:
           type: boolean
           example: true
-        incident_id:
-          type: string
-          format: uuid
-          description: UUID del incidente creado en la BD
-          example: "550e8400-e29b-41d4-a716-446655440000"
-        zona_id:
-          description: ID de zona geográfica asignada por PostGIS (null si fuera de zona)
-          oneOf:
-            - type: string
-            - type: "null"
-          example: "zona-norte-01"
-        nivel_acumulacion:
-          type: string
-          enum: [BAJO, MEDIO, ALTO, CRITICO]
-          description: |
-            Nivel calculado según `coverage_ratio`:
-            BAJO (0–15%), MEDIO (15–40%), ALTO (40–70%), CRITICO (70–100%)
-          example: "ALTO"
-        volumen_estimado_m3:
-          type: number
-          format: double
-          description: Volumen estimado de residuos en m³ (interpolación lineal por banda)
-          example: 3.45
-        prioridad:
-          type: string
-          enum: [BAJA, MEDIA, ALTA, CRITICA]
-          example: "ALTA"
-        tipo_residuo:
-          type: string
-          enum: [MIXTO, RECICLABLE, ORGANICO, ESCOMBROS, PELIGROSO, DOMESTICO, OTRO]
-          description: Clase dominante detectada, mapeada al ENUM `ai.waste_type`
-          example: "MIXTO"
-        confianza:
-          type: number
-          format: double
-          minimum: 0
-          maximum: 1
-          description: Promedio de confianza de todas las detecciones (0–1)
-          example: 0.87
-        num_detecciones:
-          type: integer
-          description: Número de bounding boxes detectadas por el modelo
-          example: 5
-        coverage_ratio:
-          type: number
-          format: double
-          minimum: 0
-          maximum: 1
-          description: Proporción del área de imagen cubierta por detecciones
-          example: 0.52
-        tiempo_inferencia_ms:
-          type: integer
-          description: Tiempo de inferencia RT-DETR en milisegundos
-          example: 342
-        estado:
-          type: string
-          example: "PENDIENTE"
         message:
           type: string
           example: "Incidente registrado exitosamente."
+      example:
+        success: true
+        incident_id: "550e8400-e29b-41d4-a716-446655440000"
+        zona_id: "zona-norte-01"
+        nivel_acumulacion: "ALTO"
+        volumen_estimado_m3: 3.45
+        prioridad: "ALTA"
+        tipo_residuo: "MIXTO"
+        confianza: 0.87
+        num_detecciones: 5
+        coverage_ratio: 0.52
+        tiempo_inferencia_ms: 342
+        estado: "PENDIENTE"
+        image_url: "http://localhost:9000/emaseo-incidents/incidents/550e8400-e29b-41d4-a716-446655440000.jpg"
+        message: "Incidente registrado exitosamente."
 
     # ── ML Service ────────────────────────────────────────────────────────────
 
@@ -427,12 +581,16 @@ paths:
       tags: [Auth]
       summary: Iniciar sesión
       description: |
-        Autentica con cédula y contraseña. Devuelve un access token JWT (15 min)
+        Autentica con **email** y contraseña. Devuelve un access token JWT (15 min)
         y un refresh token opaco (7 días).
+
+        > ⚠️ El campo de identificación es **`email`**, no `username` ni `cédula`.
 
         La contraseña se verifica con `pgcrypto` (bcrypt en PostgreSQL).
         Las cuentas con estado `SUSPENDIDO` o `INACTIVO` son rechazadas
         **antes** de verificar la contraseña para evitar timing attacks.
+
+        **Rate limit:** 5 intentos por IP por 15 minutos.
       requestBody:
         required: true
         content:
@@ -440,7 +598,7 @@ paths:
             schema:
               $ref: '#/components/schemas/LoginRequest'
             example:
-              username: "1712345678"
+              email: "maria.garcia@ejemplo.com"
               password: "MiContraseña123"
       responses:
         "200":
@@ -449,6 +607,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
+        "400":
+          description: Email o contraseña ausentes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                message: "Email y contraseña son requeridos"
         "401":
           description: Credenciales incorrectas
           content:
@@ -457,7 +623,7 @@ paths:
                 $ref: '#/components/schemas/ErrorMessage'
               examples:
                 usuario_no_existe:
-                  summary: Username no encontrado
+                  summary: Email no encontrado
                   value: {message: "Usuario no existe"}
                 contrasena_incorrecta:
                   summary: Contraseña incorrecta
@@ -526,7 +692,6 @@ paths:
         Revoca el refresh token en la BD. El access token expira solo (máx. 15 min).
 
         No es necesario invalidar el access token explícitamente dado su TTL corto.
-        En entornos de alta seguridad se puede complementar con una denylist de JTI.
       requestBody:
         required: true
         content:
@@ -550,6 +715,155 @@ paths:
               example:
                 message: "refreshToken requerido"
 
+  # ── RECUPERACIÓN DE CONTRASEÑA (3 PASOS) ────────────────────────────────────
+
+  /api/auth/forgot-password:
+    post:
+      tags: [Recuperación de Contraseña]
+      summary: "Paso 1 — Solicitar OTP de recuperación"
+      description: |
+        Inicia el flujo de recuperación de contraseña. Genera un OTP de 6 dígitos
+        válido por **15 minutos** y lo envía al correo registrado.
+
+        **Seguridad anti-enumeración:** La respuesta es idéntica tanto si el email
+        existe como si no, para no revelar qué cuentas están registradas.
+
+        **Flujo completo de recuperación:**
+        1. `POST /api/auth/forgot-password` → recibir OTP por email
+        2. `POST /api/auth/verify-reset-otp` → validar el OTP
+        3. `POST /api/auth/reset-password` → establecer nueva contraseña
+
+        **Rate limit:** 5 solicitudes por IP por hora.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+            example:
+              email: "maria.garcia@ejemplo.com"
+      responses:
+        "200":
+          description: Solicitud procesada (respuesta genérica, no confirma si el email existe)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForgotPasswordResponse'
+              examples:
+                exitoso:
+                  summary: Email enviado correctamente
+                  value:
+                    message: "Si el correo está registrado, recibirás un código de recuperación."
+                    emailSent: true
+                smtp_fallo:
+                  summary: OTP generado pero email no enviado
+                  value:
+                    message: "Si el correo está registrado, recibirás un código de recuperación."
+                    emailSent: false
+        "400":
+          description: Campo `email` ausente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                message: "El campo email es requerido"
+
+  /api/auth/verify-reset-otp:
+    post:
+      tags: [Recuperación de Contraseña]
+      summary: "Paso 2 — Validar OTP (pre-verificación)"
+      description: |
+        Valida el OTP antes de mostrar el formulario de nueva contraseña.
+        Permite al cliente confirmar que el código es correcto sin consumirlo aún
+        (el OTP **no** queda marcado como usado en este paso).
+
+        Comprobaciones:
+        - Hash SHA-256 del OTP coincide con el almacenado
+        - OTP no está expirado (`expires_at > NOW()`)
+        - OTP no fue ya usado (`used = FALSE`)
+
+        **Rate limit:** 5 intentos por IP por 15 minutos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyResetOtpRequest'
+            example:
+              email: "maria.garcia@ejemplo.com"
+              otp: "738291"
+      responses:
+        "200":
+          description: OTP válido — proceder al paso 3
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              example:
+                message: "Código válido"
+        "400":
+          description: OTP incorrecto, expirado, o ya usado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              examples:
+                invalido:
+                  value: {message: "Código inválido o expirado"}
+                ya_usado:
+                  value: {message: "El código ya fue utilizado"}
+
+  /api/auth/reset-password:
+    post:
+      tags: [Recuperación de Contraseña]
+      summary: "Paso 3 — Establecer nueva contraseña"
+      description: |
+        Completa el flujo de recuperación en una **transacción atómica**:
+        1. Verifica el OTP (hash SHA-256, expiración, `used = FALSE`)
+        2. Actualiza el `password_hash` en `auth.users` (bcrypt vía `pgcrypto`)
+        3. Marca el OTP como usado
+        4. Revoca **todos** los refresh tokens existentes del usuario
+        5. Emite un nuevo par de tokens listo para usar
+
+        Si cualquier paso falla, toda la transacción se revierte (ROLLBACK).
+
+        **Rate limit:** 5 intentos por IP por 15 minutos.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+            example:
+              email: "maria.garcia@ejemplo.com"
+              otp: "738291"
+              newPassword: "NuevaClave456"
+      responses:
+        "200":
+          description: Contraseña actualizada — devuelve nuevo par de tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetPasswordResponse'
+        "400":
+          description: OTP inválido/expirado/ya usado, o contraseña muy corta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              examples:
+                otp_invalido:
+                  value: {message: "Código inválido o expirado"}
+                contrasena_corta:
+                  value: {message: "La contraseña debe tener al menos 6 caracteres"}
+        "500":
+          description: Error interno — transacción revertida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+
   # ── REGISTRO (WIZARD 3 PASOS) ─────────────────────────────────────────────
 
   /api/users/register:
@@ -560,7 +874,7 @@ paths:
         Inicia el registro de un ciudadano nuevo. Flujo:
         1. Valida cédula ecuatoriana (algoritmo módulo 10)
         2. Verifica que email y cédula no existan en `auth.users`
-        3. Guarda o sobreescribe un registro en `pending_registrations`
+        3. Guarda o sobreescribe un registro en `pending_registrations` (ON CONFLICT)
         4. Genera OTP de 6 dígitos (válido **10 minutos**) y lo envía por correo
 
         Si el email ya tiene un registro pendiente se sobreescribe —
@@ -672,7 +986,7 @@ paths:
       description: |
         Finaliza el registro en una **transacción atómica**:
         1. Crea cuenta en `auth.users` (contraseña hasheada con bcrypt via `pgcrypto`)
-        2. Crea perfil en `public.ciudadanos`
+        2. Crea perfil en `public.ciudadanos` con nombre, apellido y cédula
         3. Elimina el registro temporal de `pending_registrations`
 
         El `username` se asigna automáticamente como la cédula del usuario.
@@ -721,10 +1035,10 @@ paths:
         Valida la imagen **sin llamar al ML Service**, ideal como comprobación
         rápida antes de enviar el payload completo a `/analyze`.
 
-        Comprobaciones:
-        - Magic bytes: JPEG (`FF D8`) o PNG (`89 50 4E 47`)
-        - Tamaño mínimo del buffer: 1 KB
-        - Resolución mínima: 320 × 320 píxeles
+        Comprobaciones realizadas directamente sobre los bytes de la imagen:
+        - **Formato:** Magic bytes JPEG (`FF D8`) o PNG (`89 50 4E 47`)
+        - **Tamaño mínimo:** buffer ≥ 1 KB
+        - **Resolución mínima:** 320 × 320 píxeles (requisito del modelo RT-DETR)
 
         **Requiere:** Bearer JWT con rol `CIUDADANO`.
       security:
@@ -782,18 +1096,21 @@ paths:
       tags: [Imágenes]
       summary: Analizar imagen y registrar incidente
       description: |
-        Envía la imagen al modelo RT-DETR-L, crea un incidente georreferenciado
-        y persiste el resultado del análisis IA.
+        Envía la imagen al modelo **RT-DETR-L**, almacena la imagen en **MinIO / S3**,
+        crea un incidente georreferenciado y persiste el resultado del análisis IA.
 
         **Pipeline interno:**
-        1. Guarda la imagen en disco (`uploads/<uuid>.jpg`)
-        2. Llama a `POST http://localhost:8000/predict` — timeout 60 s
-        3. Transacción PostgreSQL:
-           - INSERT en `incidents.incidents` (PostGIS point WGS-84)
-           - INSERT en `incidents.incident_images`
-           - INSERT en `ai.analysis_results`
+        1. Sube la imagen al bucket S3/MinIO como `incidents/{uuid}.jpg`
+        2. Construye la URL pública: `{S3_PUBLIC_URL}/{bucket}/incidents/{uuid}.jpg`
+        3. Llama a `POST http://ml-service:8000/predict` — timeout 60 s
+        4. Transacción PostgreSQL (atómica):
+           - `INSERT` en `incidents.incidents` (punto PostGIS WGS-84)
+           - `INSERT` en `incidents.incident_images` con la `image_url` del paso 2
+           - `INSERT` en `ai.analysis_results` con los resultados del modelo
+        5. Si la transacción falla, la imagen se elimina del bucket (rollback S3)
 
-        El `user_id` se extrae del JWT via header `x-user-id` inyectado por el gateway.
+        La respuesta incluye `image_url` con la URL pública permanente de la imagen.
+        El `user_id` se extrae del JWT vía header `x-user-id` inyectado por el gateway.
 
         **Requiere:** Bearer JWT con rol `CIUDADANO`.
         **Rate limit:** 10 análisis por IP por 15 minutos.
@@ -812,7 +1129,7 @@ paths:
               descripcion: "Basura acumulada frente al parque central"
       responses:
         "201":
-          description: Incidente creado y análisis IA guardado
+          description: Incidente creado, análisis IA guardado e imagen subida a S3
           content:
             application/json:
               schema:
@@ -840,6 +1157,15 @@ paths:
                 error: "No se pudo identificar al usuario. Token inválido o ausente."
         "403":
           description: El rol del usuario no es CIUDADANO
+        "500":
+          description: Error en la transacción de BD (imagen eliminada del bucket)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                error: "Error al registrar el incidente en la base de datos."
+                detail: "duplicate key value violates unique constraint"
         "502":
           description: El ML Service respondió con un error HTTP
           content:
@@ -850,7 +1176,7 @@ paths:
                 error: "Error en el servicio de análisis."
                 detail: "Model not loaded"
         "503":
-          description: ML Service no disponible (no corre en puerto 8000 o timeout)
+          description: ML Service no disponible (no corre o timeout > 60 s)
           content:
             application/json:
               schema:

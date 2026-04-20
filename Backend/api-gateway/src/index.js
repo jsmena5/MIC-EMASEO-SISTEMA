@@ -21,6 +21,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 
+// Cloudflare Tunnel actúa como proxy inverso — confiar en 1 nivel de proxy
+// elimina ERR_ERL_UNEXPECTED_X_FORWARDED_FOR de express-rate-limit y permite
+// que req.ip refleje la IP real del cliente (no la del túnel).
+app.set("trust proxy", 1)
+
 app.use(cors())
 app.use(morgan("dev"))
 app.use(globalLimiter)
@@ -83,18 +88,48 @@ app.post("/api/users/set-password", otpLimiter,          ...forwardPost("http://
 // ── Rutas PROTEGIDAS ──────────────────────────────────────────────────────────
 
 // Análisis de imagen: solo ciudadanos pueden reportar incidencias
-// on.proxyReq inyecta el user del JWT como headers HTTP al image-service
+// on.proxyReq inyecta el user del JWT como headers HTTP al image-service.
+// proxyTimeout/timeout en 120 s porque la primera inferencia del modelo ML
+// puede tardar 30-90 s en frío (carga de pesos en GPU/CPU).
 app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMiddleware({
   target: "http://localhost:5000",
   changeOrigin: true,
   pathRewrite: (path) => "/api/image" + path,
-  proxyTimeout: 60000,
-  timeout: 60000,
+  proxyTimeout: 120_000,
+  timeout: 120_000,
   on: {
     proxyReq: (proxyReq, req) => {
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+    error: (err, req, res) => {
+      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
+      }
+    },
+  },
+}))
+
+// Historial de incidentes del ciudadano autenticado — lee desde el image-service
+// Sin imageLimiter porque es una consulta de solo lectura (no consume el modelo ML)
+app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
+  target: "http://localhost:5000",
+  changeOrigin: true,
+  pathRewrite: (path) => "/api/incidents" + path,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.user) {
+        proxyReq.setHeader("x-user-id",  req.user.id)
+        proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+    error: (err, req, res) => {
+      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
       }
     },
   },

@@ -2,9 +2,11 @@ import express from "express"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import imageRoutes from "./routes/image.routes.js"
+import incidentRoutes from "./routes/incident.routes.js"
 
 const app = express()
 
+app.set("trust proxy", 1)
 app.use(cors())
 app.use(express.json({ limit: "50mb" }))
 
@@ -19,6 +21,7 @@ const imageLimiter = rateLimit({
 
 app.use("/api/image", imageLimiter)
 app.use("/api/image", imageRoutes)
+app.use("/api/incidents", incidentRoutes)
 
 app.listen(5000, () => {
   console.log("image-ms corriendo en puerto 5000")

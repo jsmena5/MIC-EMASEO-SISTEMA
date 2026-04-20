@@ -63,6 +63,15 @@ CLASS_TO_WASTE_TYPE: dict[str, str] = {
 }
 _WASTE_TYPE_FALLBACK = "OTRO"
 
+# Solo se aceptan detecciones cuya clase esté en este whitelist.
+# Cualquier clase que el modelo herede de COCO (person, dog, car, etc.)
+# se descarta antes de calcular cobertura y volumen.
+VALID_WASTE_CLASSES: frozenset[str] = frozenset(CLASS_TO_WASTE_TYPE.keys())
+
+# Umbral mínimo de confianza post-NMS. El modelo puede devolver cajas con
+# confianza >= conf_inference (0.40); este filtro adicional eleva el estándar.
+CONFIDENCE_THRESHOLD: float = 0.45
+
 
 def map_class_to_waste_type(class_name: str) -> str:
     """Traduce el nombre de clase del modelo al ENUM ai.waste_type de PostgreSQL."""
@@ -79,15 +88,35 @@ _BANDS = [
 ]
 
 
-def calcular_nivel_volumen_prioridad(coverage_ratio: float) -> dict:
-    """Estimación determinista: interpolación lineal del coverage_ratio dentro de cada banda."""
+def calcular_nivel_volumen_prioridad(
+    coverage_ratio: float,
+    num_detecciones: int = 1,
+    confianza_media: float = 1.0,
+) -> dict:
+    """Interpolación lineal dentro de cada banda, corregida por calidad de detección.
+
+    Se aplican dos factores de penalización para reducir falsos positivos de volumen:
+
+    conf_factor  — escala el coverage si la confianza media es baja.
+                   Alcanza 1.0 en confianza >= 0.70 (umbral de "detección firme").
+
+    det_factor   — penaliza fotos en primer plano con una sola detección.
+                   Con 1 caja recibe 0.60; con 2 recibe 0.80; con 3+ recibe 1.0.
+                   Esto evita que un único objeto grande infle el volumen estimado.
+
+    El 'effective_ratio' se usa solo para la heurística de volumen.
+    El 'coverage_ratio' original se devuelve en la respuesta sin modificar.
+    """
+    conf_factor = min(1.0, confianza_media / 0.70)
+    det_factor = min(1.0, 0.40 + 0.20 * num_detecciones)
+    effective_ratio = coverage_ratio * conf_factor * det_factor
+
     for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-        if coverage_ratio < c_max or c_max == 1.00:
-            t = (coverage_ratio - c_min) / (c_max - c_min)
-            t = max(0.0, min(1.0, t))  # clamp por seguridad
+        if effective_ratio < c_max or c_max == 1.00:
+            t = (effective_ratio - c_min) / (c_max - c_min)
+            t = max(0.0, min(1.0, t))
             volumen = round(v_min + t * (v_max - v_min), 2)
             return {"nivel": nivel, "prioridad": prioridad, "volumen": volumen}
-    # Nunca debería llegar aquí, pero devuelve el caso crítico máximo
     return {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
 
 
@@ -140,10 +169,12 @@ def predict(req: PredictRequest):
     # 2. Inferencia
     model = get_model()
     t_start = time.time()
-    results = model.predict(img, conf=0.25, verbose=False)
+    # conf=0.40: primer filtro NMS en el modelo (más estricto que el 0.25 por defecto).
+    # El segundo filtro (CONFIDENCE_THRESHOLD=0.45) se aplica en el bucle de abajo.
+    results = model.predict(img, conf=0.40, verbose=False)
     tiempo_ms = int((time.time() - t_start) * 1000)
 
-    # 3. Procesar detecciones
+    # 3. Procesar detecciones — doble filtro: whitelist de clases + confianza mínima
     detecciones = []
     total_bbox_area = 0.0
 
@@ -152,9 +183,17 @@ def predict(req: PredictRequest):
         names = results[0].names  # dict {0: 'plastico', 1: 'escombros', ...}
         if boxes is not None and len(boxes) > 0:
             for box in boxes:
-                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                conf = float(box.conf[0])
                 class_name = names[int(box.cls[0])]
+                conf = float(box.conf[0])
+
+                # Descarta clases irrelevantes (perros, personas, coches, etc.)
+                if class_name.lower() not in VALID_WASTE_CLASSES:
+                    continue
+                # Descarta detecciones de baja confianza tras NMS
+                if conf < CONFIDENCE_THRESHOLD:
+                    continue
+
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 bbox_area = (x2 - x1) * (y2 - y1)
                 total_bbox_area += bbox_area
                 detecciones.append({
@@ -178,8 +217,8 @@ def predict(req: PredictRequest):
     else:
         tipo_residuo = "OTRO"
 
-    # 6. Heurística: nivel, volumen, prioridad
-    metricas = calcular_nivel_volumen_prioridad(coverage_ratio)
+    # 6. Heurística: nivel, volumen, prioridad (con corrección por calidad)
+    metricas = calcular_nivel_volumen_prioridad(coverage_ratio, num_detecciones, confianza)
 
     # 0 detecciones → nivel mínimo, volumen 0
     if num_detecciones == 0:

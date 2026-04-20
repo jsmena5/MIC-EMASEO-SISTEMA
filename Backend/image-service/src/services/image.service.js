@@ -118,8 +118,11 @@ export const validateImage = async (req, res) => {
 
 // ── Endpoint principal: análisis ML + creación de incidente ──────────────────
 export const analyzeImage = async (req, res) => {
+  const reqStart = Date.now()
   const { image, latitude, longitude, descripcion = "" } = req.body
   const userId = req.headers["x-user-id"]
+
+  console.log(`[image-service] ▶ analyzeImage userId=${userId} lat=${latitude} lon=${longitude} imageBytes=${image?.length ?? 0}`)
 
   // Validación de campos requeridos
   if (!image) {
@@ -144,6 +147,7 @@ export const analyzeImage = async (req, res) => {
     return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
   }
 
+  console.log(`[image-service] [+${Date.now()-reqStart}ms] Iniciando upload a MinIO — bucket=${BUCKET} key=${s3Key} size=${buffer.length}B`)
   try {
     await s3.send(
       new PutObjectCommand({
@@ -153,12 +157,14 @@ export const analyzeImage = async (req, res) => {
         ContentType: "image/jpeg",
       })
     )
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Upload MinIO completado`)
   } catch (err) {
-    console.error("[image-service] Error al subir imagen a S3:", err.message)
+    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al subir imagen a S3: code=${err.Code ?? err.code} msg=${err.message}`)
     return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
   }
 
   // 2. Llamar al microservicio Python de inferencia
+  console.log(`[image-service] [+${Date.now()-reqStart}ms] Llamando ML Service → ${ML_SERVICE_URL}`)
   let mlResult
   try {
     const mlResponse = await fetch(ML_SERVICE_URL, {
@@ -169,8 +175,9 @@ export const analyzeImage = async (req, res) => {
         image_width: 1280,
         image_height: 960,
       }),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(110_000),
     })
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] ML Service respondió HTTP ${mlResponse.status}`)
 
     if (!mlResponse.ok) {
       const errText = await mlResponse.text()
@@ -179,23 +186,27 @@ export const analyzeImage = async (req, res) => {
     }
 
     mlResult = await mlResponse.json()
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ ML inference ok nivel=${mlResult.nivel_acumulacion} t=${mlResult.tiempo_inferencia_ms}ms`)
   } catch (err) {
     if (err.name === "AbortError" || err.code === "ECONNREFUSED" || err.code === "UND_ERR_CONNECT_TIMEOUT") {
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ ML Service no disponible: code=${err.code ?? err.name}`)
       return res.status(503).json({
         error: "Servicio de análisis no disponible.",
         detail: "Asegúrate de que el ML Service esté corriendo en el puerto 8000.",
       })
     }
-    console.error("[image-service] Error al llamar ML Service:", err.message)
+    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al llamar ML Service: ${err.message}`)
     return res.status(503).json({ error: "Servicio de análisis no disponible.", detail: err.message })
   }
 
   // 3. Transacción en base de datos
+  console.log(`[image-service] [+${Date.now()-reqStart}ms] Adquiriendo conexión DB…`)
   const client = await pool.connect()
   let incidentId, zonaId
 
   try {
     await client.query("BEGIN")
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] DB BEGIN ok`)
 
     // a) Crear incidente
     const incidentResult = await client.query(
@@ -235,9 +246,10 @@ export const analyzeImage = async (req, res) => {
     )
 
     await client.query("COMMIT")
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ DB COMMIT ok incidentId=${incidentId}`)
   } catch (dbErr) {
     await client.query("ROLLBACK")
-    console.error("[image-service] Error en transacción DB:", dbErr.message)
+    console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error en transacción DB: ${dbErr.message}`)
     // Limpiar imagen en S3 si la DB falló
     try {
       await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
@@ -250,6 +262,7 @@ export const analyzeImage = async (req, res) => {
   }
 
   // 4. Respuesta exitosa
+  console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ analyzeImage completado incidentId=${incidentId}`)
   return res.status(201).json({
     success: true,
     incident_id: incidentId,
@@ -265,4 +278,41 @@ export const analyzeImage = async (req, res) => {
     estado: "PENDIENTE",
     message: "Incidente registrado exitosamente.",
   })
+}
+
+// ── Historial de incidentes del usuario autenticado ───────────────────────────
+export const getMyIncidents = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  if (!userId) {
+    return res.status(401).json({ error: "No se pudo identificar al usuario." })
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         i.id,
+         i.estado,
+         i.prioridad,
+         i.descripcion,
+         i.created_at,
+         ii.image_url,
+         ar.nivel_acumulacion,
+         ar.tipo_residuo,
+         ar.confianza,
+         jsonb_array_length(ar.detecciones) AS num_detecciones
+       FROM incidents.incidents i
+       LEFT JOIN incidents.incident_images ii
+         ON ii.incident_id = i.id AND ii.es_principal = TRUE
+       LEFT JOIN ai.analysis_results ar
+         ON ar.incident_id = i.id
+       WHERE i.reportado_por = $1
+       ORDER BY i.created_at DESC
+       LIMIT 50`,
+      [userId]
+    )
+    return res.json({ incidents: result.rows })
+  } catch (err) {
+    console.error("[image-service] getMyIncidents error:", err.message)
+    return res.status(500).json({ error: "Error al obtener el historial de incidentes." })
+  }
 }
