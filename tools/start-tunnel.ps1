@@ -10,7 +10,7 @@ Write-Host "Esperando URL del tunel..." -ForegroundColor Yellow
 
 if (Test-Path $LOG_FILE) { Remove-Item $LOG_FILE }
 
-$process = Start-Process -FilePath "cloudflared" `
+$process = Start-Process -FilePath "C:\cloudflared\cloudflared.exe" `
     -ArgumentList "tunnel --url http://localhost:$PORT" `
     -RedirectStandardError $LOG_FILE `
     -NoNewWindow -PassThru

@@ -3,6 +3,9 @@ import express from "express"
 import cors from "cors"
 import rateLimit from "express-rate-limit"
 import userRoutes from "./routes/user.routes.js"
+import operariosRoutes from "./routes/operarios.routes.js"
+
+import supervisorRoutes from "./routes/supervisor.routes.js"
 
 const app = express()
 
@@ -20,6 +23,9 @@ const registerLimiter = rateLimit({
 
 app.use("/api/users/register", registerLimiter)
 app.use("/api/users", userRoutes)
+app.use("/api/users", operariosRoutes)
+app.use("/api/users", supervisorRoutes)
+
 
 app.listen(3000, () => {
   console.log("Users service running on port 3000")
