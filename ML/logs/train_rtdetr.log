@@ -1,0 +1,38 @@
+2026-04-25 07:05:23  INFO      ─── Inicio del pipeline de entrenamiento EMASEO ───
+2026-04-25 07:05:46  INFO      GPU      : NVIDIA GeForce RTX 3050 6GB Laptop GPU
+2026-04-25 07:05:46  INFO      VRAM     : 6.44 GB  (disponible al inicio)
+2026-04-25 07:05:46  INFO      CUDA CC  : 8.6
+2026-04-25 07:05:46  INFO      Perfil   : RTX 3050 6 GB — batch=2 + AMP + nbs=16 activos
+2026-04-25 07:05:46  INFO      Tiempo   : ~40-80 min/época dependiendo de la velocidad del disco
+2026-04-25 07:05:46  INFO      Dataset  : dataset/data_v2.yaml  ✓
+2026-04-25 07:06:05  INFO      ================================================================
+2026-04-25 07:06:05  INFO        RT-DETR-L  |  EMASEO EP  |  Detección de Residuos v2
+2026-04-25 07:06:05  INFO      ================================================================
+2026-04-25 07:06:05  INFO        epochs=50  batch=2  nbs=16  amp=True
+2026-04-25 07:06:05  INFO        workers=4  cache=False  patience=15
+2026-04-25 07:06:05  INFO        hsv_s=0.7  copy_paste=0.3  imgsz=640
+2026-04-25 07:06:05  INFO      ================================================================
+2026-04-25 07:06:05  INFO      Cargando pesos preentrenados rtdetr-l.pt ...
+2026-04-25 07:06:35  INFO      Iniciando entrenamiento ...
+2026-04-25 09:11:42  INFO      ─── Inicio del pipeline de entrenamiento EMASEO ───
+2026-04-25 09:11:45  INFO      GPU      : NVIDIA GeForce RTX 3050 6GB Laptop GPU
+2026-04-25 09:11:45  INFO      VRAM     : 6.44 GB  (disponible al inicio)
+2026-04-25 09:11:45  INFO      CUDA CC  : 8.6
+2026-04-25 09:11:45  INFO      Perfil   : RTX 3050 6 GB — batch=2 + AMP + nbs=16 activos
+2026-04-25 09:11:45  INFO      Tiempo   : ~40-80 min/época dependiendo de la velocidad del disco
+2026-04-25 09:11:45  INFO      Dataset  : dataset/data_v2.yaml  ✓
+2026-04-25 09:11:46  INFO      ================================================================
+2026-04-25 09:11:46  INFO        RT-DETR-L  |  EMASEO EP  |  Detección de Residuos v3 (FP32)
+2026-04-25 09:11:46  INFO      ================================================================
+2026-04-25 09:11:46  INFO        epochs=50  batch=2  nbs=16  amp=False  [FP32]
+2026-04-25 09:11:46  INFO        lr0=0.00005  workers=4  cache=False  patience=15
+2026-04-25 09:11:46  INFO        hsv_s=0.7  copy_paste=0.3  imgsz=640
+2026-04-25 09:11:46  INFO      ================================================================
+2026-04-25 09:11:46  INFO      Cargando pesos preentrenados rtdetr-l.pt ...
+2026-04-25 09:11:46  INFO      Iniciando entrenamiento ...
+2026-04-28 08:40:45  INFO      Entrenamiento completado en 71.48 h
+2026-04-28 08:40:45  WARNING   No se encontró best.pt en runs\train\rtdetr_l_garbage_v3\weights\best.pt  — omitiendo evaluación.
+2026-04-28 08:40:45  INFO      VRAM al terminar — asignada: 0.07 GB  |  reservada: 1.21 GB
+2026-04-28 08:40:45  INFO      Pesos finales  : runs\train\rtdetr_l_garbage_v3\weights\best.pt
+2026-04-28 08:40:45  INFO      Sube best.pt a Google Drive / emaseo_modelos / rtdetr_l_v3_best.pt
+2026-04-28 08:40:45  INFO      ─── Pipeline completado ───

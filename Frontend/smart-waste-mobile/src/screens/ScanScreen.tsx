@@ -344,7 +344,6 @@ export default function ScanScreen() {
 
   // ── Camera view ────────────────────────────────────────────────────────────
   const isReady = phase === "ready"
-  const bracketColor = isReady ? colors.secondary : "rgba(255,255,255,0.75)"
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -384,31 +383,41 @@ export default function ScanScreen() {
           <View style={styles.overlaySide} />
 
           {/* Transparent frame window */}
-          <Animated.View style={[styles.frame, frameStyle]}>
-            {/* Corner brackets */}
-            <Bracket pos="tl" color={bracketColor} />
-            <Bracket pos="tr" color={bracketColor} />
-            <Bracket pos="bl" color={bracketColor} />
-            <Bracket pos="br" color={bracketColor} />
+          <Animated.View style={[styles.frameWrapper, frameStyle]}>
+            {/* Dashed guide border */}
+            <View style={styles.frameDash} pointerEvents="none" />
 
-            {/* Scan line (scanning phase only) */}
-            {phase === "scanning" && (
-              <Animated.View style={[styles.scanLine, scanStyle]} />
-            )}
+            {/* Green scanner corners — always visible */}
+            <Bracket pos="tl" color="#00E676" />
+            <Bracket pos="tr" color="#00E676" />
+            <Bracket pos="bl" color="#00E676" />
+            <Bracket pos="br" color="#00E676" />
 
-            {/* Capture flash ring when ready */}
-            {isReady && (
-              <Animated.View
-                entering={FadeIn.delay(100)}
-                style={[styles.glowRing, { borderColor: colors.secondary }]}
-              />
-            )}
+            {/* Inner clip area — contains moving animations only */}
+            <View style={styles.frameClip}>
+              {phase === "scanning" && (
+                <Animated.View style={[styles.scanLine, scanStyle]} />
+              )}
+              {isReady && (
+                <Animated.View
+                  entering={FadeIn.delay(100)}
+                  style={[styles.glowRing, { borderColor: colors.secondary }]}
+                />
+              )}
+            </View>
           </Animated.View>
 
           <View style={styles.overlaySide} />
         </View>
 
         <View style={styles.overlayBottom}>
+          {/* Distance instruction anchored right below the frame */}
+          <View style={styles.instructionPill}>
+            <Text style={styles.instructionText}>
+              Tome la foto a 2 metros de distancia
+            </Text>
+          </View>
+
           {/* Hints */}
           <View style={styles.hintRow}>
             <HintChip icon="resize-outline" label="1–2 metros del área" />
@@ -645,15 +654,48 @@ const styles = StyleSheet.create({
   },
 
   // Frame (transparent window)
-  frame: {
+  frameWrapper: {
     width: FRAME,
     height: FRAME,
+  },
+  frameDash: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "rgba(255,255,255,0.4)",
+    borderRadius: 4,
+  },
+  frameClip: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     overflow: "hidden",
   },
   bracketWrap: {
     position: "absolute",
     width: BRACKET + 4,
     height: BRACKET + 4,
+  },
+  // Distance instruction pill
+  instructionPill: {
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginBottom: 14,
+  },
+  instructionText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    letterSpacing: 0.2,
   },
 
   // Scan line

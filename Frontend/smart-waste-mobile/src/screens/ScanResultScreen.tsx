@@ -47,6 +47,15 @@ export default function ScanResultScreen() {
         <Text style={styles.headerSub}>Reporte #{shortId}</Text>
       </View>
 
+      {/* Aviso de penalización por foto muy cercana */}
+      {result.scale_penalty_applied && (
+        <View style={styles.penaltyBanner}>
+          <Text style={styles.penaltyText}>
+            ⚠️ Aviso: La foto parece tomada muy de cerca y la prioridad fue ajustada. Para la próxima, use el marco guía de la cámara.
+          </Text>
+        </View>
+      )}
+
       {/* Minimapa — ubicación del reporte */}
       <View style={styles.mapCard}>
         <MapView
@@ -236,5 +245,21 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 16,
     fontWeight: "600",
+  },
+  penaltyBanner: {
+    backgroundColor: "#FEF9C3",
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    borderRadius: 10,
+    padding: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: "#EAB308",
+  },
+  penaltyText: {
+    color: "#713F12",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
   },
 })

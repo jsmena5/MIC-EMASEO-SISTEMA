@@ -57,16 +57,94 @@ services:
       "
     restart: on-failure
 
-  # ── 4. Microservicios de backend (añadir aquí cuando se dockericen) ───────────
-  # image-service:
-  #   build: ./Backend/image-service
-  #   container_name: emaseo-image-service
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     minio:
-  #       condition: service_healthy
+  # ── 4. Redis — Broker + Result Backend para Celery ────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: emaseo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── 5. ML API — Gunicorn + UvicornWorkers (I/O-bound, sin GPU) ───────────────
+  ml-api:
+    build:
+      context: ./Backend/ml-service
+    container_name: emaseo-ml-api
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DUMMY_MODE: "true"
+      UPLOADS_DIR: /app/uploads
+      # GUNICORN_WORKERS: 5   # override manual; por defecto = (2×cores)+1
+    volumes:
+      - shared_uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Gunicorn lanza (2×cores)+1 UvicornWorkers — acepta miles de conexiones HTTP.
+    # En desarrollo local reemplaza este comando por:
+    #   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    command: gunicorn main:app -c gunicorn.conf.py
+
+  # ── 6. Celery Worker — inferencia GPU (1 proceso = 1 GPU slot) ───────────────
+  #
+  # ESCALADO HORIZONTAL:
+  #   docker compose up --scale ml-worker=N
+  #   Cada réplica ocupa 1 GPU completa. Requiere N GPUs en el host.
+  #   Con una sola RTX 3050 usa siempre N=1.
+  #
+  # Requisito GPU: NVIDIA Container Toolkit instalado en el host.
+  # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+  ml-worker:
+    build:
+      context: ./Backend/ml-service
+    # Sin container_name: permite múltiples réplicas con --scale ml-worker=N
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DUMMY_MODE: "true"
+      UPLOADS_DIR: /app/uploads
+      # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt  # descomentar con modelo real
+    volumes:
+      - shared_uploads:/app/uploads
+      - ./ML/modelos:/app/models:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    # worker_concurrency y prefetch_multiplier vienen de celery_app.py (ambos = 1)
+    command: celery -A celery_app worker --loglevel=info
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── 7. Flower — dashboard de tareas Celery ────────────────────────────────────
+  flower:
+    image: mher/flower:2.0
+    container_name: emaseo-flower
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
 
 volumes:
   postgres_data:
   minio_data:
+  redis_data:
+  # Volumen compartido entre ml-api (escribe) y ml-worker (lee + elimina)
+  # Docker gestiona el ciclo de vida; los archivos viven solo durante la inferencia.
+  shared_uploads:

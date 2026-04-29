@@ -21,8 +21,17 @@ export default function LoginScreen({ navigation }: Props) {
     try {
       await loginUser({ email, password })
       navigation.navigate("Home")
-    } catch {
-      Alert.alert("Error", "Credenciales incorrectas")
+    } catch (err: any) {
+      const status  = err?.response?.status
+      const message = err?.response?.data?.message
+
+      if (!err?.response) {
+        Alert.alert("Error de red", `No se pudo conectar al servidor.\n\n${err?.message ?? ""}`)
+      } else if (status === 401 || status === 403) {
+        Alert.alert("Acceso denegado", message ?? "Credenciales incorrectas")
+      } else {
+        Alert.alert("Error", `(${status}) ${message ?? err?.message}`)
+      }
     }
   }
 

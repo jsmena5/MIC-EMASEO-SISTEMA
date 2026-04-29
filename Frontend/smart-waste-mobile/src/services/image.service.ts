@@ -26,6 +26,7 @@ export interface AnalysisResult {
   tiempo_inferencia_ms: number
   estado: string
   message: string
+  scale_penalty_applied?: boolean
 }
 
 export interface Incident {
