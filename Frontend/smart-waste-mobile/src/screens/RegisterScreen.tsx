@@ -21,6 +21,8 @@ import Reanimated, {
   withSequence,
   withSpring,
 } from "react-native-reanimated"
+import BackButton from "../components/BackButton"
+import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -54,24 +56,6 @@ type FormField = "nombre" | "apellido" | "cedula" | "email"
 type FormType = Record<FormField, string>
 type ErrorType = Partial<Record<FormField, string>>
 
-// --- Componente: Barra de Progreso Animada ---
-function ProgressBar({ step, total }: { step: number; total: number }) {
-  return (
-    <View style={styles.progressContainer}>
-      {Array.from({ length: total }).map((_, i) => (
-        <View
-          key={i}
-          style={[
-            styles.progressSegment,
-            { backgroundColor: i < step ? colors.secondary : colors.lightGray },
-            i < total - 1 && { marginRight: 6 },
-          ]}
-        />
-      ))}
-    </View>
-  )
-}
-
 // --- Componente: Input con foco animado y error inline ---
 interface AnimatedInputProps {
   label: string
@@ -88,6 +72,7 @@ interface AnimatedInputProps {
   // RefObject<TextInput | null>, no RefObject<TextInput>.
   inputRef?: React.RefObject<TextInput | null>
   autoCorrect?: boolean
+  accessibilityHint?: string
 }
 
 // FIX 3: memo() evita que AnimatedInput se re-renderice cuando el padre
@@ -106,6 +91,7 @@ const AnimatedInput = memo(function AnimatedInput({
   onSubmitEditing,
   inputRef,
   autoCorrect = false,
+  accessibilityHint,
 }: AnimatedInputProps) {
   const borderColor = useRef(new Animated.Value(0)).current
   const shakeX = useSharedValue(0)
@@ -161,6 +147,9 @@ const AnimatedInput = memo(function AnimatedInput({
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
             submitBehavior="submit"
+            accessibilityLabel={label}
+            accessibilityRole="none"
+            accessibilityHint={accessibilityHint}
           />
         </Animated.View>
       </Reanimated.View>
@@ -268,16 +257,9 @@ export default function RegisterScreen({ navigation }: Props) {
         >
           {/* Cabecera */}
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              style={styles.backButton}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Text style={styles.backButtonText}>← Atrás</Text>
-            </TouchableOpacity>
+            <BackButton onPress={() => navigation.goBack()} />
             <Text style={styles.title}>Crear Cuenta</Text>
-            <Text style={styles.subtitle}>Paso 1 de 3 — Datos personales</Text>
-            <ProgressBar step={1} total={3} />
+            <ProgressBar currentStep={1} totalSteps={3} />
           </View>
 
           {/* Campos — onChangeText recibe handlers estables para que memo() funcione */}
@@ -289,6 +271,7 @@ export default function RegisterScreen({ navigation }: Props) {
             onChangeText={handleNombreChange}
             returnKeyType="next"
             onSubmitEditing={() => apellidoRef.current?.focus()}
+            accessibilityHint="Ingresa tu nombre como aparece en tu cédula"
           />
 
           <AnimatedInput
@@ -300,6 +283,7 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={apellidoRef}
             returnKeyType="next"
             onSubmitEditing={() => cedulaRef.current?.focus()}
+            accessibilityHint="Ingresa tu apellido como aparece en tu cédula"
           />
 
           <AnimatedInput
@@ -314,6 +298,7 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={cedulaRef}
             returnKeyType="next"
             onSubmitEditing={() => emailRef.current?.focus()}
+            accessibilityHint="10 dígitos, debe ser una cédula ecuatoriana válida"
           />
 
           <AnimatedInput
@@ -327,6 +312,7 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={emailRef}
             returnKeyType="done"
             onSubmitEditing={handleContinuar}
+            accessibilityHint="Recibirás un código de verificación en este correo"
           />
 
           {/* Botón con micro-interacción de escala */}
@@ -338,6 +324,10 @@ export default function RegisterScreen({ navigation }: Props) {
                 styles.button,
                 (pressed || loading) && styles.buttonPressed,
               ]}
+              accessibilityRole="button"
+              accessibilityLabel="Continuar al siguiente paso"
+              accessibilityHint="Valida tus datos y avanza al paso 2 de 3"
+              accessibilityState={{ disabled: loading, busy: loading }}
             >
               {loading
                 ? <ActivityIndicator color={colors.white} />
@@ -349,6 +339,9 @@ export default function RegisterScreen({ navigation }: Props) {
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             hitSlop={{ top: 12, bottom: 12, left: 0, right: 0 }}
+            accessibilityRole="button"
+            accessibilityLabel="Iniciar sesión en cuenta existente"
+            accessibilityHint="Navega a la pantalla de inicio de sesión"
           >
             <Text style={styles.loginLink}>
               ¿Ya tienes cuenta? <Text style={{ fontWeight: "700" }}>Inicia sesión</Text>
@@ -384,20 +377,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.primary,
     marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: colors.gray,
-    marginBottom: 12,
-  },
-  progressContainer: {
-    flexDirection: "row",
-    height: 4,
-  },
-  progressSegment: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
   },
   fieldWrapper: {
     marginBottom: 16,
@@ -451,15 +430,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     textAlign: "center",
     color: colors.primary,
-    fontSize: 14,
-  },
-  backButton: {
-    alignSelf: "flex-start",
-    marginBottom: 12,
-  },
-  backButtonText: {
-    color: colors.primary,
-    fontWeight: "600",
     fontSize: 14,
   },
 })

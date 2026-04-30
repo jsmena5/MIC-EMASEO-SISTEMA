@@ -14,9 +14,15 @@ export default function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
 
+  const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
   const handleLogin = async () => {
     if (!email || !password) {
       return Alert.alert("Campos requeridos", "Por favor ingresa tu email y contraseña.")
+    }
+
+    if (!EMAIL_REGEX.test(email)) {
+      return Alert.alert("Correo inválido", "Por favor, ingresa un correo electrónico válido.")
     }
 
     setLoading(true)
@@ -63,30 +69,50 @@ export default function LoginScreen({ navigation }: Props) {
           keyboardType="email-address"
           autoCapitalize="none"
           editable={!loading}
+          accessibilityLabel="Campo de correo electrónico"
+          accessibilityRole="none"
+          accessibilityHint="Ingresa tu dirección de correo electrónico registrada en EMASEO"
         />
 
         <TextInput
           style={globalStyles.input}
-          placeholder="Password"
+          placeholder="Contraseña"
           secureTextEntry
           value={password}
           onChangeText={setPassword}
           editable={!loading}
+          accessibilityLabel="Campo de contraseña"
+          accessibilityRole="none"
+          accessibilityHint="Ingresa tu contraseña de acceso"
         />
 
         <ButtonPrimary
           label="Ingresar"
           onPress={handleLogin}
           loading={loading}
+          accessibilityLabel="Botón de iniciar sesión"
+          accessibilityHint="Inicia sesión en tu cuenta de EMASEO"
         />
 
-        <TouchableOpacity onPress={() => navigation.navigate("Register")} disabled={loading}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Register")}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Crear una cuenta nueva"
+          accessibilityHint="Navega a la pantalla de registro de EMASEO"
+        >
           <Text style={{ marginTop: 15, textAlign: "center" }}>
             Crear cuenta
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("ForgotPassword")} disabled={loading}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("ForgotPassword")}
+          disabled={loading}
+          accessibilityRole="button"
+          accessibilityLabel="Recuperar contraseña olvidada"
+          accessibilityHint="Navega a la pantalla de recuperación de contraseña"
+        >
           <Text style={{ marginTop: 10, textAlign: "center", color: "#005BAC" }}>
             ¿Olvidaste tu contraseña?
           </Text>

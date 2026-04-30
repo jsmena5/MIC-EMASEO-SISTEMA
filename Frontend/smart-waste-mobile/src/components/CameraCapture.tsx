@@ -12,19 +12,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native"
-import Animated, {
-  Easing,
-  FadeIn,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated"
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 
 import { colors } from "../theme/colors"
+import ScanOverlay from "./ScanOverlay"
 
 type ScanPhase = "scanning" | "ready"
 
@@ -35,11 +26,8 @@ export interface CameraCaptureProps {
   onBack?: () => void
 }
 
-const { width: SW, height: SH } = Dimensions.get("window")
+const { width: SW } = Dimensions.get("window")
 const FRAME = Math.min(SW * 0.78, 300)
-const BRACKET = 30
-const THICKNESS = 4
-const OVERLAY_V = (SH - FRAME) / 2 - 60
 
 // ─── Public component ────────────────────────────────────────────────────────
 
@@ -48,41 +36,13 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
   const [phase, setPhase] = useState<ScanPhase>("scanning")
   const [capturing, setCapturing] = useState(false)
 
-  const scanY = useSharedValue(0)
-  const frameScale = useSharedValue(1)
-  const frameGlow = useSharedValue(0)
-
   useEffect(() => {
-    startScanLine()
-    startCornerPulse()
-    const t = setTimeout(transitionToReady, 2600)
+    const t = setTimeout(() => {
+      setPhase("ready")
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    }, 2600)
     return () => clearTimeout(t)
   }, [])
-
-  const startScanLine = () => {
-    scanY.value = 0
-    scanY.value = withRepeat(
-      withSequence(
-        withTiming(FRAME - 2, { duration: 1700, easing: Easing.inOut(Easing.sin) }),
-        withTiming(0, { duration: 1700, easing: Easing.inOut(Easing.sin) }),
-      ),
-      -1,
-    )
-  }
-
-  const startCornerPulse = () => {
-    frameScale.value = withRepeat(
-      withSequence(withTiming(1.03, { duration: 900 }), withTiming(1, { duration: 900 })),
-      -1,
-    )
-  }
-
-  const transitionToReady = () => {
-    setPhase("ready")
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    frameScale.value = withSequence(withTiming(1.06, { duration: 180 }), withSpring(1))
-    frameGlow.value = withTiming(1, { duration: 400 })
-  }
 
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return
@@ -98,8 +58,6 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
     }
   }
 
-  const scanStyle = useAnimatedStyle(() => ({ transform: [{ translateY: scanY.value }] }))
-  const frameStyle = useAnimatedStyle(() => ({ transform: [{ scale: frameScale.value }] }))
   const isReady = phase === "ready"
 
   return (
@@ -131,41 +89,13 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
         </Text>
       </Animated.View>
 
-      {/* ── Dark overlay with transparent window ── */}
-      <View style={styles.overlayTop} />
-      <View style={styles.overlayRow}>
-        <View style={styles.overlaySide} />
-
-        <Animated.View style={[styles.frameWrapper, frameStyle]}>
-          <View style={styles.frameDash} pointerEvents="none" />
-
-          <Bracket pos="tl" color="#00E676" />
-          <Bracket pos="tr" color="#00E676" />
-          <Bracket pos="bl" color="#00E676" />
-          <Bracket pos="br" color="#00E676" />
-
-          <View style={styles.frameClip}>
-            {phase === "scanning" && (
-              <Animated.View style={[styles.scanLine, scanStyle]} />
-            )}
-            {isReady && (
-              <Animated.View
-                entering={FadeIn.delay(100)}
-                style={[styles.glowRing, { borderColor: colors.secondary }]}
-              />
-            )}
-          </View>
-        </Animated.View>
-
-        <View style={styles.overlaySide} />
-      </View>
+      {/* ── Dark cutout overlay with frame and brackets ── */}
+      <ScanOverlay scanning={!isReady} />
 
       {/* ── Bottom controls ── */}
-      <View style={styles.overlayBottom}>
+      <View style={styles.bottomControls}>
         <View style={styles.instructionPill}>
-          <Text style={styles.instructionText}>
-            Tome la foto a 2 metros de distancia
-          </Text>
+          <Text style={styles.instructionText}>Tome la foto a 2 metros de distancia</Text>
         </View>
 
         <View style={styles.hintRow}>
@@ -209,38 +139,6 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
       </View>
 
     </ExpoCameraView>
-  )
-}
-
-// ─── Corner bracket ──────────────────────────────────────────────────────────
-
-function Bracket({ pos, color }: { pos: "tl" | "tr" | "bl" | "br"; color: string }) {
-  const isTop = pos === "tl" || pos === "tr"
-  const isLeft = pos === "tl" || pos === "bl"
-
-  return (
-    <View
-      style={[
-        styles.bracketWrap,
-        isTop ? { top: 0 } : { bottom: 0 },
-        isLeft ? { left: 0 } : { right: 0 },
-      ]}
-    >
-      <View style={{
-        position: "absolute",
-        [isTop ? "top" : "bottom"]: 0,
-        [isLeft ? "left" : "right"]: 0,
-        width: BRACKET, height: THICKNESS,
-        backgroundColor: color, borderRadius: 2,
-      }} />
-      <View style={{
-        position: "absolute",
-        [isTop ? "top" : "bottom"]: 0,
-        [isLeft ? "left" : "right"]: 0,
-        width: THICKNESS, height: BRACKET,
-        backgroundColor: color, borderRadius: 2,
-      }} />
-    </View>
   )
 }
 
@@ -295,37 +193,13 @@ const styles = StyleSheet.create({
   dotGreen: { backgroundColor: colors.secondary },
   statusText: { color: "#fff", fontSize: 13, fontWeight: "600", letterSpacing: 0.2 },
 
-  overlayTop: { height: OVERLAY_V, backgroundColor: "rgba(0,0,0,0.62)" },
-  overlayRow: { flexDirection: "row", height: FRAME },
-  overlaySide: { flex: 1, backgroundColor: "rgba(0,0,0,0.62)" },
-  overlayBottom: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.62)",
+  bottomControls: {
+    position: "absolute",
+    bottom: 0, left: 0, right: 0,
+    // aligns with the bottom of the frame window (OVERLAY_V + FRAME from top)
+    top: (Dimensions.get("window").height - FRAME) / 2 - 60 + FRAME,
+    backgroundColor: "rgba(0,0,0,0.62)",
     paddingTop: 20, alignItems: "center",
-  },
-
-  frameWrapper: { width: FRAME, height: FRAME },
-  frameDash: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    borderWidth: 1.5, borderStyle: "dashed",
-    borderColor: "rgba(255,255,255,0.4)", borderRadius: 4,
-  },
-  frameClip: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    overflow: "hidden",
-  },
-  bracketWrap: {
-    position: "absolute", width: BRACKET + 4, height: BRACKET + 4,
-  },
-
-  scanLine: {
-    position: "absolute", left: 0, right: 0, height: 2,
-    backgroundColor: colors.secondary, opacity: 0.8,
-    shadowColor: colors.secondary, shadowOpacity: 1,
-    shadowRadius: 6, shadowOffset: { width: 0, height: 0 }, elevation: 4,
-  },
-  glowRing: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    borderWidth: 2, borderRadius: 4,
   },
 
   instructionPill: {

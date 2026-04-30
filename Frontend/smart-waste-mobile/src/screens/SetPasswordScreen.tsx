@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   View
 } from "react-native"
+import BackButton from "../components/BackButton"
+import LinkButton from "../components/LinkButton"
+import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { setPassword } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -56,20 +59,12 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
     <View style={globalStyles.container}>
       <View style={[globalStyles.card, { borderRadius: 20 }]}>
 
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignSelf: "flex-start", marginBottom: 12 }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>← Atrás</Text>
-        </TouchableOpacity>
+        <BackButton onPress={() => navigation.goBack()} />
 
-        <Text style={[globalStyles.title, { marginBottom: 4 }]}>
+        <Text style={[globalStyles.title, { marginBottom: 12 }]}>
           Crear Contraseña
         </Text>
-        <Text style={{ color: colors.gray, marginBottom: 24, fontSize: 13 }}>
-          Paso 3 de 3 — Elige una contraseña segura
-        </Text>
+        <ProgressBar currentStep={3} totalSteps={3} />
 
         <Text style={{ color: colors.black, marginBottom: 4 }}>Nueva contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
@@ -80,8 +75,17 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             secureTextEntry={!showPass}
             onChangeText={setPasswordValue}
             value={password}
+            accessibilityLabel="Campo de nueva contraseña"
+            accessibilityRole="none"
+            accessibilityHint="Mínimo 6 caracteres"
           />
-          <TouchableOpacity onPress={() => setShowPass(!showPass)} style={{ marginLeft: 10 }}>
+          <TouchableOpacity
+            onPress={() => setShowPass(!showPass)}
+            style={{ marginLeft: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+            accessibilityHint={showPass ? "Oculta los caracteres de la contraseña" : "Muestra los caracteres de la contraseña"}
+          >
             <Text style={{ fontSize: 18 }}>{showPass ? "🙈" : "👁"}</Text>
           </TouchableOpacity>
         </View>
@@ -95,8 +99,17 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             secureTextEntry={!showConfirm}
             onChangeText={setConfirm}
             value={confirm}
+            accessibilityLabel="Campo de confirmación de contraseña"
+            accessibilityRole="none"
+            accessibilityHint="Repite la contraseña ingresada arriba"
           />
-          <TouchableOpacity onPress={() => setShowConfirm(!showConfirm)} style={{ marginLeft: 10 }}>
+          <TouchableOpacity
+            onPress={() => setShowConfirm(!showConfirm)}
+            style={{ marginLeft: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={showConfirm ? "Ocultar confirmación de contraseña" : "Mostrar confirmación de contraseña"}
+            accessibilityHint={showConfirm ? "Oculta los caracteres de confirmación" : "Muestra los caracteres de confirmación"}
+          >
             <Text style={{ fontSize: 18 }}>{showConfirm ? "🙈" : "👁"}</Text>
           </TouchableOpacity>
         </View>
@@ -108,6 +121,10 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             globalStyles.button,
             { borderRadius: 12, opacity: pressed || loading ? 0.7 : 1 }
           ]}
+          accessibilityRole="button"
+          accessibilityLabel="Crear mi cuenta en EMASEO"
+          accessibilityHint="Completa el registro con la contraseña ingresada"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <ActivityIndicator color={colors.white} />
@@ -115,14 +132,12 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
           }
         </Pressable>
 
-        <TouchableOpacity
+        <LinkButton
+          label="Cancelar registro"
           onPress={() => navigation.navigate("Login")}
           style={{ marginTop: 16 }}
-        >
-          <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
-            Cancelar registro
-          </Text>
-        </TouchableOpacity>
+          accessibilityHint="Abandona el proceso de registro y vuelve al inicio de sesión"
+        />
 
       </View>
     </View>

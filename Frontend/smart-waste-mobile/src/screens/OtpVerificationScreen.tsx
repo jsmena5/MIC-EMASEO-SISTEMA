@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   View
 } from "react-native"
+import BackButton from "../components/BackButton"
+import LinkButton from "../components/LinkButton"
+import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser, verifyOtp } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -87,20 +90,12 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     <View style={globalStyles.container}>
       <View style={[globalStyles.card, { borderRadius: 20 }]}>
 
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignSelf: "flex-start", marginBottom: 12 }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>← Atrás</Text>
-        </TouchableOpacity>
+        <BackButton onPress={() => navigation.goBack()} />
 
-        <Text style={[globalStyles.title, { textAlign: "center", marginBottom: 4 }]}>
+        <Text style={[globalStyles.title, { textAlign: "center", marginBottom: 12 }]}>
           Verificar Email
         </Text>
-        <Text style={{ color: colors.gray, marginBottom: 16, textAlign: "center", fontSize: 13 }}>
-          Paso 2 de 3 — Confirma tu correo
-        </Text>
+        <ProgressBar currentStep={2} totalSteps={3} />
 
         <Text style={{ color: colors.gray, marginBottom: 28, textAlign: "center", lineHeight: 20 }}>
           Ingresa el código de 6 dígitos{"\n"}enviado a{" "}
@@ -130,6 +125,9 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
               value={digit}
               onChangeText={(v) => handleDigitChange(v, i)}
               onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+              accessibilityLabel={`Dígito ${i + 1} de 6 del código de verificación`}
+              accessibilityRole="none"
+              accessibilityHint="Ingresa un dígito numérico del 0 al 9"
             />
           ))}
         </View>
@@ -141,6 +139,10 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
             globalStyles.button,
             { borderRadius: 12, opacity: pressed || loading ? 0.7 : 1 }
           ]}
+          accessibilityRole="button"
+          accessibilityLabel="Verificar código"
+          accessibilityHint="Confirma el código de 6 dígitos ingresado"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <ActivityIndicator color={colors.white} />
@@ -156,7 +158,14 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
               <Text style={{ fontWeight: "bold", color: colors.black }}>{countdown}s</Text>
             </Text>
           ) : (
-            <TouchableOpacity onPress={handleResend} disabled={resending}>
+            <TouchableOpacity
+              onPress={handleResend}
+              disabled={resending}
+              accessibilityRole="button"
+              accessibilityLabel="Reenviar código de verificación"
+              accessibilityHint="Envía un nuevo código a tu correo electrónico"
+              accessibilityState={{ disabled: resending, busy: resending }}
+            >
               {resending
                 ? <ActivityIndicator color={colors.primary} />
                 : (
@@ -169,14 +178,12 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
           )}
         </View>
 
-        <TouchableOpacity
+        <LinkButton
+          label="Cancelar registro"
           onPress={() => navigation.navigate("Login")}
           style={{ marginTop: 16 }}
-        >
-          <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
-            Cancelar registro
-          </Text>
-        </TouchableOpacity>
+          accessibilityHint="Abandona el proceso de registro y vuelve al inicio de sesión"
+        />
 
       </View>
     </View>

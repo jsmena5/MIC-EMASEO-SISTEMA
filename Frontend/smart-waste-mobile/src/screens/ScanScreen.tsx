@@ -18,6 +18,7 @@ import {
 } from "react-native"
 import Animated, { SlideInUp } from "react-native-reanimated"
 
+import AnalyzingOverlay from "../components/AnalyzingOverlay"
 import CameraCapture from "../components/CameraCapture"
 import type { RootStackParamList } from "../navigation/AppNavigator"
 import { analyzeImage } from "../services/image.service"
@@ -223,13 +224,11 @@ export default function ScanScreen() {
             disabled={analyzing}
             activeOpacity={0.85}
           >
-            {analyzing ? (
+            {analyzing && uploadProgress < 100 ? (
               <>
                 <ActivityIndicator size="small" color="#fff" />
                 <Text style={styles.analyzeBtnText}>
-                  {uploadProgress < 100
-                    ? `Enviando imagen… ${uploadProgress}%`
-                    : "Analizando incidencia…"}
+                  {`Enviando imagen… ${uploadProgress}%`}
                 </Text>
               </>
             ) : (
@@ -242,19 +241,21 @@ export default function ScanScreen() {
 
           <TouchableOpacity
             style={styles.retakeBtn}
-            onPress={analyzing ? handleCancelAnalysis : retake}
+            onPress={retake}
+            disabled={analyzing}
             activeOpacity={0.7}
           >
-            <Ionicons
-              name={analyzing ? "close-circle-outline" : "camera-reverse-outline"}
-              size={20}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.retakeBtnText}>
-              {analyzing ? "Cancelar envío" : "Tomar otra foto"}
-            </Text>
+            <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
+            <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
           </TouchableOpacity>
         </Animated.View>
+
+        {/* Overlay de análisis ML (aparece sólo cuando la imagen ya se subió) */}
+        <AnalyzingOverlay
+          isAnalyzing={analyzing && uploadProgress >= 100}
+          label="Analizando incidencia..."
+          onCancel={handleCancelAnalysis}
+        />
       </View>
     )
   }

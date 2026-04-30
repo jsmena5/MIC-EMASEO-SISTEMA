@@ -15,6 +15,8 @@ interface ButtonPrimaryProps {
   loading?: boolean;
   disabled?: boolean;
   variant?: Variant;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 const variantStyles: Record<Variant, { background: string; border: string }> = {
@@ -29,6 +31,8 @@ export default function ButtonPrimary({
   loading = false,
   disabled = false,
   variant = 'primary',
+  accessibilityLabel,
+  accessibilityHint,
 }: ButtonPrimaryProps) {
   const isInactive = loading || disabled;
   const { background, border } = variantStyles[variant];
@@ -38,6 +42,10 @@ export default function ButtonPrimary({
       onPress={onPress}
       activeOpacity={0.8}
       disabled={isInactive}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: isInactive, busy: loading }}
       style={[
         styles.base,
         { backgroundColor: background, borderColor: border },
