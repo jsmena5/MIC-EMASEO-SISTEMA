@@ -7,9 +7,20 @@ from celery_app import celery
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() == "true"
 
 # ── Clases válidas de residuos y mapeo a categorías ──────────────────────────
-_VALID_WASTE_CLASSES = frozenset({"garbage", "basura"})
+# Incluye los nombres de clase del modelo 1-clase (Garbage Collector v8)
+# y del modelo 5-clases entrenado con data_v2.yaml (RT-DETR-L).
+_VALID_WASTE_CLASSES = frozenset({
+    "garbage", "basura",
+    "reciclable", "recyclable",
+    "organico", "organic",
+    "escombros", "debris",
+    "peligroso", "hazardous",
+    "mixto",
+    "domestico", "domestic",
+})
 _V2_CLASS_MAP = {
     "garbage":    "MIXTO",      "basura":      "MIXTO",
+    "mixto":      "MIXTO",
     "plastico":   "RECICLABLE", "plastic":     "RECICLABLE",
     "organico":   "ORGANICO",   "organic":     "ORGANICO",
     "escombros":  "ESCOMBROS",  "debris":      "ESCOMBROS",
@@ -27,12 +38,12 @@ _BANDS = [
 ]
 
 # ── NMS / filtrado de detecciones ────────────────────────────────────────────
-NMS_CONF            = 0.60   # confianza mínima para aceptar una detección
-NMS_IOU             = 0.45   # IoU máximo para NMS (supresión de duplicados)
+NMS_CONF            = 0.35   # confianza mínima para aceptar una detección (era 0.60)
+NMS_IOU             = 0.50   # IoU máximo para NMS (supresión de duplicados, era 0.45)
 MIN_BBOX_AREA_RATIO = 0.005  # bbox < 0.5 % del frame → descartado como ruido
 
 # ── Factores base de clasificación ───────────────────────────────────────────
-CONF_NORMALIZATION_BASELINE = 0.70  # confianza ≥ este valor → conf_factor = 1.0
+CONF_NORMALIZATION_BASELINE = 0.60  # confianza ≥ este valor → conf_factor = 1.0 (era 0.70)
 DET_FACTOR_BASE             = 0.40  # piso del factor de detección (1 solo objeto)
 DET_FACTOR_STEP             = 0.20  # incremento por cada detección adicional
 
