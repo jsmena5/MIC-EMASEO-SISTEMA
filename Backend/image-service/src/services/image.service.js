@@ -3,15 +3,18 @@ import { v4 as uuidv4 } from "uuid"
 import { pool } from "../db.js"
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
+const ML_HEALTH_URL = (() => {
+  try { return `${new URL(ML_SERVICE_URL).origin}/health` } catch { return "http://localhost:8000/health" }
+})()
 const BUCKET = process.env.S3_BUCKET ?? "emaseo-incidents"
-const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL ?? "http://localhost:9000"
+const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL
 
 const s3 = new S3Client({
   endpoint: process.env.S3_ENDPOINT,
   region: process.env.S3_REGION ?? "us-east-1",
   credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY,
-    secretAccessKey: process.env.S3_SECRET_KEY,
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
   },
   forcePathStyle: true, // requerido para MinIO y S3 con path-style URLs
 })
@@ -67,6 +70,18 @@ function getImageDimensions(buf) {
 const MIN_FILE_BYTES = 1_000
 // Dimensión mínima que el modelo RT-DETR necesita para detectar objetos con fiabilidad
 const MIN_SIDE_PX = 320
+
+async function checkMlHealth() {
+  try {
+    const res = await fetch(ML_HEALTH_URL, { signal: AbortSignal.timeout(3_000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  } catch (cause) {
+    const err = new Error("El servicio de análisis visual está temporalmente fuera de servicio.")
+    err.statusCode = 503
+    err.cause = cause
+    throw err
+  }
+}
 
 export const validateImage = async (req, res) => {
   try {
@@ -135,40 +150,30 @@ export const analyzeImage = async (req, res) => {
     return res.status(401).json({ error: "No se pudo identificar al usuario. Token inválido o ausente." })
   }
 
-  // s3Key se declara aquí para que el catch externo pueda limpiar MinIO ante cualquier fallo fatal
-  // (p.ej. res.json() lanzando ECONNRESET si el cliente ya cerró el socket)
+  let buffer
+  try {
+    buffer = Buffer.from(image, "base64")
+  } catch {
+    return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
+  }
+
+  // s3Key solo se asigna tras un upload exitoso, así que el catch externo nunca intenta
+  // limpiar MinIO en rechazos del ML (cuando MinIO todavía no fue tocado).
   let s3Key
   try {
-    // 1. Subir imagen a S3/MinIO
-    const imageId = uuidv4()
-    s3Key = `incidents/${imageId}.jpg`
-    const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
-
-    let buffer
+    // 1. Health check — 3 s máx; aborta antes de enviar la imagen completa
     try {
-      buffer = Buffer.from(image, "base64")
-    } catch {
-      return res.status(400).json({ error: "Imagen base64 inválida o corrupta." })
-    }
-
-    console.log(`[image-service] [+${Date.now()-reqStart}ms] Iniciando upload a MinIO — bucket=${BUCKET} key=${s3Key} size=${buffer.length}B`)
-    try {
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: BUCKET,
-          Key: s3Key,
-          Body: buffer,
-          ContentType: "image/jpeg",
-        })
-      )
-      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Upload MinIO completado`)
+      await checkMlHealth()
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ ML health ok`)
     } catch (err) {
-      s3Key = undefined // upload falló: no hay objeto que limpiar
-      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al subir imagen a S3: code=${err.Code ?? err.code} msg=${err.message}`)
-      return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ ML health check falló: ${err.message} — cause: ${err.cause?.message ?? "desconocido"}`)
+      return res.status(503).json({
+        error: "ML_SERVICE_UNAVAILABLE",
+        message: err.message,
+      })
     }
 
-    // 2. Llamar al microservicio Python de inferencia
+    // 2. Llamar al ML — fail fast sin tocar MinIO
     console.log(`[image-service] [+${Date.now()-reqStart}ms] Llamando ML Service → ${ML_SERVICE_URL}`)
     let mlResult
     try {
@@ -204,23 +209,38 @@ export const analyzeImage = async (req, res) => {
       return res.status(503).json({ error: "Servicio de análisis no disponible.", detail: err.message })
     }
 
-    // 3. Rechazo amigable: el ML no encontró residuos válidos
+    // 3. Rechazo temprano: ML no detectó residuos — MinIO nunca fue tocado
     if (mlResult.has_waste === false) {
-      console.log(`[image-service] [+${Date.now()-reqStart}ms] ML no detectó residuos — eliminando imagen de MinIO y abortando`)
-      try {
-        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key }))
-        s3Key = undefined // borrado exitoso: el catch externo no debe intentarlo de nuevo
-        console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Imagen eliminada de MinIO`)
-      } catch (s3Err) {
-        console.error("[image-service] No se pudo eliminar la imagen de MinIO:", s3Err.message)
-      }
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ML no detectó residuos — abortando sin subir a MinIO`)
       return res.status(422).json({
         error: "NO_WASTE_DETECTED",
         message: "No hemos detectado residuos en esta imagen. Asegúrate de enfocar bien la basura e intenta de nuevo.",
       })
     }
 
-    // 4. Transacción en base de datos
+    // 4. Residuos confirmados — subir a MinIO
+    const imageId = uuidv4()
+    s3Key = `incidents/${imageId}.jpg`
+    const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
+
+    console.log(`[image-service] [+${Date.now()-reqStart}ms] Iniciando upload a MinIO — bucket=${BUCKET} key=${s3Key} size=${buffer.length}B`)
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: BUCKET,
+          Key: s3Key,
+          Body: buffer,
+          ContentType: "image/jpeg",
+        })
+      )
+      console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ Upload MinIO completado`)
+    } catch (err) {
+      s3Key = undefined // upload falló: no hay objeto que limpiar
+      console.error(`[image-service] [+${Date.now()-reqStart}ms] ✘ Error al subir imagen a S3: code=${err.Code ?? err.code} msg=${err.message}`)
+      return res.status(500).json({ error: "No se pudo almacenar la imagen.", detail: err.message })
+    }
+
+    // 5. Transacción en base de datos
     // pool.connect() está dentro del try externo: un fallo aquí es capturado y no tumba el proceso
     console.log(`[image-service] [+${Date.now()-reqStart}ms] Adquiriendo conexión DB…`)
     let client
@@ -284,7 +304,7 @@ export const analyzeImage = async (req, res) => {
       client?.release()
     }
 
-    // 5. Respuesta exitosa
+    // 6. Respuesta exitosa
     console.log(`[image-service] [+${Date.now()-reqStart}ms] ✔ analyzeImage completado incidentId=${incidentId}`)
     return res.status(201).json({
       success: true,

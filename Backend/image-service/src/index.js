@@ -4,6 +4,14 @@ import rateLimit from "express-rate-limit"
 import imageRoutes from "./routes/image.routes.js"
 import incidentRoutes from "./routes/incident.routes.js"
 
+const REQUIRED_ENV = ["S3_PUBLIC_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_ENDPOINT"]
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`[image-service] Variable de entorno obligatoria no definida: ${key}. El servicio no puede iniciar.`)
+    process.exit(1)
+  }
+}
+
 const app = express()
 
 app.set("trust proxy", 1)
