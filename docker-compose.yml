@@ -122,7 +122,8 @@ services:
   #   Cada réplica recibe un hostname único (worker@<container-id>).
   #   En hosts multi-GPU cada réplica ocupa 1 GPU. Con 1 sola GPU las 3 comparten.
   #
-  # Requisito GPU: NVIDIA Container Toolkit instalado en el host.
+  # GPU (opcional): descomenta el bloque "reservations" si tienes NVIDIA Container
+  # Toolkit instalado. Sin él el worker corre en CPU (más lento, pero funciona).
   # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
   ml-worker:
     build:
@@ -150,11 +151,11 @@ services:
         limits:
           cpus: '4.0'
           memory: 4G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+        # reservations:      # ← descomentar solo si tienes GPU NVIDIA + Container Toolkit
+        #   devices:
+        #     - driver: nvidia
+        #       count: 1
+        #       capabilities: [gpu]
 
   # ── 7. Flower — dashboard de tareas Celery ────────────────────────────────────
   flower:
