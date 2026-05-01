@@ -16,6 +16,21 @@ BEGIN;
 -- Tabla de identidad pura: solo email, username, hash, rol, estado.
 -- ============================================================================
 
+-- Usuario de sistema — usado por el trigger trg_log_status_change para
+-- transiciones automáticas del ML donde no hay sesión de usuario humano.
+-- La contraseña es irrecuperable: no se puede hacer login con este usuario.
+INSERT INTO auth.users (id, email, username, password_hash, rol, estado, is_verified)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'sistema@emaseo.gob.ec',
+    'SISTEMA',
+    crypt(gen_random_uuid()::text, gen_salt('bf')),
+    'ADMIN',
+    'ACTIVO',
+    TRUE
+)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO auth.users (id, email, username, password_hash, rol, estado, is_verified) VALUES
     ('a1000000-0000-0000-0000-000000000001', 'admin@emaseo.gob.ec',        'admin',      '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36zQvU1YePlKbleIFlyQtGy', 'ADMIN',      'ACTIVO', TRUE),
     ('a1000000-0000-0000-0000-000000000002', 'maria.lopez@emaseo.gob.ec',  'm.lopez',    '$2b$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36zQvU1YePlKbleIFlyQtGy', 'SUPERVISOR', 'ACTIVO', TRUE),
