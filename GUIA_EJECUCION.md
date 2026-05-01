@@ -10,7 +10,7 @@
 - [Fase 2 — Instalación desde Cero](#fase-2--instalación-desde-cero)
   - [2.1 Clonar el repositorio](#21-clonar-el-repositorio)
   - [2.2 Variables de entorno (.env)](#22-variables-de-entorno-env)
-  - [2.3 Docker — Toda la infraestructura](#23-docker--toda-la-infraestructura)
+  - [2.3 Docker — Toda la infraestructura y migraciones](#23-docker--toda-la-infraestructura)
   - [2.4 Dependencias Node.js](#24-dependencias-nodejs)
   - [2.5 Supervisor Panel (React Web)](#25-supervisor-panel-react-web)
   - [2.6 Aplicación móvil (Expo)](#26-aplicación-móvil-expo)
@@ -142,8 +142,8 @@ Mismo set de variables que Auth Service. Solo cambia `PORT=3000`.
 | `ML_SERVICE_URL` | `http://localhost:8000/predict` | URL interna del ML Service (Docker expone 8000) |
 | `S3_ENDPOINT` | `http://localhost:9000` | MinIO local |
 | `S3_BUCKET` | `emaseo-incidents` | Nombre del bucket (creado automáticamente) |
-| `S3_ACCESS_KEY` | `minioadmin` | Credencial MinIO |
-| `S3_SECRET_KEY` | `minioadmin` | Credencial MinIO |
+| `S3_ACCESS_KEY_ID` | `minioadmin` | Credencial MinIO |
+| `S3_SECRET_ACCESS_KEY` | `minioadmin` | Credencial MinIO |
 | `S3_REGION` | `us-east-1` | Cualquier valor para MinIO local |
 | `S3_PUBLIC_URL` | `http://192.168.1.10:9000` | **⚠ Usar IP de red local, NO localhost** |
 
@@ -216,15 +216,22 @@ docker exec -it emaseo-postgres psql -U postgres -d MIC-EMASEO -c "\dn"
 
 Debes ver los schemas: `auth`, `public`, `operations`, `incidents`, `ai`, `notifications`.
 
-#### Si necesitas aplicar migraciones adicionales manualmente
+#### Aplicar migraciones obligatorias (primera vez)
 
-```bash
-# Ejemplo: migración de refresh tokens
+El script `01_init_schema.sql` crea el esquema base, pero las siguientes migraciones son **obligatorias** y deben aplicarse siempre después de la primera inicialización:
+
+```powershell
+# 008 — Tabla de refresh tokens (sesiones persistentes)
 docker exec -i emaseo-postgres psql -U postgres -d MIC-EMASEO < Backend/database/008_refresh_tokens.sql
 
-# Ejemplo: migración de password reset
+# 009 — Tabla de tokens para recuperación de contraseña
 docker exec -i emaseo-postgres psql -U postgres -d MIC-EMASEO < Backend/database/009_password_reset_tokens.sql
+
+# 010 — Estados PROCESANDO y FALLIDO en el enum incident_status (requerido por el pipeline ML)
+docker exec -i emaseo-postgres psql -U postgres -d MIC-EMASEO < Backend/database/010_incident_status_async.sql
 ```
+
+> **Nota:** El comando de la migración 010 usa `ADD VALUE IF NOT EXISTS`, por lo que es seguro ejecutarlo más de una vez.
 
 #### Acceder a las UIs de administración
 

@@ -5,7 +5,7 @@ import {
   createSupervisor,
   updateSupervisor,
   deleteSupervisor
-} from "../controllers/supervisores.controller.js"
+} from "../controllers/supervisor.controller.js"
 
 const router = Router()
 

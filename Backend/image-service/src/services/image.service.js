@@ -294,7 +294,7 @@ export async function getTaskStatus(taskId, userId) {
 
   if (row.estado === "FALLIDO") {
     return {
-      httpStatus: 422,
+      httpStatus: 200,
       task_id: row.id,
       estado:  "FALLIDO",
       message: "No se detectaron residuos en la imagen o el análisis falló. Intenta con otra foto.",
