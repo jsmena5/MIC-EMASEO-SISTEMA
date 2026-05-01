@@ -181,10 +181,20 @@ export const cambiarEstado = async (req, res) => {
       })
     }
 
-    // Inyectar actor para que el trigger fn_log_status_change use el UUID del supervisor
-    await client.query(`SET LOCAL app.current_user_id = '${userId}'`)
+    // Inyectar actor para que el trigger fn_log_status_change use el UUID del supervisor.
+    // set_config con is_local=true equivale a SET LOCAL pero acepta parámetros,
+    // eliminando el riesgo de inyección SQL por interpolación de strings.
+    await client.query('SELECT set_config($1, $2, true)', ['app.current_user_id', userId])
 
-    // Agregar observaciones al registro de historial si se proporcionaron
+    // El trigger fn_log_status_change crea la fila en status_history durante este UPDATE.
+    await client.query(
+      `UPDATE incidents.incidents SET estado = $1, updated_at = NOW() WHERE id = $2`,
+      [estado, id],
+    )
+
+    // Agregar observaciones a la fila que el trigger acaba de insertar.
+    // Debe ejecutarse DESPUÉS del UPDATE anterior (el trigger escribe primero).
+    // Filtra por estado_nuevo = estado (el nuevo estado), no por estadoActual.
     if (observaciones) {
       await client.query(
         `UPDATE incidents.status_history SET observaciones = $1
@@ -193,14 +203,9 @@ export const cambiarEstado = async (req, res) => {
              SELECT MAX(created_at) FROM incidents.status_history
              WHERE incident_id = $2 AND estado_nuevo = $3
            )`,
-        [observaciones, id, estadoActual],
+        [observaciones, id, estado],
       )
     }
-
-    await client.query(
-      `UPDATE incidents.incidents SET estado = $1, updated_at = NOW() WHERE id = $2`,
-      [estado, id],
-    )
 
     await client.query("COMMIT")
 

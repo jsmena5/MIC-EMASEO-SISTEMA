@@ -23,6 +23,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./Backend/database/01_init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql
       - ./Backend/database/02_seed_data.sql:/docker-entrypoint-initdb.d/02_seed_data.sql
+      - ./Backend/database/011_consolidation.sql:/docker-entrypoint-initdb.d/03_consolidation.sql
+      - ./Backend/database/012_db_users_isolation.sql:/docker-entrypoint-initdb.d/04_db_users_isolation.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d MIC-EMASEO"]
       interval: 5s
