@@ -1,15 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios, { InternalAxiosRequestConfig } from "axios"
+import { API_URL } from "../config/env"
 import { navigationRef } from "./navigationService"
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL
-
-if (!BASE_URL) {
-  throw new Error(
-    "[api.ts] EXPO_PUBLIC_API_URL no está definida.\n" +
-    "Crea el archivo .env.development con: EXPO_PUBLIC_API_URL=https://<tu-tunnel>.trycloudflare.com/api"
-  )
-}
+const BASE_URL = API_URL
 
 const api = axios.create({
   baseURL: BASE_URL,

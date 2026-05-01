@@ -1,11 +1,16 @@
+import json
+import logging
 import os
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from celery import signals
-from celery.exceptions import MaxRetriesExceededError
+from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 from celery_app import celery
 from config_classes import ALIAS_MAP, CLASS_WEIGHTS, VALID_ALIASES
+
+logger = logging.getLogger(__name__)
 
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() == "true"
 
@@ -42,25 +47,42 @@ def _retry_or_dlq(task, exc: Exception, payload: dict) -> None:
     """Reintenta la tarea con backoff exponencial (5s, 10s, 20s).
 
     Si se superan los max_retries, publica el payload en la Dead Letter Queue
-    para que no se pierda el reporte, y re-lanza la excepción para que Celery
-    marque la tarea como FAILURE.
+    y re-lanza la excepción para que Celery marque la tarea como FAILURE.
+    task.retry() ya lanza internamente — no usar 'raise task.retry(...)'.
     """
     backoff = 5 * (2 ** task.request.retries)  # 5s → 10s → 20s
     try:
-        raise task.retry(exc=exc, countdown=backoff)
+        task.retry(exc=exc, countdown=backoff)
     except MaxRetriesExceededError:
         handle_dead_letter.apply_async(
             kwargs={
-                "original_task":    task.name,
-                "payload":          payload,
-                "error":            str(exc),
-                "error_type":       type(exc).__name__,
-                "failed_at":        datetime.now(timezone.utc).isoformat(),
+                "original_task":     task.name,
+                "payload":           payload,
+                "error":             str(exc),
+                "error_type":        type(exc).__name__,
+                "failed_at":         datetime.now(timezone.utc).isoformat(),
                 "retries_attempted": task.request.retries,
             },
             queue="dead_letter",
         )
         raise  # Celery marca la tarea como FAILURE
+
+
+def _persist_to_fallback_log(entry: dict) -> None:
+    """Último recurso cuando incluso el handler DLQ falla: escribe en disco.
+
+    El archivo .jsonl queda en el volumen compartido y puede usarse para replay manual.
+    """
+    log_path = Path(os.environ.get("UPLOADS_DIR", "/app/uploads")) / "dead_letter_fallback.jsonl"
+    try:
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        logger.warning("[DLQ-FALLBACK] Payload escrito en disco: %s", log_path)
+    except OSError as write_err:
+        logger.critical(
+            "[DLQ-FALLBACK] FALLO CRITICO — payload irrecuperable: %s | entry=%s",
+            write_err, entry,
+        )
 
 
 def _get_model():
@@ -84,8 +106,15 @@ def _preload_model_on_startup(**kwargs):
         _get_model()
 
 
-@celery.task(name="ml_worker.handle_dead_letter", queue="dead_letter")
+@celery.task(
+    bind=True,
+    name="ml_worker.handle_dead_letter",
+    queue="dead_letter",
+    max_retries=5,
+    default_retry_delay=30,
+)
 def handle_dead_letter(
+    self,
     original_task: str,
     payload: dict,
     error: str,
@@ -93,24 +122,47 @@ def handle_dead_letter(
     failed_at: str,
     retries_attempted: int,
 ) -> dict:
-    """Recibe tareas que agotaron sus reintentos y las persiste en la DLQ.
+    """Persiste tareas que agotaron sus reintentos en la cola principal.
 
-    En producción: reemplazar el print por escritura en DB / alerta Slack / PagerDuty.
-    Los mensajes quedan en Redis en la cola 'dead_letter' y son visibles en Flower.
+    Reintentos propios: hasta 5 con delay fijo de 30 s (cubre fallos transitorios
+    de DB/red al escribir el registro).  Si agota sus propios reintentos, escribe
+    en disco como último recurso para no perder el payload.
+
+    En producción: reemplazar el logger.error por escritura en tabla
+    'failed_tasks' de PostgreSQL y/o alerta Slack / PagerDuty.
     """
-    print(
-        f"[DLQ] Tarea muerta capturada\n"
-        f"  Tarea:      {original_task}\n"
-        f"  Error:      {error_type}: {error}\n"
-        f"  Reintentos: {retries_attempted}/3\n"
-        f"  Timestamp:  {failed_at}\n"
-        f"  Payload:    {payload}"
-    )
-    # TODO: persistir en tabla 'failed_tasks' de PostgreSQL o enviar alerta
-    return {"status": "logged", "original_task": original_task, "failed_at": failed_at}
+    entry = {
+        "original_task":     original_task,
+        "payload":           payload,
+        "error":             error,
+        "error_type":        error_type,
+        "failed_at":         failed_at,
+        "retries_attempted": retries_attempted,
+    }
+    try:
+        # TODO: persistir en tabla 'failed_tasks' de PostgreSQL o enviar alerta
+        logger.error(
+            "[DLQ] Tarea muerta | task=%s error=%s:%s reintentos=%d/3 timestamp=%s payload=%s",
+            original_task, error_type, error, retries_attempted, failed_at, payload,
+        )
+        return {"status": "logged", "original_task": original_task, "failed_at": failed_at}
+    except Exception as exc:
+        try:
+            self.retry(exc=exc)
+        except MaxRetriesExceededError:
+            # Último recurso: disco — garantiza que el payload nunca se pierda
+            _persist_to_fallback_log(entry)
+            raise
 
 
-@celery.task(bind=True, name="ml_worker.run_inference", max_retries=3, queue="ml_queue")
+@celery.task(
+    bind=True,
+    name="ml_worker.run_inference",
+    max_retries=3,
+    queue="ml_queue",
+    soft_time_limit=300,  # 5 min: permite limpieza antes del SIGKILL
+    time_limit=360,       # 6 min: fuerza terminación si soft_time_limit se ignoró
+)
 def run_inference(self, image_path: str, image_width: int = 1280, image_height: int = 960):
     if DUMMY_MODE:
         time.sleep(2)
@@ -241,6 +293,20 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             "modelo_nombre":         model_name,
         }
 
+    except SoftTimeLimitExceeded as exc:
+        # Inferencia colgada: limpiar la imagen antes de reintentar / ir a DLQ
+        try:
+            Path(image_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        _retry_or_dlq(
+            self, exc,
+            payload={
+                "image_path":   image_path,
+                "image_width":  image_width,
+                "image_height": image_height,
+            },
+        )
     except Exception as exc:
         # Reintenta con backoff exponencial; si agota max_retries → DLQ
         _retry_or_dlq(

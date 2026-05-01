@@ -1,4 +1,6 @@
-const API = "http://localhost:4000/api/users/operarios"
+import { API_URL } from '../config/env'
+
+const API = `${API_URL}/users/operarios`
 
 // token desde localStorage (login)
 const getHeaders = () => ({

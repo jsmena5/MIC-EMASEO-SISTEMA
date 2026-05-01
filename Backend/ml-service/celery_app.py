@@ -24,6 +24,9 @@ celery.conf.update(
     task_reject_on_worker_lost=True,# tarea NACK si el worker muere a mitad de inferencia
     # ── Higiene de Redis: evitar acumulación de resultados ───────────────────────
     result_expires=3600,            # resultados se borran de Redis después de 1 hora
+    # ── Timeouts: evitar inferencias colgadas que nunca entran al path de reintentos
+    task_soft_time_limit=300,       # 5 min → SoftTimeLimitExceeded (limpieza graceful)
+    task_time_limit=360,            # 6 min → SIGKILL si no respondió al soft limit
     # ── Colas: ml_queue (inferencia) + dead_letter (fallos definitivos) ──────────
     task_queues=(
         Queue("ml_queue"),
