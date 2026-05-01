@@ -6,6 +6,7 @@ El modelo vive en el Celery Worker, no aquí.
 Este proceso solo persiste la imagen en disco y despacha la ruta al worker.
 """
 
+import asyncio
 import base64
 import os
 import uuid
@@ -39,13 +40,43 @@ class PredictRequest(BaseModel):
     image_height: int = 960
 
 
-@app.get("/health")
-def health():
+# ── Helpers síncronos — se ejecutan en el thread pool de asyncio ──────────────
+
+def _save_and_enqueue(
+    image_b64: str, image_path: Path, task_id: str, width: int, height: int
+) -> None:
+    """Decode base64 + escritura en volumen compartido + enqueue del path en Redis.
+    Redis nunca toca bytes de imagen — solo un string de ~60 caracteres."""
+    image_path.write_bytes(base64.b64decode(image_b64))
+    run_inference.apply_async(
+        args=[str(image_path), width, height],
+        task_id=task_id,
+    )
+
+
+def _check_broker() -> str:
     try:
         celery.control.inspect(timeout=1).active()
-        broker_status = "ok"
+        return "ok"
     except Exception:
-        broker_status = "degraded"
+        return "degraded"
+
+
+def _poll_task(task_id: str) -> tuple[str, object]:
+    result = AsyncResult(task_id, app=celery)
+    state = result.state
+    if state == "SUCCESS":
+        return state, result.get(propagate=False)
+    if state == "FAILURE":
+        return state, str(result.info)
+    return state, None
+
+
+# ── Endpoints async — el event loop de uvicorn nunca se bloquea ───────────────
+
+@app.get("/health")
+async def health():
+    broker_status = await asyncio.to_thread(_check_broker)
     return {
         "status": "ok",
         "broker": broker_status,
@@ -55,36 +86,32 @@ def health():
 
 
 @app.post("/predict", status_code=202)
-def predict(req: PredictRequest):
-    """Persiste la imagen en el volumen compartido y encola solo la ruta.
-    Redis nunca toca bytes de imagen — solo un string de ~60 caracteres."""
+async def predict(req: PredictRequest):
+    """Encola la tarea de inferencia y devuelve task_id inmediatamente."""
     task_id = str(uuid.uuid4())
     image_path = UPLOADS_DIR / f"{task_id}.jpg"
-    image_path.write_bytes(base64.b64decode(req.image_base64))
 
-    run_inference.apply_async(
-        args=[str(image_path), req.image_width, req.image_height],
-        task_id=task_id,
+    await asyncio.to_thread(
+        _save_and_enqueue,
+        req.image_base64, image_path, task_id, req.image_width, req.image_height,
     )
     return {"task_id": task_id, "status": "queued"}
 
 
 @app.get("/predict/status/{task_id}")
-def predict_status(task_id: str):
+async def predict_status(task_id: str):
     """Polling del resultado. El cliente llama cada ~1 s hasta status='completed'."""
-    result = AsyncResult(task_id, app=celery)
-    state = result.state
+    state, data = await asyncio.to_thread(_poll_task, task_id)
 
     if state == "PENDING":
         return {"task_id": task_id, "status": "pending",    "result": None}
     if state == "STARTED":
         return {"task_id": task_id, "status": "processing", "result": None}
     if state == "SUCCESS":
-        return {"task_id": task_id, "status": "completed",  "result": result.get()}
+        return {"task_id": task_id, "status": "completed",  "result": data}
     if state == "FAILURE":
         return JSONResponse(
             status_code=500,
-            content={"task_id": task_id, "status": "failed",
-                     "error": str(result.info)},
+            content={"task_id": task_id, "status": "failed", "error": data},
         )
     return {"task_id": task_id, "status": state.lower(), "result": None}

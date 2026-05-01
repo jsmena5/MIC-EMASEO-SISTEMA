@@ -20,25 +20,51 @@ import Animated, { SlideInUp } from "react-native-reanimated"
 
 import AnalyzingOverlay from "../components/AnalyzingOverlay"
 import CameraCapture from "../components/CameraCapture"
+import { useNetwork } from "../contexts/NetworkContext"
 import type { RootStackParamList } from "../navigation/AppNavigator"
-import { analyzeImage } from "../services/image.service"
+import {
+  analyzeImage,
+  getTaskStatus,
+  type AnalysisResult,
+} from "../services/image.service"
+import { enqueuePendingReport } from "../services/offlineQueue.service"
 import { colors } from "../theme/colors"
 
 type ScanNavProp = NativeStackNavigationProp<RootStackParamList, "Scan">
 
+type AnalysisPhase = "idle" | "uploading" | "queued" | "analyzing" | "saving" | "done"
+
+const POLL_INTERVAL_MS = 2000
+const SLOW_THRESHOLD_MS = 10000
+
+function overlayLabel(phase: AnalysisPhase, slow: boolean): string {
+  if (phase === "queued")    return "Imagen recibida, preparando análisis..."
+  if (phase === "saving")    return "Guardando resultado..."
+  if (phase === "analyzing") return slow
+    ? "Analizando... esto puede tomar un poco"
+    : "Analizando incidencia..."
+  return "Analizando incidencia..."
+}
+
 export default function ScanScreen() {
   const navigation = useNavigation<ScanNavProp>()
-  const [camGranted, setCamGranted] = useState<boolean | null>(null)
-  const [locDenied, setLocDenied] = useState(false)
+  const { isConnected, pendingCount, refreshPendingCount } = useNetwork()
+
+  const [camGranted, setCamGranted]   = useState<boolean | null>(null)
+  const [locDenied, setLocDenied]     = useState(false)
 
   const [capturedUri, setCapturedUri] = useState<string | null>(null)
   const [capturedB64, setCapturedB64] = useState<string | null>(null)
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [uploadProgress, setUploadProgress] = useState(0)
-  const [restartKey, setRestartKey] = useState(0)
+  const [location, setLocation]       = useState<{ latitude: number; longitude: number } | null>(null)
 
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const [phase, setPhase]               = useState<AnalysisPhase>("idle")
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [isSlowMessage, setIsSlowMessage]   = useState(false)
+
+  const abortControllerRef  = useRef<AbortController | null>(null)
+  const pollingIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingStartRef     = useRef<number>(0)
+  const pollingInProgressRef = useRef(false)
 
   // Request camera first, then location (two overlapping dialogs break on iOS/Android)
   useEffect(() => {
@@ -80,8 +106,19 @@ export default function ScanScreen() {
   }, [])
 
   useEffect(() => {
-    return () => { abortControllerRef.current?.abort() }
+    return () => {
+      abortControllerRef.current?.abort()
+      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current)
+    }
   }, [])
+
+  const stopPolling = () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+      pollingIntervalRef.current = null
+    }
+    pollingInProgressRef.current = false
+  }
 
   // Called by CameraCapture once the shutter fires
   const handlePictureTaken = async (base64: string, uri: string) => {
@@ -96,49 +133,143 @@ export default function ScanScreen() {
   }
 
   const retake = () => {
+    stopPolling()
+    abortControllerRef.current?.abort()
     setCapturedUri(null)
     setCapturedB64(null)
-    setRestartKey((k) => k + 1)
+    setPhase("idle")
+    setIsSlowMessage(false)
+    setUploadProgress(0)
+  }
+
+  const handleCancelAnalysis = () => {
+    stopPolling()
+    abortControllerRef.current?.abort()
+    setPhase("idle")
+    setIsSlowMessage(false)
+    // Stay on photo-review screen so the user can retake or retry
   }
 
   const handleAnalyze = async () => {
     if (!capturedB64) return
-    setAnalyzing(true)
+
+    const lat = location?.latitude ?? 0
+    const lng = location?.longitude ?? 0
+    const b64 = capturedB64  // stable capture for closures inside Alert handlers
+
+    // ── Offline path: save to local queue and notify user ───────────────────
+    if (!isConnected) {
+      await enqueuePendingReport(b64, lat, lng)
+      await refreshPendingCount()
+      retake()
+      Alert.alert(
+        "Sin conexión",
+        "Tu reporte se guardó localmente y se enviará automáticamente cuando recuperes conexión a internet.",
+        [{ text: "Entendido" }],
+      )
+      return
+    }
+
+    setPhase("uploading")
     setUploadProgress(0)
+    setIsSlowMessage(false)
 
     const controller = new AbortController()
     abortControllerRef.current = controller
 
+    // ── Step 1: upload image, get task_id (HTTP 202) ────────────────────────
+    let taskId: string
     try {
-      const lat = location?.latitude ?? 0
-      const lng = location?.longitude ?? 0
-      const result = await analyzeImage(capturedB64, lat, lng, undefined, {
+      const accepted = await analyzeImage(b64, lat, lng, undefined, {
         signal: controller.signal,
         onUploadProgress: setUploadProgress,
       })
-      navigation.navigate("ScanResult", { result, latitude: lat, longitude: lng })
+      taskId = accepted.task_id
     } catch (e: any) {
-      if (e?.code === "ERR_CANCELED") {
-        retake()
-        return
-      }
+      setPhase("idle")
+      if (e?.code === "ERR_CANCELED") return
       const isNetworkError = !e?.response
       Alert.alert(
         "Error de conexión",
         isNetworkError
-          ? "Verifica tu conexión a internet e inténtalo de nuevo."
-          : "No se pudo procesar la imagen. Por favor inténtalo de nuevo.",
-        [{ text: "Reintentar", onPress: handleAnalyze }],
+          ? "No hay conexión a internet. ¿Quieres guardar el reporte para enviarlo cuando vuelva la red?"
+          : "No se pudo enviar la imagen. Por favor inténtalo de nuevo.",
+        isNetworkError
+          ? [
+              { text: "Reintentar", onPress: handleAnalyze },
+              {
+                text: "Guardar para después",
+                onPress: async () => {
+                  await enqueuePendingReport(b64, lat, lng)
+                  await refreshPendingCount()
+                  retake()
+                  Alert.alert("Guardado", "El reporte se enviará automáticamente cuando recuperes conexión.")
+                },
+              },
+            ]
+          : [{ text: "Reintentar", onPress: handleAnalyze }],
       )
-    } finally {
-      setAnalyzing(false)
-      setUploadProgress(0)
-      abortControllerRef.current = null
+      return
     }
-  }
 
-  const handleCancelAnalysis = () => {
-    abortControllerRef.current?.abort()
+    // ── Step 2: poll every 2 s until success or failure ─────────────────────
+    setPhase("queued")
+    pollingStartRef.current = Date.now()
+
+    // Kick off first tick right away, then repeat
+    const tick = async () => {
+      if (pollingInProgressRef.current) return
+      pollingInProgressRef.current = true
+
+      const elapsed = Date.now() - pollingStartRef.current
+      if (elapsed >= SLOW_THRESHOLD_MS) setIsSlowMessage(true)
+
+      // Switch from "queued" to "analyzing" after first tick arrives
+      setPhase((prev) => (prev === "queued" ? "analyzing" : prev))
+
+      try {
+        const status = await getTaskStatus(taskId)
+
+        if (status.estado === "PROCESANDO") {
+          pollingInProgressRef.current = false
+          return // keep polling
+        }
+
+        stopPolling()
+
+        if (status.estado === "FALLIDO") {
+          setPhase("idle")
+          Alert.alert(
+            "Sin residuos detectados",
+            status.message ?? "No se detectaron residuos en la imagen. Intenta con otra foto.",
+            [{ text: "OK", onPress: retake }],
+          )
+          return
+        }
+
+        // Success — show "saving" briefly before navigating
+        setPhase("saving")
+        const result = status as AnalysisResult
+        setTimeout(() => {
+          setPhase("done")
+          navigation.navigate("ScanResult", { result, latitude: lat, longitude: lng })
+        }, 600)
+
+      } catch {
+        stopPolling()
+        setPhase("idle")
+        Alert.alert(
+          "Error de conexión",
+          "No se pudo obtener el estado del análisis. Inténtalo de nuevo.",
+          [{ text: "Reintentar", onPress: handleAnalyze }],
+        )
+      } finally {
+        pollingInProgressRef.current = false
+      }
+    }
+
+    tick()
+    pollingIntervalRef.current = setInterval(tick, POLL_INTERVAL_MS)
   }
 
   // ── Permission screens ────────────────────────────────────────────────────
@@ -198,6 +329,10 @@ export default function ScanScreen() {
   // ── Photo review ───────────────────────────────────────────────────────────
 
   if (capturedUri) {
+    const isActive = phase !== "idle"
+    const showOverlay = phase === "queued" || phase === "analyzing" || phase === "saving"
+    const canCancel = phase === "queued" || phase === "analyzing"
+
     return (
       <View style={styles.reviewContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -219,12 +354,12 @@ export default function ScanScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.analyzeBtn, analyzing && styles.analyzeBtnLoading]}
+            style={[styles.analyzeBtn, isActive && styles.analyzeBtnLoading]}
             onPress={handleAnalyze}
-            disabled={analyzing}
+            disabled={isActive}
             activeOpacity={0.85}
           >
-            {analyzing && uploadProgress < 100 ? (
+            {phase === "uploading" ? (
               <>
                 <ActivityIndicator size="small" color="#fff" />
                 <Text style={styles.analyzeBtnText}>
@@ -242,7 +377,7 @@ export default function ScanScreen() {
           <TouchableOpacity
             style={styles.retakeBtn}
             onPress={retake}
-            disabled={analyzing}
+            disabled={isActive}
             activeOpacity={0.7}
           >
             <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
@@ -250,11 +385,10 @@ export default function ScanScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Overlay de análisis ML (aparece sólo cuando la imagen ya se subió) */}
         <AnalyzingOverlay
-          isAnalyzing={analyzing && uploadProgress >= 100}
-          label="Analizando incidencia..."
-          onCancel={handleCancelAnalysis}
+          isAnalyzing={showOverlay}
+          label={overlayLabel(phase, isSlowMessage)}
+          onCancel={canCancel ? handleCancelAnalysis : undefined}
         />
       </View>
     )
@@ -270,10 +404,18 @@ export default function ScanScreen() {
         translucent={Platform.OS === "android"}
       />
       <CameraCapture
-        key={restartKey}
+        key={phase === "idle" ? "active" : "locked"}
         onPictureTaken={handlePictureTaken}
         onBack={() => navigation.goBack()}
       />
+      {pendingCount > 0 && (
+        <View style={styles.pendingBanner}>
+          <Ionicons name="cloud-offline-outline" size={16} color="#fff" />
+          <Text style={styles.pendingBannerText}>
+            {pendingCount} reporte{pendingCount > 1 ? "s" : ""} pendiente{pendingCount > 1 ? "s" : ""} por enviar
+          </Text>
+        </View>
+      )}
     </View>
   )
 }
@@ -359,4 +501,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: colors.gray200,
   },
   retakeBtnText: { color: colors.textSecondary, fontWeight: "600", fontSize: 15 },
+
+  pendingBanner: {
+    position: "absolute", bottom: 16, left: 16, right: 16,
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 12,
+    paddingVertical: 10, paddingHorizontal: 14,
+  },
+  pendingBannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
 })

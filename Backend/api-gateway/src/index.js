@@ -38,22 +38,33 @@ app.use("/docs", express.static(path.join(__dirname, "../public")))
 // route handler (app.post) en Express 5 — usamos fetch nativo como workaround.
 const parseJson = express.json()
 
+const FORWARD_TIMEOUT_MS = 10_000
+
 const forwardPost = (targetUrl) => [
   parseJson,
   async (req, res) => {
     console.log(`[GW] → ${targetUrl}`, JSON.stringify(req.body))
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS)
     try {
       const upstream = await fetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req.body),
+        signal: controller.signal,
       })
       const data = await upstream.json()
       console.log(`[GW] ← ${upstream.status}`, JSON.stringify(data))
       res.status(upstream.status).json(data)
     } catch (err) {
+      if (err.name === "AbortError") {
+        console.error(`[GW] TIMEOUT en fetch a ${targetUrl} (>${FORWARD_TIMEOUT_MS} ms)`)
+        return res.status(504).json({ message: "Gateway Timeout: el servicio no respondió a tiempo." })
+      }
       console.error(`[GW] ERROR en fetch a ${targetUrl}:`, err.message)
       res.status(502).json({ message: "Error de conexión con el servicio: " + err.message })
+    } finally {
+      clearTimeout(timer)
     }
   }
 ]

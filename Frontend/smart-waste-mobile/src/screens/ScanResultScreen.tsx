@@ -82,7 +82,7 @@ export default function ScanResultScreen() {
       {/* Detalles adicionales */}
       <View style={styles.detailsBox}>
         <DetailRow label="Tipo de residuo"   value={result.tipo_residuo} />
-        <DetailRow label="Cobertura"          value={`${Math.round(result.coverage_ratio * 100)}%`} />
+        <DetailRow label="Cobertura"          value={result.coverage_ratio != null ? `${Math.round(result.coverage_ratio * 100)}%` : "N/A"} />
         <DetailRow label="Tiempo inferencia"  value={`${result.tiempo_inferencia_ms} ms`} />
         <DetailRow label="Estado"             value="PENDIENTE — En cola para atención" />
       </View>

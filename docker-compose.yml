@@ -4,6 +4,7 @@ services:
   postgres:
     image: postgis/postgis:16-3.4
     container_name: emaseo-postgres
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
@@ -25,6 +26,7 @@ services:
   minio:
     image: minio/minio:latest
     container_name: emaseo-minio
+    restart: unless-stopped
     ports:
       - "9000:9000"   # S3 API
       - "9001:9001"   # MinIO Console
@@ -61,10 +63,12 @@ services:
   redis:
     image: redis:7-alpine
     container_name: emaseo-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -76,6 +80,7 @@ services:
     build:
       context: ./Backend/ml-service
     container_name: emaseo-ml-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
@@ -92,6 +97,11 @@ services:
     # En desarrollo local reemplaza este comando por:
     #   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     command: gunicorn main:app -c gunicorn.conf.py
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
   # ── 6. Celery Worker — inferencia GPU (1 proceso = 1 GPU slot) ───────────────
   #
@@ -105,6 +115,7 @@ services:
   ml-worker:
     build:
       context: ./Backend/ml-service
+    restart: unless-stopped
     # Sin container_name: permite múltiples réplicas con --scale ml-worker=N
     environment:
       REDIS_URL: redis://redis:6379/0
@@ -121,6 +132,9 @@ services:
     command: celery -A celery_app worker --loglevel=info
     deploy:
       resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
         reservations:
           devices:
             - driver: nvidia
@@ -131,6 +145,7 @@ services:
   flower:
     image: mher/flower:2.0
     container_name: emaseo-flower
+    restart: unless-stopped
     ports:
       - "5555:5555"
     environment:
