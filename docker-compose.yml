@@ -1,3 +1,11 @@
+# ── Variables compartidas entre ml-api y ml-worker ───────────────────────────
+# Cambiar DUMMY_MODE a "false" y descomentar ML_MODEL_PATH para inferencia real.
+x-ml-env: &ml-env
+  REDIS_URL: redis://redis:6379/0
+  DUMMY_MODE: "true"
+  UPLOADS_DIR: /app/uploads
+  # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+
 services:
 
   # ── 1. Base de datos ──────────────────────────────────────────────────────────
@@ -84,9 +92,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      REDIS_URL: redis://redis:6379/0
-      DUMMY_MODE: "true"
-      UPLOADS_DIR: /app/uploads
+      <<: *ml-env
       # GUNICORN_WORKERS: 5   # override manual; por defecto = (2×cores)+1
     volumes:
       - shared_uploads:/app/uploads
@@ -106,7 +112,7 @@ services:
   # ── 6. Celery Worker — inferencia GPU (1 proceso = 1 GPU slot) ───────────────
   #
   # ESCALADO HORIZONTAL:
-  #   docker compose up --scale ml-worker=N
+  #   docker compose up -d --scale ml-worker=3
   #   Cada réplica ocupa 1 GPU completa. Requiere N GPUs en el host.
   #   Con una sola RTX 3050 usa siempre N=1.
   #
@@ -116,20 +122,19 @@ services:
     build:
       context: ./Backend/ml-service
     restart: unless-stopped
-    # Sin container_name: permite múltiples réplicas con --scale ml-worker=N
+    # Sin container_name → permite múltiples réplicas con --scale
+    # Sin ports        → sin colisiones al hacer scale-out
     environment:
-      REDIS_URL: redis://redis:6379/0
-      DUMMY_MODE: "true"
-      UPLOADS_DIR: /app/uploads
-      # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt  # descomentar con modelo real
+      <<: *ml-env
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
     depends_on:
       redis:
         condition: service_healthy
-    # worker_concurrency y prefetch_multiplier vienen de celery_app.py (ambos = 1)
-    command: celery -A celery_app worker --loglevel=info
+    # -Q ml_queue,dead_letter: consume inferencias Y tareas de la Dead Letter Queue
+    # worker_concurrency=1 y prefetch_multiplier=1 configurados en celery_app.py
+    command: celery -A celery_app worker -Q ml_queue,dead_letter --loglevel=info
     deploy:
       resources:
         limits:

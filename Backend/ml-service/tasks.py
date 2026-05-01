@@ -1,33 +1,13 @@
 import os
 import time
+from datetime import datetime, timezone
 
 from celery import signals
+from celery.exceptions import MaxRetriesExceededError
 from celery_app import celery
+from config_classes import ALIAS_MAP, CLASS_WEIGHTS, VALID_ALIASES
 
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() == "true"
-
-# ── Clases válidas de residuos y mapeo a categorías ──────────────────────────
-# Incluye los nombres de clase del modelo 1-clase (Garbage Collector v8)
-# y del modelo 5-clases entrenado con data_v2.yaml (RT-DETR-L).
-_VALID_WASTE_CLASSES = frozenset({
-    "garbage", "basura",
-    "reciclable", "recyclable",
-    "organico", "organic",
-    "escombros", "debris",
-    "peligroso", "hazardous",
-    "mixto",
-    "domestico", "domestic",
-})
-_V2_CLASS_MAP = {
-    "garbage":    "MIXTO",      "basura":      "MIXTO",
-    "mixto":      "MIXTO",
-    "plastico":   "RECICLABLE", "plastic":     "RECICLABLE",
-    "organico":   "ORGANICO",   "organic":     "ORGANICO",
-    "escombros":  "ESCOMBROS",  "debris":      "ESCOMBROS",
-    "peligroso":  "PELIGROSO",  "hazardous":   "PELIGROSO",
-    "domestico":  "DOMESTICO",  "domestic":    "DOMESTICO",
-    "reciclable": "RECICLABLE", "recyclable":  "RECICLABLE",
-}
 
 # ── Bandas de severidad: (cov_min, cov_max, vol_min, vol_max, nivel, prioridad)
 _BANDS = [
@@ -55,20 +35,6 @@ ISOLATION_COVERAGE_THRESHOLD = 0.55  # coverage_ratio mínimo para activar la co
 ISOLATION_DET_THRESHOLD      = 1     # máximo de detecciones para considerar "aislado"
 ISOLATION_PENALTY            = 0.65  # multiplicador sobre effective_ratio
 
-# ── Pesos por tipo de residuo ─────────────────────────────────────────────────
-# Se aplican DESPUÉS de la corrección de escala, sobre el effective_ratio final.
-# > 1.0 → escalar severidad hacia arriba (materiales de mayor impacto)
-# < 1.0 → reducir severidad (materiales de menor urgencia operativa)
-CLASS_WEIGHTS = {
-    "PELIGROSO":  1.30,  # residuos tóxicos/químicos → máxima escalada
-    "ESCOMBROS":  1.20,  # escombros → bloquean vías, requieren maquinaria
-    "MIXTO":      1.00,  # línea base
-    "DOMESTICO":  0.90,  # basura doméstica común
-    "ORGANICO":   0.95,  # orgánico → descomposición natural, menor urgencia
-    "RECICLABLE": 0.85,  # reciclable → menor urgencia operativa
-    "OTRO":       1.00,
-}
-
 _model = None
 
 
@@ -93,7 +59,33 @@ def _preload_model_on_startup(**kwargs):
         _get_model()
 
 
-@celery.task(bind=True, name="ml_worker.run_inference", max_retries=3)
+@celery.task(name="ml_worker.handle_dead_letter", queue="dead_letter")
+def handle_dead_letter(
+    original_task: str,
+    payload: dict,
+    error: str,
+    error_type: str,
+    failed_at: str,
+    retries_attempted: int,
+) -> dict:
+    """Recibe tareas que agotaron sus reintentos y las persiste en la DLQ.
+
+    En producción: reemplazar el print por escritura en DB / alerta Slack / PagerDuty.
+    Los mensajes quedan en Redis en la cola 'dead_letter' y son visibles en Flower.
+    """
+    print(
+        f"[DLQ] Tarea muerta capturada\n"
+        f"  Tarea:      {original_task}\n"
+        f"  Error:      {error_type}: {error}\n"
+        f"  Reintentos: {retries_attempted}/3\n"
+        f"  Timestamp:  {failed_at}\n"
+        f"  Payload:    {payload}"
+    )
+    # TODO: persistir en tabla 'failed_tasks' de PostgreSQL o enviar alerta
+    return {"status": "logged", "original_task": original_task, "failed_at": failed_at}
+
+
+@celery.task(bind=True, name="ml_worker.run_inference", max_retries=3, queue="ml_queue")
 def run_inference(self, image_path: str, image_width: int = 1280, image_height: int = 960):
     if DUMMY_MODE:
         time.sleep(2)
@@ -126,7 +118,10 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
     try:
         img = Image.open(image_path).convert("RGB")
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=5)
+        _retry_or_dlq(self, exc, {"image_path": image_path, "image_width": image_width, "image_height": image_height})
+        return  # nunca se alcanza; satisface al type-checker
+
+    try:
 
     img_w, img_h = img.size
     img_area      = img_w * img_h
@@ -143,7 +138,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         if boxes is not None and len(boxes) > 0:
             for box in boxes:
                 class_name = names[int(box.cls[0])]
-                if class_name.lower() not in _VALID_WASTE_CLASSES:
+                if class_name.lower() not in VALID_ALIASES:
                     continue
                 x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
                 bbox_area = (x2 - x1) * (y2 - y1)
@@ -177,7 +172,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
     coverage_ratio  = round(min(total_bbox_area / img_area, 1.0), 4) if img_area > 0 else 0.0
     confianza       = round(sum(d["confidence"] for d in detecciones) / num_detecciones, 4)
     dominant_class  = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
-    tipo_residuo    = _V2_CLASS_MAP.get(dominant_class.lower(), "OTRO")
+    tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
 
     # ── Paso 1: effective_ratio base ─────────────────────────────────────────
     conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)

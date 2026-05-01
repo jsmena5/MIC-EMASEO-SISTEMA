@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY celery_app.py tasks.py main.py gunicorn.conf.py ./
+COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ./
 
 # Directorio compartido con el worker (sobreescrito por el volumen en producción)
 RUN mkdir -p /app/uploads

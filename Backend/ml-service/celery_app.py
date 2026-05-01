@@ -1,5 +1,6 @@
 import os
 from celery import Celery
+from kombu import Queue
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
@@ -23,4 +24,14 @@ celery.conf.update(
     task_reject_on_worker_lost=True,# tarea NACK si el worker muere a mitad de inferencia
     # ── Higiene de Redis: evitar acumulación de resultados ───────────────────────
     result_expires=3600,            # resultados se borran de Redis después de 1 hora
+    # ── Colas: ml_queue (inferencia) + dead_letter (fallos definitivos) ──────────
+    task_queues=(
+        Queue("ml_queue"),
+        Queue("dead_letter"),
+    ),
+    task_default_queue="ml_queue",
+    task_routes={
+        "ml_worker.run_inference":      {"queue": "ml_queue"},
+        "ml_worker.handle_dead_letter": {"queue": "dead_letter"},
+    },
 )
