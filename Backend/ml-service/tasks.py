@@ -38,6 +38,31 @@ ISOLATION_PENALTY            = 0.65  # multiplicador sobre effective_ratio
 _model = None
 
 
+def _retry_or_dlq(task, exc: Exception, payload: dict) -> None:
+    """Reintenta la tarea con backoff exponencial (5s, 10s, 20s).
+
+    Si se superan los max_retries, publica el payload en la Dead Letter Queue
+    para que no se pierda el reporte, y re-lanza la excepción para que Celery
+    marque la tarea como FAILURE.
+    """
+    backoff = 5 * (2 ** task.request.retries)  # 5s → 10s → 20s
+    try:
+        raise task.retry(exc=exc, countdown=backoff)
+    except MaxRetriesExceededError:
+        handle_dead_letter.apply_async(
+            kwargs={
+                "original_task":    task.name,
+                "payload":          payload,
+                "error":            str(exc),
+                "error_type":       type(exc).__name__,
+                "failed_at":        datetime.now(timezone.utc).isoformat(),
+                "retries_attempted": task.request.retries,
+            },
+            queue="dead_letter",
+        )
+        raise  # Celery marca la tarea como FAILURE
+
+
 def _get_model():
     global _model
     if _model is None:
@@ -117,106 +142,112 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
 
     try:
         img = Image.open(image_path).convert("RGB")
-    except Exception as exc:
-        _retry_or_dlq(self, exc, {"image_path": image_path, "image_width": image_width, "image_height": image_height})
-        return  # nunca se alcanza; satisface al type-checker
 
-    try:
+        img_w, img_h = img.size
+        img_area      = img_w * img_h
+        min_bbox_area = img_area * MIN_BBOX_AREA_RATIO
 
-    img_w, img_h = img.size
-    img_area      = img_w * img_h
-    min_bbox_area = img_area * MIN_BBOX_AREA_RATIO
+        model   = _get_model()
+        t_start = time.time()
+        results = model.predict(img, conf=NMS_CONF, iou=NMS_IOU, verbose=False)
+        tiempo_ms = int((time.time() - t_start) * 1000)
 
-    model  = _get_model()
-    t_start = time.time()
-    results = model.predict(img, conf=NMS_CONF, iou=NMS_IOU, verbose=False)
-    tiempo_ms = int((time.time() - t_start) * 1000)
+        detecciones, total_bbox_area = [], 0.0
+        if results and len(results) > 0:
+            boxes, names = results[0].boxes, results[0].names
+            if boxes is not None and len(boxes) > 0:
+                for box in boxes:
+                    class_name = names[int(box.cls[0])]
+                    if class_name.lower() not in VALID_ALIASES:
+                        continue
+                    x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                    bbox_area = (x2 - x1) * (y2 - y1)
+                    if bbox_area < min_bbox_area:
+                        continue
+                    total_bbox_area += bbox_area
+                    detecciones.append({
+                        "class":      class_name,
+                        "confidence": round(float(box.conf[0]), 4),
+                        "bbox":       [x1, y1, x2, y2],
+                    })
 
-    detecciones, total_bbox_area = [], 0.0
-    if results and len(results) > 0:
-        boxes, names = results[0].boxes, results[0].names
-        if boxes is not None and len(boxes) > 0:
-            for box in boxes:
-                class_name = names[int(box.cls[0])]
-                if class_name.lower() not in VALID_ALIASES:
-                    continue
-                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                bbox_area = (x2 - x1) * (y2 - y1)
-                if bbox_area < min_bbox_area:
-                    continue
-                total_bbox_area += bbox_area
-                detecciones.append({
-                    "class":      class_name,
-                    "confidence": round(float(box.conf[0]), 4),
-                    "bbox":       [x1, y1, x2, y2],
-                })
+        model_name = Path(os.environ.get("ML_MODEL_PATH", "rtdetr_l_best.pt")).name
 
-    model_name = Path(os.environ.get("ML_MODEL_PATH", "rtdetr_l_best.pt")).name
+        # Liberar espacio en el volumen compartido: el worker es el último consumidor
+        try:
+            Path(image_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
-    # Liberar espacio en el volumen compartido: el worker es el último consumidor
-    try:
-        Path(image_path).unlink(missing_ok=True)
-    except OSError:
-        pass
+        if not detecciones:
+            return {
+                "success":              True,
+                "has_waste":            False,
+                "message":              "No se detectaron residuos válidos",
+                "tiempo_inferencia_ms": tiempo_ms,
+                "modelo_nombre":        model_name,
+            }
 
-    if not detecciones:
+        num_detecciones = len(detecciones)
+        coverage_ratio  = round(min(total_bbox_area / img_area, 1.0), 4) if img_area > 0 else 0.0
+        confianza       = round(sum(d["confidence"] for d in detecciones) / num_detecciones, 4)
+        dominant_class  = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
+        tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
+
+        # ── Paso 1: effective_ratio base ─────────────────────────────────────────
+        conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
+        det_factor      = min(1.0, DET_FACTOR_BASE + DET_FACTOR_STEP * num_detecciones)
+        effective_ratio = coverage_ratio * conf_factor * det_factor
+
+        # ── Paso 2: corrección de ambigüedad de escala ───────────────────────────
+        # Un único objeto con alta cobertura de frame probablemente fue fotografiado
+        # de cerca (botella, bolsa suelta) y no representa un acúmulo real.
+        scale_penalty_applied = (
+            coverage_ratio > ISOLATION_COVERAGE_THRESHOLD
+            and num_detecciones <= ISOLATION_DET_THRESHOLD
+        )
+        if scale_penalty_applied:
+            effective_ratio *= ISOLATION_PENALTY
+
+        # ── Paso 3: ajuste por peligrosidad del tipo de residuo ──────────────────
+        class_weight    = CLASS_WEIGHTS.get(tipo_residuo, 1.00)
+        effective_ratio = min(1.0, effective_ratio * class_weight)
+
+        # ── Paso 4: clasificación por bandas con interpolación lineal ────────────
+        metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
+        for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
+            if effective_ratio < c_max or c_max == 1.00:
+                t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
+                metricas = {
+                    "nivel":     nivel,
+                    "prioridad": prioridad,
+                    "volumen":   round(v_min + t * (v_max - v_min), 2),
+                }
+                break
+
         return {
-            "success":             True,
-            "has_waste":           False,
-            "message":             "No se detectaron residuos válidos",
-            "tiempo_inferencia_ms": tiempo_ms,
-            "modelo_nombre":       model_name,
+            "success":               True,
+            "has_waste":             True,
+            "nivel_acumulacion":     metricas["nivel"],
+            "volumen_estimado_m3":   metricas["volumen"],
+            "prioridad":             metricas["prioridad"],
+            "tipo_residuo":          tipo_residuo,
+            "confianza":             confianza,
+            "num_detecciones":       num_detecciones,
+            "coverage_ratio":        coverage_ratio,
+            "detecciones":           detecciones,
+            "scale_penalty_applied": scale_penalty_applied,
+            "tiempo_inferencia_ms":  tiempo_ms,
+            "modelo_nombre":         model_name,
         }
 
-    num_detecciones = len(detecciones)
-    coverage_ratio  = round(min(total_bbox_area / img_area, 1.0), 4) if img_area > 0 else 0.0
-    confianza       = round(sum(d["confidence"] for d in detecciones) / num_detecciones, 4)
-    dominant_class  = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
-    tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
-
-    # ── Paso 1: effective_ratio base ─────────────────────────────────────────
-    conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
-    det_factor      = min(1.0, DET_FACTOR_BASE + DET_FACTOR_STEP * num_detecciones)
-    effective_ratio = coverage_ratio * conf_factor * det_factor
-
-    # ── Paso 2: corrección de ambigüedad de escala ───────────────────────────
-    # Un único objeto con alta cobertura de frame probablemente fue fotografiado
-    # de cerca (botella, bolsa suelta) y no representa un acúmulo real.
-    scale_penalty_applied = (
-        coverage_ratio > ISOLATION_COVERAGE_THRESHOLD
-        and num_detecciones <= ISOLATION_DET_THRESHOLD
-    )
-    if scale_penalty_applied:
-        effective_ratio *= ISOLATION_PENALTY
-
-    # ── Paso 3: ajuste por peligrosidad del tipo de residuo ──────────────────
-    class_weight    = CLASS_WEIGHTS.get(tipo_residuo, 1.00)
-    effective_ratio = min(1.0, effective_ratio * class_weight)
-
-    # ── Paso 4: clasificación por bandas con interpolación lineal ────────────
-    metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
-    for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-        if effective_ratio < c_max or c_max == 1.00:
-            t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
-            metricas = {
-                "nivel":     nivel,
-                "prioridad": prioridad,
-                "volumen":   round(v_min + t * (v_max - v_min), 2),
-            }
-            break
-
-    return {
-        "success":              True,
-        "has_waste":            True,
-        "nivel_acumulacion":    metricas["nivel"],
-        "volumen_estimado_m3":  metricas["volumen"],
-        "prioridad":            metricas["prioridad"],
-        "tipo_residuo":         tipo_residuo,
-        "confianza":            confianza,
-        "num_detecciones":      num_detecciones,
-        "coverage_ratio":       coverage_ratio,
-        "detecciones":          detecciones,
-        "scale_penalty_applied": scale_penalty_applied,
-        "tiempo_inferencia_ms": tiempo_ms,
-        "modelo_nombre":        model_name,
-    }
+    except Exception as exc:
+        # Reintenta con backoff exponencial; si agota max_retries → DLQ
+        _retry_or_dlq(
+            self, exc,
+            payload={
+                "image_path":   image_path,
+                "image_width":  image_width,
+                "image_height": image_height,
+            },
+        )
