@@ -3,6 +3,8 @@ import cors from "cors"
 import rateLimit from "express-rate-limit"
 import imageRoutes from "./routes/image.routes.js"
 import incidentRoutes from "./routes/incident.routes.js"
+import supervisorRoutes from "./routes/supervisor.routes.js"
+import operarioRoutes from "./routes/operario.routes.js"
 
 const REQUIRED_ENV = ["S3_PUBLIC_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_ENDPOINT"]
 for (const key of REQUIRED_ENV) {
@@ -30,6 +32,8 @@ const imageLimiter = rateLimit({
 app.use("/api/image", imageLimiter)
 app.use("/api/image", imageRoutes)
 app.use("/api/incidents", incidentRoutes)
+app.use("/api/supervisor", supervisorRoutes)
+app.use("/api/operario", operarioRoutes)
 
 app.listen(5000, () => {
   console.log("image-ms corriendo en puerto 5000")

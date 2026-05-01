@@ -79,8 +79,8 @@ async function runMlAnalysis(taskId, { buffer, image }) {
   const markFailed = async (reason) => {
     try {
       await pool.query(
-        `UPDATE incidents.incidents SET estado = 'FALLIDO', updated_at = NOW() WHERE id = $1`,
-        [taskId],
+        `UPDATE incidents.incidents SET estado = 'FALLIDO', nota_fallo = $2, updated_at = NOW() WHERE id = $1`,
+        [taskId, reason],
       )
     } catch (dbErr) {
       logE(`No se pudo marcar como FALLIDO: ${dbErr.message}`)
@@ -211,7 +211,11 @@ export function validateImageBuffer(buffer) {
 // 3. Despacha runMlAnalysis en background con setImmediate.
 // 4. Retorna { httpStatus: 202, task_id, poll_url } — sin tocar res.
 
-export async function analyzeImage({ image, latitude, longitude, descripcion = "", userId }) {
+// Bounding box de Ecuador continental + Galápagos (WGS84)
+const LAT_MIN = -5.02, LAT_MAX = 1.45
+const LON_MIN = -92.01, LON_MAX = -75.18
+
+export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", userId }) {
   // Validación de parámetros — los errores incluyen httpStatus para el controller
   if (!image)
     throw Object.assign(new Error("El campo 'image' (base64) es requerido."), { httpStatus: 400 })
@@ -219,6 +223,15 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
     throw Object.assign(new Error("Los campos 'latitude' y 'longitude' son requeridos."), { httpStatus: 400 })
   if (!userId)
     throw Object.assign(new Error("No se pudo identificar al usuario. Token inválido o ausente."), { httpStatus: 401 })
+
+  // Validar que las coordenadas correspondan al territorio ecuatoriano
+  const lat = Number(latitude), lon = Number(longitude)
+  if (isNaN(lat) || isNaN(lon) || lat < LAT_MIN || lat > LAT_MAX || lon < LON_MIN || lon > LON_MAX) {
+    throw Object.assign(
+      new Error("No se pudo obtener tu ubicación GPS en Ecuador. Activa el GPS e intenta de nuevo."),
+      { httpStatus: 422 },
+    )
+  }
 
   let buffer
   try {
@@ -230,10 +243,10 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
   // INSERT inmediato — prioridad y resultado IA llegan en background
   const { rows } = await retry(
     () => pool.query(
-      `INSERT INTO incidents.incidents (reportado_por, descripcion, ubicacion, estado)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), 'PROCESANDO')
+      `INSERT INTO incidents.incidents (reportado_por, descripcion, ubicacion, direccion, estado)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO')
        RETURNING id`,
-      [userId, descripcion || null, longitude, latitude],
+      [userId, descripcion || null, lon, lat, direccion || null],
     ),
     {
       ...DB_RETRY_OPTS,

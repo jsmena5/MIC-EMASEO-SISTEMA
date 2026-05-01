@@ -6,7 +6,7 @@ import { createProxyMiddleware } from "http-proxy-middleware"
 import { fileURLToPath } from "url"
 import path from "path"
 import { verifyToken } from "./middlewares/auth.middleware.js"
-import { requireCiudadano, requireAdmin } from "./middlewares/rbac.middleware.js"
+import { requireCiudadano, requireAdmin, requireSupervisor, requireStaff } from "./middlewares/rbac.middleware.js"
 import {
   globalLimiter,
   authLimiter,
@@ -130,6 +130,49 @@ app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
   target: "http://localhost:5000",
   changeOrigin: true,
   pathRewrite: (path) => "/api/incidents" + path,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.user) {
+        proxyReq.setHeader("x-user-id",  req.user.id)
+        proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+    error: (err, req, res) => {
+      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
+      }
+    },
+  },
+}))
+
+// Gestión de incidentes — supervisores y admins
+// Incluye: listado, detalle, cambio de estado, asignación, estadísticas por zona
+app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware({
+  target: "http://localhost:5000",
+  changeOrigin: true,
+  pathRewrite: (path) => "/api/supervisor" + path,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.user) {
+        proxyReq.setHeader("x-user-id",  req.user.id)
+        proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+    error: (err, req, res) => {
+      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
+      }
+    },
+  },
+}))
+
+// Asignaciones del operario autenticado (OPERARIO, SUPERVISOR, ADMIN)
+app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
+  target: "http://localhost:5000",
+  changeOrigin: true,
+  pathRewrite: (path) => "/api/operario" + path,
   on: {
     proxyReq: (proxyReq, req) => {
       if (req.user) {
