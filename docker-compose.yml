@@ -103,18 +103,24 @@ services:
     # En desarrollo local reemplaza este comando por:
     #   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     command: gunicorn main:app -c gunicorn.conf.py
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     deploy:
       resources:
         limits:
           cpus: '2.0'
           memory: 2G
 
-  # ── 6. Celery Worker — inferencia GPU (1 proceso = 1 GPU slot) ───────────────
+  # ── 6. Celery Worker — inferencia GPU/CPU (1 proceso = 1 GPU slot) ───────────
   #
   # ESCALADO HORIZONTAL:
   #   docker compose up -d --scale ml-worker=3
-  #   Cada réplica ocupa 1 GPU completa. Requiere N GPUs en el host.
-  #   Con una sola RTX 3050 usa siempre N=1.
+  #   Cada réplica recibe un hostname único (worker@<container-id>).
+  #   En hosts multi-GPU cada réplica ocupa 1 GPU. Con 1 sola GPU las 3 comparten.
   #
   # Requisito GPU: NVIDIA Container Toolkit instalado en el host.
   # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
@@ -132,9 +138,13 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # -Q ml_queue,dead_letter: consume inferencias Y tareas de la Dead Letter Queue
+    # --hostname worker@%h: cada réplica aparece con nombre único en Flower/Redis.
     # worker_concurrency=1 y prefetch_multiplier=1 configurados en celery_app.py
-    command: celery -A celery_app worker -Q ml_queue,dead_letter --loglevel=info
+    command: >
+      celery -A celery_app worker
+        -Q ml_queue,dead_letter
+        --loglevel=info
+        --hostname=worker@%h
     deploy:
       resources:
         limits:

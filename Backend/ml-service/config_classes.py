@@ -63,6 +63,14 @@ WASTE_REGISTRY: tuple[WasteClass, ...] = (
         icon="♻️",
         description="Menor urgencia operativa — material recuperable",
     ),
+    WasteClass(
+        canonical="VIDRIO",
+        name="Vidrio",
+        aliases=("vidrio", "glass"),
+        weight=0.90,
+        icon="🍶",
+        description="Residuo frágil — prioridad media, riesgo de corte",
+    ),
 )
 
 # Fallback para salidas del modelo no reconocidas por ninguna clase del registry
