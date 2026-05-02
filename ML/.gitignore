@@ -1,5 +1,10 @@
-# ── Dataset (miles de imágenes — se descarga con: python evaluar_modelos.py) ───
+# ── Datasets (miles de imágenes — se reconstruyen con los scripts de ML/scripts/) ──
 dataset/
+dataset_entrenamiento/train/
+dataset_entrenamiento/valid/
+dataset_entrenamiento/test/
+datasets_raw/
+_tmp_roboflow_downloads/
 
 # ── Pesos entrenados (almacenados en OneDrive/Drive) ──────────────────────────
 modelos/

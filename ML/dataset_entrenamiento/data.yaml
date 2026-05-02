@@ -1,0 +1,12 @@
+# Dataset EMASEO -- Quito Garbage Detection
+path: .
+train: train/images
+val:   valid/images
+test:  test/images
+nc: 1
+names:
+  - garbage
+
+# Train: 21,486 imagenes
+# Valid: 3,531 imagenes
+# Test:  pendiente (Fase 2 -- fotos de Quito)
