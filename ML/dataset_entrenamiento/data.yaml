@@ -7,6 +7,6 @@ nc: 1
 names:
   - garbage
 
-# Train: 21,486 imagenes
+# Train: 21,987 imagenes (21,486 con basura anotada + 501 backgrounds de Quito sin label)
 # Valid: 3,531 imagenes
-# Test:  pendiente (Fase 2 -- fotos de Quito)
+# Test:  pendiente (Fase 2 -- fotos aereas de Quito)
