@@ -63,8 +63,6 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA operations               TO users
 GRANT SELECT, INSERT, UPDATE ON auth.users                              TO users_svc;
 -- Tablas de flujo de registro y OTP
 GRANT SELECT, INSERT, UPDATE, DELETE ON auth.pending_registrations      TO users_svc;
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.email_verification_tokens  TO users_svc;
-GRANT USAGE, SELECT ON SEQUENCE auth.users_id_seq                       TO users_svc;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO users_svc;
@@ -94,7 +92,6 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ai                          TO im
 
 -- Solo INSERT en notifications (el trigger fn_notify_citizen corre como image_svc)
 GRANT INSERT ON notifications.notifications                                TO image_svc;
-GRANT USAGE, SELECT ON SEQUENCE notifications.notifications_id_seq        TO image_svc;
 
 -- Solo lectura de entidades de otros servicios (joins en listados/detalle)
 GRANT SELECT ON public.ciudadanos                                          TO image_svc;
