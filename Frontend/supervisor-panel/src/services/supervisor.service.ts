@@ -66,3 +66,56 @@ export const deleteSupervisor = async (id: string) => {
   if (!res.ok) throw new Error("Error eliminando")
   return res.json()
 }
+
+// ===============================
+// MAPA DE ZONAS
+// ===============================
+
+export interface ZonaProperties {
+  id: string
+  codigo: string
+  nombre: string
+  supervisor: string | null
+  incidentes_activos: number
+  pendientes: number
+  en_atencion: number
+  criticas: number
+  ultimas_24h: number
+  nivel: 'critico' | 'alto' | 'medio' | 'bajo' | 'sin_actividad'
+}
+
+export interface IncidenteMapa {
+  id: string
+  estado: string
+  prioridad: string | null
+  descripcion: string | null
+  zona_id: string | null
+  zona_nombre: string | null
+  created_at: string
+  latitud: number
+  longitud: number
+}
+
+export interface ZonaFeature {
+  type: 'Feature'
+  geometry: {
+    type: 'Polygon'
+    coordinates: number[][][]
+  }
+  properties: ZonaProperties
+}
+
+export interface MapaZonasResponse {
+  zonas: {
+    type: 'FeatureCollection'
+    features: ZonaFeature[]
+  }
+  incidentes: IncidenteMapa[]
+  generado_at: string
+}
+
+export async function getMapaZonas(): Promise<MapaZonasResponse> {
+  const res = await fetch(`${API_URL}/supervisor/zonas/mapa`, { headers: getHeaders() })
+  if (!res.ok) throw new Error('Error al obtener mapa de zonas')
+  return res.json()
+}

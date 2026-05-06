@@ -62,7 +62,7 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA operations               TO users
 -- Escritura en auth.users (INSERT al registrar, UPDATE al cambiar estado/password)
 GRANT SELECT, INSERT, UPDATE ON auth.users                              TO users_svc;
 -- Tablas de flujo de registro y OTP
-GRANT SELECT, INSERT, UPDATE, DELETE ON auth.pending_registrations      TO users_svc;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.pending_registrations    TO users_svc;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO users_svc;

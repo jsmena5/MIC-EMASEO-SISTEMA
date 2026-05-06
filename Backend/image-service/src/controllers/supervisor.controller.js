@@ -335,3 +335,114 @@ export const listOperarios = async (req, res) => {
     return res.status(500).json({ error: "Error al obtener operarios." })
   }
 }
+
+// ─── GET /api/supervisor/zonas/mapa ──────────────────────────────────────────
+// GeoJSON de zonas activas + markers de incidentes activos para mapa en tiempo real.
+
+export const mapaZonas = async (req, res) => {
+  try {
+    const client = await pool.connect()
+    try {
+
+      // A. Zonas como GeoJSON con conteos en tiempo real
+      const { rows: zonas } = await client.query(`
+        SELECT
+          z.id,
+          z.codigo,
+          z.nombre,
+          u.username                 AS supervisor_nombre,
+          ST_AsGeoJSON(z.geom)::json AS geometry,
+          COUNT(i.id) FILTER (
+            WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+          ) AS incidentes_activos,
+          COUNT(i.id) FILTER (
+            WHERE i.estado = 'PENDIENTE'
+          ) AS pendientes,
+          COUNT(i.id) FILTER (
+            WHERE i.estado = 'EN_ATENCION'
+          ) AS en_atencion,
+          COUNT(i.id) FILTER (
+            WHERE i.prioridad = 'CRITICA'
+              AND i.estado NOT IN ('RESUELTA','RECHAZADA')
+          ) AS criticas,
+          COUNT(i.id) FILTER (
+            WHERE i.created_at >= NOW() - INTERVAL '24 hours'
+          ) AS ultimas_24h
+        FROM operations.zones z
+        LEFT JOIN auth.users u ON u.id = z.supervisor_id
+        LEFT JOIN incidents.incidents i ON i.zona_id = z.id
+        WHERE z.activa = TRUE
+        GROUP BY z.id, z.codigo, z.nombre, u.username
+        ORDER BY z.nombre
+      `)
+
+      // B. Incidentes activos para markers — OPCIÓN B: ubicacion GEOMETRY(Point, 4326)
+      const { rows: incidentes } = await client.query(`
+        SELECT
+          i.id,
+          i.estado,
+          i.prioridad,
+          i.descripcion,
+          i.zona_id,
+          i.created_at,
+          ST_Y(i.ubicacion::geometry) AS latitud,
+          ST_X(i.ubicacion::geometry) AS longitud,
+          z.nombre AS zona_nombre
+        FROM incidents.incidents i
+        LEFT JOIN operations.zones z ON z.id = i.zona_id
+        WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+        ORDER BY i.created_at DESC
+        LIMIT 500
+      `)
+
+      // C. Calcular nivel de actividad por zona
+      const calcNivel = (z) => {
+        if (Number(z.criticas) > 0)            return 'critico'
+        if (Number(z.incidentes_activos) > 10) return 'alto'
+        if (Number(z.incidentes_activos) > 3)  return 'medio'
+        if (Number(z.incidentes_activos) > 0)  return 'bajo'
+        return 'sin_actividad'
+      }
+
+      return res.status(200).json({
+        zonas: {
+          type: 'FeatureCollection',
+          features: zonas.map(z => ({
+            type: 'Feature',
+            geometry: z.geometry,
+            properties: {
+              id:                 z.id,
+              codigo:             z.codigo,
+              nombre:             z.nombre,
+              supervisor:         z.supervisor_nombre,
+              incidentes_activos: Number(z.incidentes_activos),
+              pendientes:         Number(z.pendientes),
+              en_atencion:        Number(z.en_atencion),
+              criticas:           Number(z.criticas),
+              ultimas_24h:        Number(z.ultimas_24h),
+              nivel:              calcNivel(z),
+            },
+          })),
+        },
+        incidentes: incidentes.map(i => ({
+          id:          i.id,
+          estado:      i.estado,
+          prioridad:   i.prioridad,
+          descripcion: i.descripcion,
+          zona_id:     i.zona_id,
+          zona_nombre: i.zona_nombre,
+          created_at:  i.created_at,
+          latitud:     Number(i.latitud),
+          longitud:    Number(i.longitud),
+        })),
+        generado_at: new Date().toISOString(),
+      })
+
+    } finally {
+      client.release()
+    }
+  } catch (err) {
+    console.error('[mapaZonas]', err)
+    return res.status(500).json({ error: 'Error al obtener datos del mapa' })
+  }
+}

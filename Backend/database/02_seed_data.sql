@@ -44,8 +44,8 @@ INSERT INTO auth.users (id, email, username, password_hash, rol, estado, is_veri
 -- ============================================================================
 
 INSERT INTO public.ciudadanos (user_id, nombre, apellido, cedula, telefono) VALUES
-    ('a1000000-0000-0000-0000-000000000005', 'Ana',   'Ciudadana', '1712345682', '0991000005'),
-    ('a1000000-0000-0000-0000-000000000006', 'Jorge', 'Ramirez',   '1712345683', '0991000006');
+    ('a1000000-0000-0000-0000-000000000005', 'Ana',   'Ciudadana', '1700000001', '0991000005'),
+    ('a1000000-0000-0000-0000-000000000006', 'Jorge', 'Ramirez',   '1700000019', '0991000006');
 
 -- ============================================================================
 -- 3. PERFILES PERSONAL OPERATIVO (operations.operarios)
@@ -53,10 +53,10 @@ INSERT INTO public.ciudadanos (user_id, nombre, apellido, cedula, telefono) VALU
 -- ============================================================================
 
 INSERT INTO operations.operarios (user_id, nombre, apellido, cedula, telefono, cargo) VALUES
-    ('a1000000-0000-0000-0000-000000000001', 'Carlos', 'Administrador', '1712345678', '0991000001', 'Administrador del Sistema'),
-    ('a1000000-0000-0000-0000-000000000002', 'Maria',  'Lopez',         '1712345679', '0991000002', 'Supervisora Zona Centro'),
-    ('a1000000-0000-0000-0000-000000000003', 'Pedro',  'Garcia',        '1712345680', '0991000003', 'Operario de Campo'),
-    ('a1000000-0000-0000-0000-000000000004', 'Luis',   'Martinez',      '1712345681', '0991000004', 'Operario de Campo');
+    ('a1000000-0000-0000-0000-000000000001', 'Carlos', 'Administrador', '1700000100', '0991000001', 'Administrador del Sistema'),
+    ('a1000000-0000-0000-0000-000000000002', 'Maria',  'Lopez',         '1700001009', '0991000002', 'Supervisora Zona Centro'),
+    ('a1000000-0000-0000-0000-000000000003', 'Pedro',  'Garcia',        '1700010000', '0991000003', 'Operario de Campo'),
+    ('a1000000-0000-0000-0000-000000000004', 'Luis',   'Martinez',      '1700100009', '0991000004', 'Operario de Campo');
 
 -- ============================================================================
 -- 4. ZONAS OPERATIVAS (operations.zones)

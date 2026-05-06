@@ -3,13 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "migrate": "node-pg-migrate",
-    "migrate:up": "node-pg-migrate up",
-    "migrate:down": "node-pg-migrate down",
-    "migrate:create": "node-pg-migrate create"
+    "migrate": "dotenv -- node-pg-migrate",
+    "migrate:up": "dotenv -- node-pg-migrate up",
+    "migrate:down": "dotenv -- node-pg-migrate down",
+    "migrate:create": "dotenv -- node-pg-migrate create"
   },
   "dependencies": {
     "node-pg-migrate": "^6.0.0",
     "pg": "^8.0.0"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^11.0.0"
   }
 }
