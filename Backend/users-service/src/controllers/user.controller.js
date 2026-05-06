@@ -205,7 +205,16 @@ export const setPassword = async (req, res) => {
       [user.id, nombre, apellido, cedula]
     )
 
-    // 3. Eliminar el registro temporal
+    // 3. Registrar consentimiento LOPDP (art. 8 — consentimiento libre, específico e informado)
+    const ipOrigen   = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null
+    const userAgent  = req.headers['user-agent'] || null
+    await client.query(
+      `INSERT INTO auth.user_consents (user_id, version_politica, ip_origen, user_agent)
+       VALUES ($1, $2, $3::inet, $4)`,
+      [user.id, '1.0', ipOrigen, userAgent]
+    )
+
+    // 4. Eliminar el registro temporal
     await client.query(
       `DELETE FROM auth.pending_registrations WHERE email = $1`,
       [email]
