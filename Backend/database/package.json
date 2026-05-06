@@ -1,0 +1,15 @@
+{
+  "name": "emaseo-db-migrations",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create"
+  },
+  "dependencies": {
+    "node-pg-migrate": "^6.0.0",
+    "pg": "^8.0.0"
+  }
+}
