@@ -11,7 +11,7 @@ export default function DashboardLayout() {
         <Topbar />
 
         <div className="p-6 flex-1 overflow-auto">
-          <div className="bg-white/10 backdrop-blur-md p-6 rounded-2xl shadow-lg animate-fade-in">
+          <div className="bg-white/10 backdrop-blur-md p-6 rounded-2xl shadow-lg animate-fade-in h-full">
             <Outlet />
           </div>
         </div>

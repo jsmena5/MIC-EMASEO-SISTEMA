@@ -5,6 +5,7 @@ import Home from "../features/dashboard/pages/Home";
 import Users from "../features/dashboard/pages/Users";
 import Reports from "../features/dashboard/pages/Reports";
 import Settings from "../features/dashboard/pages/Settings";
+import MapaZonas from "../features/dashboard/pages/MapaZonas";
 
 export const router = createBrowserRouter([
   { path: "/", element: <LoginPage /> },
@@ -15,7 +16,8 @@ export const router = createBrowserRouter([
       { path: "home", element: <Home /> },
       { path: "users", element: <Users /> },
       { path: "reports", element: <Reports /> },
-      { path: "settings", element: <Settings /> }
+      { path: "settings", element: <Settings /> },
+      { path: "mapa", element: <MapaZonas /> }
     ]
   }
 ]);

@@ -11,6 +11,7 @@ export default function Sidebar() {
         <Link className="hover:text-green-400 transition" to="/dashboard/home">Home</Link>
         <Link className="hover:text-green-400 transition" to="/dashboard/users">Usuarios</Link>
         <Link className="hover:text-green-400 transition" to="/dashboard/reports">Reportes</Link>
+        <Link className="hover:text-green-400 transition" to="/dashboard/mapa">🗺️ Mapa de zonas</Link>
         <Link className="hover:text-green-400 transition" to="/dashboard/settings">Configuración</Link>
       </nav>
     </div>
