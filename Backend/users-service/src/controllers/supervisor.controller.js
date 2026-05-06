@@ -1,4 +1,5 @@
 import { pool } from "../db.js"
+import crypto from "crypto"
 
 // ===============================
 // GET ALL
@@ -18,8 +19,9 @@ export const getSupervisores = async (req, res) => {
         u.username,
         u.rol,
         u.estado
-      FROM operations.supervisores s
+      FROM operations.operarios s
       JOIN auth.users u ON u.id = s.user_id
+      WHERE u.rol = 'SUPERVISOR'
       ORDER BY s.created_at DESC
     `)
 
@@ -36,9 +38,9 @@ export const getSupervisorById = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT s.*, u.email, u.username, u.rol, u.estado
-      FROM operations.supervisores s
+      FROM operations.operarios s
       JOIN auth.users u ON u.id = s.user_id
-      WHERE s.id = $1
+      WHERE s.id = $1 AND u.rol = 'SUPERVISOR'
     `, [id])
 
     if (result.rows.length === 0) {
@@ -56,22 +58,25 @@ export const createSupervisor = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { nombre, apellido, cedula, telefono, email } = req.body
+    const { nombre, apellido, cedula, telefono, email, password } = req.body
 
     await client.query("BEGIN")
+    const initialPassword = password && password.length >= 8
+      ? password
+      : crypto.randomBytes(12).toString("base64url")
 
     // USER
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt('123456', gen_salt('bf')), 'SUPERVISOR')
+      VALUES ($1, $2, crypt($3, gen_salt('bf')), 'SUPERVISOR')
       RETURNING id
-    `, [cedula, email])
+    `, [cedula, email, initialPassword])
 
     const userId = userResult.rows[0].id
 
     // PERFIL
     await client.query(`
-      INSERT INTO operations.supervisores 
+      INSERT INTO operations.operarios
       (user_id, nombre, apellido, cedula, telefono)
       VALUES ($1, $2, $3, $4, $5)
     `, [userId, nombre, apellido, cedula, telefono])
@@ -99,7 +104,10 @@ export const updateSupervisor = async (req, res) => {
     await client.query("BEGIN")
 
     const op = await client.query(
-      `SELECT user_id FROM operations.supervisores WHERE id = $1`,
+      `SELECT o.user_id
+       FROM operations.operarios o
+       JOIN auth.users u ON u.id = o.user_id
+       WHERE o.id = $1 AND u.rol = 'SUPERVISOR'`,
       [id]
     )
 
@@ -110,7 +118,7 @@ export const updateSupervisor = async (req, res) => {
     const userId = op.rows[0].user_id
 
     await client.query(`
-      UPDATE operations.supervisores
+      UPDATE operations.operarios
       SET nombre=$1, apellido=$2, telefono=$3
       WHERE id=$4
     `, [nombre, apellido, telefono, id])
@@ -139,7 +147,10 @@ export const deleteSupervisor = async (req, res) => {
 
   try {
     const op = await pool.query(
-      `SELECT user_id FROM operations.supervisores WHERE id=$1`,
+      `SELECT o.user_id
+       FROM operations.operarios o
+       JOIN auth.users u ON u.id = o.user_id
+       WHERE o.id = $1 AND u.rol = 'SUPERVISOR'`,
       [id]
     )
 

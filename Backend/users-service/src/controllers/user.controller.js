@@ -7,6 +7,8 @@ import dotenv from "dotenv"
 dotenv.config()
 
 const generateOtp = () => String(crypto.randomInt(100000, 999999))
+const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex")
+const generateOpaqueToken = () => crypto.randomBytes(64).toString("hex")
 
 // ============================================================================
 // POST /api/users/register  — Paso 1: datos básicos + envío de OTP
@@ -220,6 +222,16 @@ export const setPassword = async (req, res) => {
       [email]
     )
 
+    // 5. Crear refresh token para sesión persistente tras el registro
+    const rawRefreshToken = generateOpaqueToken()
+    const refreshHash = hashToken(rawRefreshToken)
+    const refreshExpires = new Date(Date.now() + 7 * 86_400_000)
+    await client.query(
+      `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3)`,
+      [user.id, refreshHash, refreshExpires]
+    )
+
     await client.query("COMMIT")
 
     // 4. Emitir JWT (mismo payload que auth-service/login)
@@ -235,7 +247,7 @@ export const setPassword = async (req, res) => {
       { expiresIn: "1h" }
     )
 
-    res.json({ token })
+    res.json({ token, refreshToken: rawRefreshToken })
 
   } catch (error) {
     await client.query("ROLLBACK")

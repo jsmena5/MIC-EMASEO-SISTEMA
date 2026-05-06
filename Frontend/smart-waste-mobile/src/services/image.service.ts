@@ -43,7 +43,7 @@ export interface AnalyzeAccepted {
 
 export interface Incident {
   id: string
-  estado: "PENDIENTE" | "EN_ATENCION" | "RESUELTA" | "RECHAZADA"
+  estado: "PENDIENTE" | "EN_ATENCION" | "RESUELTA" | "RECHAZADA" | "PROCESANDO" | "FALLIDO"
   prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA"
   descripcion: string | null
   created_at: string

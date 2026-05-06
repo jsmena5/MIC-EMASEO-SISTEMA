@@ -27,7 +27,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 const GATEWAY_URL = "http://localhost:4000"
-const JWT_TOKEN   = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImFhYWFhYWFhLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDA5OSIsInVzZXJuYW1lIjoicWEudGVzdCIsInJvbCI6IkNJVURBREFOTyIsIm5vbWJyZSI6IlFBIiwidGlwb19wZXJmaWwiOiJjaXVkYWRhbm8iLCJpYXQiOjE3NzYxMjgxNjgsImV4cCI6MTc3NjEzMTc2OH0.Z7ysqoj9w7E4NhTyzu-ulEv5Z5psSTCKJ8SmJWMvUPY"
+// Obtén el token con el comando indicado en el encabezado de este archivo,
+// luego expórtalo: export JWT_TOKEN="<token>" antes de ejecutar el script.
+const JWT_TOKEN   = process.env.JWT_TOKEN ?? "PEGA_AQUI_TU_TOKEN_JWT"
 const IMAGE_PATH  = path.join(__dirname, "basura.jpg")
 
 // Coordenadas de prueba (Quito — Sector La Mariscal)

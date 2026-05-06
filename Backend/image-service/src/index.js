@@ -17,7 +17,8 @@ for (const key of REQUIRED_ENV) {
 const app = express()
 
 app.set("trust proxy", 1)
-app.use(cors())
+// Servicio interno — solo el gateway (server-to-server) debe acceder.
+app.use(cors({ origin: false }))
 app.use(express.json({ limit: "50mb" }))
 
 // Defensa en profundidad: 20 análisis por IP por hora

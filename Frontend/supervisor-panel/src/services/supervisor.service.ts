@@ -1,6 +1,6 @@
 import { API_URL } from '../config/env'
 
-const API = `${API_URL}/supervisores`
+const API = `${API_URL}/users/supervisores`
 
 // token desde localStorage
 const getHeaders = () => ({

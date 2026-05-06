@@ -26,7 +26,18 @@ const app = express()
 // que req.ip refleje la IP real del cliente (no la del túnel).
 app.set("trust proxy", 1)
 
-app.use(cors())
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : ["http://localhost:5173", "http://localhost:4000"]
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // Sin origin → petición server-to-server o herramienta CLI → permitir
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    cb(new Error(`CORS: origen no permitido — ${origin}`))
+  },
+  credentials: true,
+}))
 app.use(morgan("dev"))
 app.use(globalLimiter)
 

@@ -1,4 +1,5 @@
 import { pool } from "../db.js"
+import crypto from "crypto"
 
 // ===============================
 // GET /api/users/operarios
@@ -62,16 +63,19 @@ export const createOperario = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { nombre, apellido, cedula, telefono, email, rol, cargo } = req.body
+    const { nombre, apellido, cedula, telefono, email, rol, cargo, password } = req.body
 
     await client.query("BEGIN")
+    const initialPassword = password && password.length >= 8
+      ? password
+      : crypto.randomBytes(12).toString("base64url")
 
     // 1. Crear user
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt('123456', gen_salt('bf')), $3)
+      VALUES ($1, $2, crypt($3, gen_salt('bf')), $4)
       RETURNING id
-    `, [cedula, email, rol])
+    `, [cedula, email, initialPassword, rol])
 
     const userId = userResult.rows[0].id
 

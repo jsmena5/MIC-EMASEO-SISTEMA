@@ -7,7 +7,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
 
   const [showSplash, setShowSplash] = useState(true);
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -17,13 +17,13 @@ export default function LoginPage() {
   }, []);
 
   const handleLogin = async () => {
-    if (!username || !password) {
+    if (!email || !password) {
       setError("Todos los campos son obligatorios");
       return;
     }
 
     try {
-      const user = await login(username, password);
+      const user = await login(email, password);
 
       if (user.rol === "ADMIN" || user.rol === "SUPERVISOR") {
         navigate("/dashboard/home");
@@ -68,11 +68,13 @@ export default function LoginPage() {
           <p className="text-red-500 text-sm mb-3 text-center">{error}</p>
         )}
 
-        {/* USERNAME */}
+        {/* EMAIL */}
         <input
           className="w-full p-3 mb-4 rounded-xl bg-white/70 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-          placeholder="Usuario"
-          onChange={e => setUsername(e.target.value)}
+          placeholder="Correo electrónico"
+          type="email"
+          autoComplete="email"
+          onChange={e => setEmail(e.target.value)}
         />
 
         {/* PASSWORD */}

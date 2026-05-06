@@ -9,7 +9,8 @@ import supervisorRoutes from "./routes/supervisor.routes.js"
 
 const app = express()
 
-app.use(cors())
+// Servicio interno — solo el gateway (server-to-server) debe acceder.
+app.use(cors({ origin: false }))
 app.use(express.json())
 
 // Defensa en profundidad: 5 registros por IP por hora

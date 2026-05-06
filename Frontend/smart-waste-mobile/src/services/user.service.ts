@@ -18,8 +18,10 @@ export const setPassword = async (data: SetPasswordData) => {
   const res = await api.post("/users/set-password", data)
 
   const token: string = res.data.token
+  const refreshToken: string = res.data.refreshToken
 
   await AsyncStorage.setItem("token", token)
+  if (refreshToken) await AsyncStorage.setItem("refreshToken", refreshToken)
   api.defaults.headers.common["Authorization"] = `Bearer ${token}`
 
   return res

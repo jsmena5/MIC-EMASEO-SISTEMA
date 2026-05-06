@@ -5,8 +5,8 @@ import { getUserFromToken } from "../../shared/utils/jwt";
 export const useAuth = () => {
   const [user, setUser] = useState<any>(null);
 
-  const login = async (username: string, password: string) => {
-    const data = await loginRequest(username, password);
+  const login = async (email: string, password: string) => {
+    const data = await loginRequest(email, password);
     localStorage.setItem("token", data.token);
 
     const decoded = getUserFromToken(data.token);

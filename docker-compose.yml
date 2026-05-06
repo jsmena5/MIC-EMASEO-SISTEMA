@@ -1,8 +1,9 @@
 # ── Variables compartidas entre ml-api y ml-worker ───────────────────────────
-# Cambiar DUMMY_MODE a "false" y descomentar ML_MODEL_PATH para inferencia real.
+# Para inferencia real: DUMMY_MODE=false en el .env de la raíz del proyecto
+# y descomentar ML_MODEL_PATH.
 x-ml-env: &ml-env
   REDIS_URL: redis://redis:6379/0
-  DUMMY_MODE: "true"
+  DUMMY_MODE: "${DUMMY_MODE:-false}"
   UPLOADS_DIR: /app/uploads
   # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
 
@@ -28,6 +29,19 @@ services:
       - ./Backend/database/010_incident_status_async.sql:/docker-entrypoint-initdb.d/05_incident_status_async.sql
       - ./Backend/database/011_consolidation.sql:/docker-entrypoint-initdb.d/06_consolidation.sql
       - ./Backend/database/012_db_users_isolation.sql:/docker-entrypoint-initdb.d/07_db_users_isolation.sql
+      - ./Backend/database/014_initial_status_history.sql:/docker-entrypoint-initdb.d/08_initial_status_history.sql
+      - ./Backend/database/015_missing_indexes.sql:/docker-entrypoint-initdb.d/09_missing_indexes.sql
+      - ./Backend/database/016_data_validation.sql:/docker-entrypoint-initdb.d/10_data_validation.sql
+      - ./Backend/database/017_audit_schema.sql:/docker-entrypoint-initdb.d/11_audit_schema.sql
+      - ./Backend/database/018_device_tokens.sql:/docker-entrypoint-initdb.d/12_device_tokens.sql
+      - ./Backend/database/019_notifications_retry.sql:/docker-entrypoint-initdb.d/13_notifications_retry.sql
+      - ./Backend/database/020_pending_registrations_to_auth.sql:/docker-entrypoint-initdb.d/14_pending_to_auth.sql
+      - ./Backend/database/021_partition_incidents.sql:/docker-entrypoint-initdb.d/15_partition_incidents.sql
+      - ./Backend/database/022_lopdp_arco_functions.sql:/docker-entrypoint-initdb.d/16_lopdp_arco_functions.sql
+      - ./Backend/database/023_user_consents.sql:/docker-entrypoint-initdb.d/17_user_consents.sql
+      - ./Backend/database/024_pgcrypto_pii.sql:/docker-entrypoint-initdb.d/18_pgcrypto_pii.sql
+      - ./Backend/database/025_rls_image_svc.sql:/docker-entrypoint-initdb.d/19_rls_image_svc.sql
+      - ./Backend/database/026_retention_policy.sql:/docker-entrypoint-initdb.d/20_retention_policy.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d MIC-EMASEO"]
       interval: 5s
@@ -44,8 +58,8 @@ services:
       - "9000:9000"   # S3 API
       - "9001:9001"   # MinIO Console
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -63,9 +77,12 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
         mc mb --ignore-existing local/emaseo-incidents &&
         mc anonymous set download local/emaseo-incidents &&
         echo 'Bucket emaseo-incidents listo.'

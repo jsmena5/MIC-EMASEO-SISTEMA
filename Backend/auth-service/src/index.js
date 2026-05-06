@@ -8,7 +8,9 @@ import authRoutes from "./routes/auth.routes.js"
 
 const app = express()
 
-app.use(cors())
+// Servicio interno — solo el gateway (server-to-server) debe acceder.
+// Cualquier petición directa desde un browser (con cabecera Origin) es rechazada.
+app.use(cors({ origin: false }))
 app.use(express.json())
 
 // Defensa en profundidad: 5 intentos de login por IP cada 15 minutos
