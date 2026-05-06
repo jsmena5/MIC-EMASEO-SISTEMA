@@ -1,18 +1,14 @@
 import { API_URL } from '../config/env'
+import { authenticatedFetch } from '../shared/api/authenticatedFetch'
 
 const API = `${API_URL}/users/operarios`
-
-// token desde localStorage (login)
-const getHeaders = () => ({
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${localStorage.getItem("token")}`
-})
+type UserPayload = Record<string, unknown>
 
 // ===============================
 // GET ALL
 // ===============================
 export const getOperarios = async () => {
-  const res = await fetch(API, { headers: getHeaders() })
+  const res = await authenticatedFetch(API)
   if (!res.ok) throw new Error("Error al obtener operarios")
   return res.json()
 }
@@ -21,7 +17,7 @@ export const getOperarios = async () => {
 // GET BY ID
 // ===============================
 export const getOperarioById = async (id: string) => {
-  const res = await fetch(`${API}/${id}`, { headers: getHeaders() })
+  const res = await authenticatedFetch(`${API}/${id}`)
   if (!res.ok) throw new Error("Error")
   return res.json()
 }
@@ -29,10 +25,9 @@ export const getOperarioById = async (id: string) => {
 // ===============================
 // CREATE
 // ===============================
-export const createOperario = async (data: any) => {
-  const res = await fetch(API, {
+export const createOperario = async (data: UserPayload) => {
+  const res = await authenticatedFetch(API, {
     method: "POST",
-    headers: getHeaders(),
     body: JSON.stringify(data)
   })
 
@@ -43,10 +38,9 @@ export const createOperario = async (data: any) => {
 // ===============================
 // UPDATE
 // ===============================
-export const updateOperario = async (id: string, data: any) => {
-  const res = await fetch(`${API}/${id}`, {
+export const updateOperario = async (id: string, data: UserPayload) => {
+  const res = await authenticatedFetch(`${API}/${id}`, {
     method: "PUT",
-    headers: getHeaders(),
     body: JSON.stringify(data)
   })
 
@@ -58,10 +52,7 @@ export const updateOperario = async (id: string, data: any) => {
 // DELETE
 // ===============================
 export const deleteOperario = async (id: string) => {
-  const res = await fetch(`${API}/${id}`, {
-    method: "DELETE",
-    headers: getHeaders()
-  })
+  const res = await authenticatedFetch(`${API}/${id}`, { method: "DELETE" })
 
   if (!res.ok) throw new Error("Error eliminando")
   return res.json()

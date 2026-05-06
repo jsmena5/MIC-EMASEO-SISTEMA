@@ -2,13 +2,14 @@ import { useState } from "react";
 import { loginRequest } from "./authService";
 import { getUserFromToken } from "../../shared/utils/jwt";
 import type { AuthUser } from "../../shared/utils/jwt";
+import { getStoredUser, logoutStoredSession, storeAuthTokens } from "./authSession";
 
 export const useAuth = () => {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => getStoredUser());
 
   const login = async (email: string, password: string) => {
     const data = await loginRequest(email, password);
-    localStorage.setItem("token", data.token);
+    storeAuthTokens(data);
 
     const decoded = getUserFromToken(data.token);
     setUser(decoded);
@@ -16,8 +17,8 @@ export const useAuth = () => {
     return decoded;
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
+  const logout = async () => {
+    await logoutStoredSession();
     setUser(null);
   };
 

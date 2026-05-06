@@ -1,23 +1,24 @@
 import { jwtDecode } from "jwt-decode";
 
 export type AuthUser = {
+  id?: string;
+  username?: string;
   nombre: string;
   rol: string;
+  tipo_perfil?: string;
+  exp?: number;
+  iat?: number;
 };
 
 export const getUserFromToken = (token: string) => jwtDecode<AuthUser>(token);
 
-export const getStoredUser = () => {
-  const token = localStorage.getItem("token");
+export const isTokenExpired = (token: string, skewSeconds = 0) => {
+  const { exp } = getUserFromToken(token);
 
-  if (!token) {
-    return null;
-  }
+  if (!exp) return true;
 
-  try {
-    return getUserFromToken(token);
-  } catch {
-    localStorage.removeItem("token");
-    return null;
-  }
+  return Date.now() >= (exp - skewSeconds) * 1000;
 };
+
+export const hasAllowedRole = (user: AuthUser, allowedRoles: string[]) =>
+  allowedRoles.includes(user.rol);

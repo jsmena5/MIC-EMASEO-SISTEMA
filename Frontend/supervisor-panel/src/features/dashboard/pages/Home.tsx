@@ -1,4 +1,4 @@
-import { getStoredUser } from "../../../shared/utils/jwt";
+import { getStoredUser } from "../../auth/authSession";
 
 export default function Home() {
   const user = getStoredUser();

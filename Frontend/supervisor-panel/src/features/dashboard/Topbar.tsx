@@ -1,13 +1,13 @@
 import { useNavigate } from "react-router-dom";
-import { getStoredUser } from "../../shared/utils/jwt";
+import { getStoredUser, logoutStoredSession } from "../auth/authSession";
 
 export default function Topbar() {
   const navigate = useNavigate();
   const user = getStoredUser();
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    navigate("/");
+  const handleLogout = async () => {
+    await logoutStoredSession();
+    navigate("/", { replace: true });
   };
 
   return (

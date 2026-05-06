@@ -1,20 +1,58 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useState, useEffect } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import type { Location } from "react-router-dom";
 import { useAuth } from "./useAuth";
+import { getAuthenticatedUser } from "./authSession";
+
+const ALLOWED_ROLES = ["ADMIN", "SUPERVISOR"];
+const DEFAULT_PANEL_ROUTE = "/dashboard/home";
+
+type LoginRouteState = {
+  from?: Location;
+};
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [showSplash, setShowSplash] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const getSafeRedirectPath = useCallback(() => {
+    const state = location.state as LoginRouteState | null;
+    const from = state?.from;
+
+    if (!from?.pathname.startsWith("/dashboard")) {
+      return DEFAULT_PANEL_ROUTE;
+    }
+
+    return `${from.pathname}${from.search}${from.hash}`;
+  }, [location.state]);
+
   useEffect(() => {
-    setTimeout(() => setShowSplash(false), 2500);
+    const timeout = setTimeout(() => setShowSplash(false), 2500);
+
+    return () => clearTimeout(timeout);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getAuthenticatedUser(ALLOWED_ROLES).then((user) => {
+      if (!cancelled && user) {
+        navigate(getSafeRedirectPath(), { replace: true });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getSafeRedirectPath, navigate]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -22,17 +60,22 @@ export default function LoginPage() {
       return;
     }
 
+    setError("");
+    setIsSubmitting(true);
+
     try {
       const user = await login(email, password);
 
-      if (user.rol === "ADMIN" || user.rol === "SUPERVISOR") {
-        navigate("/dashboard/home");
+      if (ALLOWED_ROLES.includes(user.rol)) {
+        navigate(getSafeRedirectPath(), { replace: true });
       } else {
-        localStorage.removeItem("token");
+        await logout();
         setError("No autorizado");
       }
     } catch {
       setError("Error en el login");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -99,9 +142,10 @@ export default function LoginPage() {
         {/* BUTTON */}
         <button
           onClick={handleLogin}
+          disabled={isSubmitting}
           className="w-full bg-gradient-to-r from-blue-700 to-black text-white p-3 rounded-xl font-semibold hover:scale-105 transition-transform duration-300 shadow-lg"
         >
-          Ingresar
+          {isSubmitting ? "Ingresando..." : "Ingresar"}
         </button>
       </div>
     </div>
