@@ -105,7 +105,132 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── 5. ML API — Gunicorn + UvicornWorkers (I/O-bound, sin GPU) ───────────────
+  # ── 5. Auth Service ───────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./Backend/auth-service
+    container_name: emaseo-auth
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: 3002
+      JWT_SECRET: "${JWT_SECRET}"
+      DB_USER: "${DB_USER:-postgres}"
+      DB_HOST: postgres
+      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
+      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_PORT: 5432
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 6. Users Service ──────────────────────────────────────────────────────────
+  users-service:
+    build:
+      context: ./Backend/users-service
+    container_name: emaseo-users
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      JWT_SECRET: "${JWT_SECRET}"
+      DB_USER: "${DB_USER:-postgres}"
+      DB_HOST: postgres
+      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
+      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_PORT: 5432
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 7. Image Service ──────────────────────────────────────────────────────────
+  image-service:
+    build:
+      context: ./Backend/image-service
+    container_name: emaseo-image
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      DB_USER: "${DB_USER:-postgres}"
+      DB_HOST: postgres
+      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
+      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_PORT: 5432
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: "${S3_BUCKET:-emaseo-incidents}"
+      S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+      S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_PUBLIC_URL: "${S3_PUBLIC_URL:-http://localhost:9000}"
+      ML_SERVICE_URL: "http://ml-api:8000/predict"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ml-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 8. API Gateway ────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./Backend/api-gateway
+    container_name: emaseo-gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      JWT_SECRET: "${JWT_SECRET}"
+      AUTH_SERVICE_URL: "http://auth-service:3002"
+      USERS_SERVICE_URL: "http://users-service:3000"
+      IMAGE_SERVICE_URL: "http://image-service:5000"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      users-service:
+        condition: service_healthy
+      image-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 9. ML API — Gunicorn + UvicornWorkers (I/O-bound, sin GPU) ───────────────
   ml-api:
     build:
       context: ./Backend/ml-service
@@ -137,7 +262,7 @@ services:
           cpus: '2.0'
           memory: 2G
 
-  # ── 6. Celery Worker — inferencia GPU/CPU (1 proceso = 1 GPU slot) ───────────
+  # ── 10. Celery Worker — inferencia GPU/CPU (1 proceso = 1 GPU slot) ──────────
   #
   # ESCALADO HORIZONTAL:
   #   docker compose up -d --scale ml-worker=3
@@ -179,7 +304,7 @@ services:
         #       count: 1
         #       capabilities: [gpu]
 
-  # ── 7. Flower — dashboard de tareas Celery ────────────────────────────────────
+  # ── 11. Flower — dashboard de tareas Celery ───────────────────────────────────
   flower:
     image: mher/flower:2.0
     container_name: emaseo-flower

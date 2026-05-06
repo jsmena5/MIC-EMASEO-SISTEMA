@@ -233,7 +233,7 @@ export const asignarIncidente = async (req, res) => {
   try {
     // Verificar que el incidente exista y esté en un estado asignable
     const { rows: inc } = await pool.query(
-      `SELECT estado FROM incidents.incidents WHERE id = $1`, [id],
+      `SELECT estado, created_at FROM incidents.incidents WHERE id = $1`, [id],
     )
     if (!inc.length) return res.status(404).json({ error: "Incidente no encontrado." })
     if (!["PENDIENTE", "EN_ATENCION"].includes(inc[0].estado)) {
@@ -253,13 +253,13 @@ export const asignarIncidente = async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO incidents.assignments
-         (incident_id, operario_id, asignado_por, fecha_esperada, notas)
-       VALUES ($1, $2, $3, $4, $5)
+         (incident_id, incident_created_at, operario_id, asignado_por, fecha_esperada, notas)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT ON CONSTRAINT uq_assignment_activa DO UPDATE
          SET notas = EXCLUDED.notas, fecha_esperada = EXCLUDED.fecha_esperada,
              updated_at = NOW()
        RETURNING id, created_at`,
-      [id, operario_id, supervisorId, fecha_esperada || null, notas || null],
+      [id, inc[0].created_at, operario_id, supervisorId, fecha_esperada || null, notas || null],
     )
 
     return res.status(201).json({

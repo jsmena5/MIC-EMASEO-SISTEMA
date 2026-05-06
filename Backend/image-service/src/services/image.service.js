@@ -136,24 +136,29 @@ async function runMlAnalysis(taskId, { buffer, image }) {
           try {
             await client.query("BEGIN")
 
-            await client.query(
+            const { rows: updRows } = await client.query(
               `UPDATE incidents.incidents
                SET estado = 'PENDIENTE', prioridad = $2, updated_at = NOW()
-               WHERE id = $1`,
+               WHERE id = $1
+               RETURNING created_at`,
               [taskId, mlResult.prioridad],
             )
+            const incidentCreatedAt = updRows[0].created_at
             await client.query(
-              `INSERT INTO incidents.incident_images (incident_id, image_url, es_principal)
-               VALUES ($1, $2, TRUE)`,
-              [taskId, imageUrl],
+              `INSERT INTO incidents.incident_images
+                 (incident_id, incident_created_at, image_url, es_principal)
+               VALUES ($1, $2, $3, TRUE)`,
+              [taskId, incidentCreatedAt, imageUrl],
             )
             await client.query(
               `INSERT INTO ai.analysis_results
-                 (incident_id, modelo_nombre, tipo_residuo, nivel_acumulacion,
-                  volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms)
-               VALUES ($1, $2, $3::ai.waste_type, $4::ai.accumulation_level, $5, $6, $7::jsonb, $8)`,
+                 (incident_id, incident_created_at, modelo_nombre, tipo_residuo,
+                  nivel_acumulacion, volumen_estimado_m3, confianza, detecciones,
+                  tiempo_inferencia_ms)
+               VALUES ($1, $2, $3, $4::ai.waste_type, $5::ai.accumulation_level, $6, $7, $8::jsonb, $9)`,
               [
                 taskId,
+                incidentCreatedAt,
                 mlResult.modelo_nombre,   mlResult.tipo_residuo,
                 mlResult.nivel_acumulacion, mlResult.volumen_estimado_m3,
                 mlResult.confianza,         JSON.stringify(mlResult.detecciones),
