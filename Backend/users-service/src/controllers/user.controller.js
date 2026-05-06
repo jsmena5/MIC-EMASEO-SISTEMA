@@ -43,7 +43,7 @@ export const registerUser = async (req, res) => {
 
     // Guardar o reemplazar el registro pendiente para este email
     await client.query(
-      `INSERT INTO public.pending_registrations
+      `INSERT INTO auth.pending_registrations
          (nombre, apellido, cedula, email, otp_code, otp_expires_at, is_verified)
        VALUES ($1, $2, $3, $4, $5, $6, FALSE)
        ON CONFLICT (email) DO UPDATE SET
@@ -102,7 +102,7 @@ export const verifyOtp = async (req, res) => {
 
     const result = await client.query(
       `SELECT otp_code, otp_expires_at, is_verified
-       FROM public.pending_registrations
+       FROM auth.pending_registrations
        WHERE email = $1`,
       [email]
     )
@@ -136,7 +136,7 @@ export const verifyOtp = async (req, res) => {
 
     // Marcar como verificado — el OTP ya cumplió su función
     await client.query(
-      `UPDATE public.pending_registrations
+      `UPDATE auth.pending_registrations
        SET is_verified = TRUE, otp_code = NULL, otp_expires_at = NULL
        WHERE email = $1`,
       [email]
@@ -171,7 +171,7 @@ export const setPassword = async (req, res) => {
 
     // Leer datos del registro pendiente — debe estar verificado
     const result = await client.query(
-      `SELECT nombre, apellido, cedula FROM public.pending_registrations
+      `SELECT nombre, apellido, cedula FROM auth.pending_registrations
        WHERE email = $1 AND is_verified = TRUE`,
       [email]
     )
@@ -207,7 +207,7 @@ export const setPassword = async (req, res) => {
 
     // 3. Eliminar el registro temporal
     await client.query(
-      `DELETE FROM public.pending_registrations WHERE email = $1`,
+      `DELETE FROM auth.pending_registrations WHERE email = $1`,
       [email]
     )
 
