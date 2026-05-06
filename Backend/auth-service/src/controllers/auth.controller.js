@@ -1,23 +1,13 @@
 import { pool } from "../db.js"
 import jwt from "jsonwebtoken"
-import crypto from "crypto"
 import { sendPasswordResetEmail } from "../utils/mailer.js"
+import { hashToken, generateOpaqueToken } from "../utils/crypto.js"
 
 const PASSWORD_RESET_OTP_TTL_MIN = 15
 
 // Access token de vida corta: con refresh token podemos usar ventanas pequeñas
 const ACCESS_TOKEN_TTL       = "15m"
 const REFRESH_TOKEN_TTL_DAYS = 7
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function hashToken(token) {
-  return crypto.createHash("sha256").update(token).digest("hex")
-}
-
-function generateOpaqueToken() {
-  return crypto.randomBytes(64).toString("hex") // 128 chars, 512 bits de entropía
-}
 
 async function issueRefreshToken(userId) {
   const raw       = generateOpaqueToken()

@@ -5,6 +5,7 @@ import imageRoutes from "./routes/image.routes.js"
 import incidentRoutes from "./routes/incident.routes.js"
 import supervisorRoutes from "./routes/supervisor.routes.js"
 import operarioRoutes from "./routes/operario.routes.js"
+import { recoverStaleIncidents } from "./services/image.service.js"
 
 const REQUIRED_ENV = ["S3_PUBLIC_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_ENDPOINT"]
 for (const key of REQUIRED_ENV) {
@@ -38,4 +39,5 @@ app.use("/api/operario", operarioRoutes)
 
 app.listen(5000, () => {
   console.log("image-ms corriendo en puerto 5000")
+  recoverStaleIncidents()
 })

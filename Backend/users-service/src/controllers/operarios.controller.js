@@ -63,19 +63,20 @@ export const createOperario = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { nombre, apellido, cedula, telefono, email, rol, cargo, password } = req.body
+    const { nombre, apellido, cedula, telefono, email, cargo, password } = req.body
 
     await client.query("BEGIN")
-    const initialPassword = password && password.length >= 8
+    const isProvidedPassword = password && password.length >= 8
+    const initialPassword = isProvidedPassword
       ? password
       : crypto.randomBytes(12).toString("base64url")
 
-    // 1. Crear user
+    // 1. Crear user — rol forzado en backend; no se acepta del payload
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt($3, gen_salt('bf')), $4)
+      VALUES ($1, $2, crypt($3, gen_salt('bf')), 'OPERARIO')
       RETURNING id
-    `, [cedula, email, initialPassword, rol])
+    `, [cedula, email, initialPassword])
 
     const userId = userResult.rows[0].id
 
@@ -88,7 +89,10 @@ export const createOperario = async (req, res) => {
 
     await client.query("COMMIT")
 
-    res.status(201).json({ message: "Operario creado" })
+    const response = { message: "Operario creado" }
+    if (!isProvidedPassword) response.password_temporal = initialPassword
+
+    res.status(201).json(response)
 
   } catch (error) {
     await client.query("ROLLBACK")

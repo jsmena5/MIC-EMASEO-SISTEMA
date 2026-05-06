@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid"
 import retry from "async-retry"
 import { pool } from "../db.js"
 import { mlBreaker, ML_DEGRADED_CODE } from "../mlCircuitBreaker.js"
+import { MIN_FILE_BYTES, MIN_SIDE_PX, getImageDimensions } from "../utils/imageValidation.js"
+export { validateImageBuffer } from "../utils/imageValidation.js"
 
 const DB_RETRY_OPTS = { retries: 3, factor: 2, minTimeout: 500 }
 
@@ -26,34 +28,6 @@ const s3 = new S3Client({
 })
 
 // ── Helpers privados ──────────────────────────────────────────────────────────
-
-function getImageDimensions(buf) {
-  // PNG: IHDR en offset 16-23
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-    if (buf.length < 24) return null
-    return { format: "PNG", width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
-  }
-  // JPEG: recorrer segmentos buscando marcador SOF
-  if (buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2
-    while (i + 8 < buf.length) {
-      if (buf[i] !== 0xff) break
-      const m = buf[i + 1]
-      if (
-        (m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) ||
-        (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)
-      ) {
-        return { format: "JPEG", height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) }
-      }
-      i += 2 + buf.readUInt16BE(i + 2)
-    }
-    return { format: "JPEG", width: 0, height: 0 }
-  }
-  return null
-}
-
-const MIN_FILE_BYTES = 1_000
-const MIN_SIDE_PX   = 320
 
 async function checkMlHealth() {
   try {
@@ -189,27 +163,6 @@ async function runMlAnalysis(taskId, { buffer, image }) {
   }
 }
 
-// ── validateImageBuffer ───────────────────────────────────────────────────────
-// Valida un Buffer decodificado; retorna { valid, message, ...dims }.
-// Sin req/res: el controller decide el HTTP status.
-
-export function validateImageBuffer(buffer) {
-  if (buffer.length < MIN_FILE_BYTES) {
-    return { valid: false, message: "Imagen demasiado pequeña o vacía. Vuelve a intentarlo." }
-  }
-
-  const dims = getImageDimensions(buffer)
-  if (!dims) {
-    return { valid: false, message: "Formato no soportado. Se aceptan JPEG y PNG." }
-  }
-
-  if (dims.width > 0 && dims.height > 0 && (dims.width < MIN_SIDE_PX || dims.height < MIN_SIDE_PX)) {
-    return { valid: false, message: "Acércate más al objeto para capturar una imagen de mayor resolución." }
-  }
-
-  return { valid: true, message: "Imagen lista para análisis.", ...dims }
-}
-
 // ── analyzeImage ──────────────────────────────────────────────────────────────
 // 1. Valida parámetros (lanza error tipado con httpStatus si algo falla).
 // 2. INSERT en incidents con estado PROCESANDO.
@@ -263,7 +216,9 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
   console.log(`[image-service] Incidente creado id=${taskId} estado=PROCESANDO`)
 
   // Despachar pipeline pesado sin bloquear la respuesta HTTP
-  setImmediate(() => runMlAnalysis(taskId, { buffer, image }))
+  runMlAnalysis(taskId, { buffer, image }).catch((err) =>
+    console.error(`[image-service] Error no controlado en runMlAnalysis task=${taskId}:`, err.message)
+  )
 
   return {
     httpStatus: 202,
@@ -338,6 +293,26 @@ export async function getTaskStatus(taskId, userId) {
     num_detecciones:     row.num_detecciones,
     created_at:          row.created_at,
     updated_at:          row.updated_at,
+  }
+}
+
+// ── recoverStaleIncidents ─────────────────────────────────────────────────────
+// Marca como FALLIDO cualquier incidente que haya quedado en estado PROCESANDO
+// por más de 10 minutos (proceso caído antes de terminar el pipeline ML).
+// Llamar una vez al arrancar el servicio.
+
+export async function recoverStaleIncidents() {
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE incidents.incidents
+       SET estado = 'FALLIDO', nota_fallo = 'Proceso interrumpido — recuperación en arranque', updated_at = NOW()
+       WHERE estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes'`,
+    )
+    if (rowCount > 0) {
+      console.warn(`[image-service] recoverStaleIncidents: ${rowCount} incidente(s) marcados como FALLIDO`)
+    }
+  } catch (err) {
+    console.error("[image-service] recoverStaleIncidents error:", err.message)
   }
 }
 

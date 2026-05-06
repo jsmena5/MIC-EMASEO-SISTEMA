@@ -1,5 +1,28 @@
 import rateLimit from "express-rate-limit"
 
+// ── Store Redis opcional ──────────────────────────────────────────────────────
+// Si REDIS_URL está definida, cada instancia del gateway comparte contadores
+// en Redis → el rate limiting es efectivo en despliegues multi-réplica/K8s.
+// Sin REDIS_URL el store cae a memoria local (comportamiento anterior).
+
+let makeStore = () => undefined // undefined → express-rate-limit usa memoria
+
+if (process.env.REDIS_URL) {
+  try {
+    const { RedisStore } = await import("rate-limit-redis")
+    const { createClient } = await import("redis")
+    const redisClient = createClient({ url: process.env.REDIS_URL })
+    await redisClient.connect()
+    console.log("[rate-limit] Store Redis conectado:", process.env.REDIS_URL)
+    makeStore = (prefix) => new RedisStore({
+      sendCommand: (...args) => redisClient.sendCommand(args),
+      prefix,
+    })
+  } catch (err) {
+    console.warn("[rate-limit] Redis no disponible, usando store en memoria:", err.message)
+  }
+}
+
 const message429 = (msg) => ({
   message: msg,
   status: 429,
@@ -12,6 +35,7 @@ export const globalLimiter = rateLimit({
   max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:global:"),
   message: message429("Demasiadas peticiones. Inténtalo de nuevo en 15 minutos."),
 })
 
@@ -22,6 +46,7 @@ export const authLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:auth:"),
   message: message429("Demasiados intentos de autenticación. Inténtalo de nuevo en 15 minutos."),
 })
 
@@ -32,6 +57,7 @@ export const registrationLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:register:"),
   message: message429("Límite de registros alcanzado. Inténtalo de nuevo en 1 hora."),
 })
 
@@ -42,6 +68,7 @@ export const otpLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:otp:"),
   message: message429("Demasiados intentos de verificación. Inténtalo de nuevo en 15 minutos."),
 })
 
@@ -52,6 +79,7 @@ export const imageLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:image:"),
   message: message429("Límite de análisis de imágenes alcanzado. Inténtalo de nuevo en 1 hora."),
 })
 
@@ -63,6 +91,7 @@ export const forgotPasswordLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:forgot:"),
   message: message429("Demasiadas solicitudes de código de recuperación. Inténtalo de nuevo en 1 hora."),
 })
 
@@ -74,5 +103,6 @@ export const passwordResetLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  store: makeStore("rl:reset:"),
   message: message429("Demasiados intentos de verificación. Inténtalo de nuevo en 15 minutos."),
 })

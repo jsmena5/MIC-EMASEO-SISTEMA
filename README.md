@@ -226,19 +226,29 @@ El `coverage_ratio` original se devuelve en la respuesta sin modificar para traz
 
 ## 6. Infraestructura Docker
 
-El archivo `docker-compose.yml` levanta tres servicios:
+El archivo `docker-compose.yml` levanta once servicios:
 
-| Contenedor | Imagen | Función | Puertos |
-|-----------|--------|---------|---------|
+| Contenedor | Imagen / Build | Función | Puertos |
+|-----------|---------------|---------|---------|
 | `emaseo-postgres` | `postgis/postgis:16-3.4` | Base de datos + extensiones geoespaciales | 5432 |
 | `emaseo-minio` | `minio/minio:latest` | Almacenamiento de imágenes (S3-compatible) | 9000, 9001 |
-| `emaseo-minio-init` | `minio/mc:latest` | Crea y configura el bucket (efímero, `restart: on-failure`) | — |
+| `emaseo-minio-init` | `minio/mc:latest` | Crea el bucket y lo hace público (efímero) | — |
+| `emaseo-redis` | `redis:7-alpine` | Broker + result backend de Celery | 6379 |
+| `emaseo-auth` | Build `./Backend/auth-service` | Servicio de autenticación y sesiones | 3002 |
+| `emaseo-users` | Build `./Backend/users-service` | CRUD de perfiles de usuario | 3000 |
+| `emaseo-image` | Build `./Backend/image-service` | Orquestador de reportes + pipeline async | 5000 |
+| `emaseo-gateway` | Build `./Backend/api-gateway` | API Gateway (único punto de entrada) | 4000 |
+| `emaseo-ml-api` | Build `./Backend/ml-service` | API ML — Gunicorn + Uvicorn workers | 8000 |
+| `ml-worker` (sin nombre fijo) | Build `./Backend/ml-service` | Worker Celery para inferencia GPU/CPU | — |
+| `emaseo-flower` | `mher/flower:2.0` | Dashboard de tareas Celery | 5555 |
 
-**Persistencia**: volúmenes Docker nombrados `postgres_data` y `minio_data` sobreviven reinicios.
+**Persistencia**: volúmenes Docker nombrados `postgres_data`, `minio_data`, `redis_data` y `shared_uploads` sobreviven reinicios. `shared_uploads` es el volumen compartido entre `ml-api` (escritura) y `ml-worker` (lectura + borrado).
 
-**Bootstrap automático**: el contenedor `minio-init` espera a que MinIO esté `healthy`, crea el bucket `emaseo-incidents` y lo marca como de descarga pública, luego termina. No necesita intervención manual.
+**Bootstrap automático**: `minio-init` espera a que MinIO esté `healthy`, crea el bucket `emaseo-incidents` y lo marca como de descarga pública, luego termina.
 
 **Inicialización de esquema**: PostgreSQL ejecuta automáticamente los scripts en `Backend/database/` al primer inicio (volumen `docker-entrypoint-initdb.d`).
+
+**Escalado horizontal del worker**: `docker compose up -d --scale ml-worker=N` lanza N réplicas del worker Celery. Cada réplica recibe un hostname único y, en hosts multi-GPU, ocupa un slot de GPU independiente.
 
 ---
 
@@ -331,18 +341,33 @@ CREATE INDEX ON ai.analysis_results USING GIN (detecciones);
 
 ### Reporte de incidente (ciudadano)
 
+El pipeline es **asíncrono**: la respuesta HTTP llega antes de que el ML procese la imagen; el cliente sondea el estado.
+
 ```
 App móvil
   → POST /api/image/analyze  (base64 + lat/lon)
       → API Gateway valida JWT + rate limit
           → Image Service
-              → valida imagen
-              → sube a MinIO
-              → llama ML Service /predict
-              ← has_waste: false → borra MinIO + 422 al cliente
+              → valida parámetros + coordenadas Ecuador
+              → INSERT incidents estado=PROCESANDO
+              ← 202 { task_id, poll_url }     ← respuesta inmediata
+
+              [background — setImmediate]
+              → health check ML (3 s timeout)
+              → Circuit Breaker → POST ml-api:8000/predict (imagen base64)
+              ← has_waste: false
+                  → UPDATE incidents estado=FALLIDO
               ← has_waste: true
-              → transacción PostgreSQL (incidents + images + ai.analysis_results)
-              ← 201 {incident_id, nivel, volumen, tipo_residuo, ...}
+                  → PutObject MinIO  →  incidents/{uuid}.jpg
+                  → Transacción PostgreSQL atómica
+                      UPDATE incidents estado=PENDIENTE prioridad=<IA>
+                      INSERT incidents.incident_images  (URL pública MinIO)
+                      INSERT ai.analysis_results        (JSONB detecciones)
+
+  ← App sondea GET /api/image/status/:task_id
+      → 202 PROCESANDO  (pipeline en curso)
+      → 200 FALLIDO     (no se detectaron residuos o error)
+      → 200 PENDIENTE   (éxito — incluye nivel, volumen, tipo_residuo, ...)
   ← App muestra resultado al ciudadano
 ```
 

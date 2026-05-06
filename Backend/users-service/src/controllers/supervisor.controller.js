@@ -61,7 +61,8 @@ export const createSupervisor = async (req, res) => {
     const { nombre, apellido, cedula, telefono, email, password } = req.body
 
     await client.query("BEGIN")
-    const initialPassword = password && password.length >= 8
+    const isProvidedPassword = password && password.length >= 8
+    const initialPassword = isProvidedPassword
       ? password
       : crypto.randomBytes(12).toString("base64url")
 
@@ -83,7 +84,10 @@ export const createSupervisor = async (req, res) => {
 
     await client.query("COMMIT")
 
-    res.status(201).json({ message: "Supervisor creado" })
+    const response = { message: "Supervisor creado" }
+    if (!isProvidedPassword) response.password_temporal = initialPassword
+
+    res.status(201).json(response)
 
   } catch (error) {
     await client.query("ROLLBACK")

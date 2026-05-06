@@ -21,6 +21,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 
+const AUTH_SERVICE_URL  = process.env.AUTH_SERVICE_URL  ?? "http://localhost:3002"
+const USERS_SERVICE_URL = process.env.USERS_SERVICE_URL ?? "http://localhost:3000"
+const IMAGE_SERVICE_URL = process.env.IMAGE_SERVICE_URL ?? "http://localhost:5000"
+
 // Cloudflare Tunnel actúa como proxy inverso — confiar en 1 nivel de proxy
 // elimina ERR_ERL_UNEXPECTED_X_FORWARDED_FOR de express-rate-limit y permite
 // que req.ip refleje la IP real del cliente (no la del túnel).
@@ -87,25 +91,25 @@ const forwardPost = (targetUrl) => [
 //   sin penalizar al usuario que abandona y vuelve a pedir un código.
 // • verify-reset-otp y reset-password usan passwordResetLimiter (5/15 min)
 //   para bloquear fuerza bruta sobre el código OTP de 6 dígitos.
-app.post("/api/auth/forgot-password",  forgotPasswordLimiter, ...forwardPost("http://localhost:3002/api/auth/forgot-password"))
-app.post("/api/auth/verify-reset-otp", passwordResetLimiter,  ...forwardPost("http://localhost:3002/api/auth/verify-reset-otp"))
-app.post("/api/auth/reset-password",   passwordResetLimiter,  ...forwardPost("http://localhost:3002/api/auth/reset-password"))
+app.post("/api/auth/forgot-password",  forgotPasswordLimiter, ...forwardPost(`${AUTH_SERVICE_URL}/api/auth/forgot-password`))
+app.post("/api/auth/verify-reset-otp", passwordResetLimiter,  ...forwardPost(`${AUTH_SERVICE_URL}/api/auth/verify-reset-otp`))
+app.post("/api/auth/reset-password",   passwordResetLimiter,  ...forwardPost(`${AUTH_SERVICE_URL}/api/auth/reset-password`))
 
 // Login / Refresh / Logout para cualquier tipo de usuario
 app.use("/api/auth", authLimiter, createProxyMiddleware({
-  target: "http://localhost:3002",
+  target: AUTH_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/auth" + path
 }))
 
 // Registro de ciudadanos — endpoint público (auto-registro desde la app móvil)
-app.post("/api/users/register",     registrationLimiter, ...forwardPost("http://localhost:3000/api/users/register"))
+app.post("/api/users/register",     registrationLimiter, ...forwardPost(`${USERS_SERVICE_URL}/api/users/register`))
 
 // Verificación OTP — público (el ciudadano no tiene token todavía)
-app.post("/api/users/verify-email", otpLimiter,          ...forwardPost("http://localhost:3000/api/users/verify-email"))
+app.post("/api/users/verify-email", otpLimiter,          ...forwardPost(`${USERS_SERVICE_URL}/api/users/verify-email`))
 
 // Creación de contraseña — público (paso 3 del wizard de registro)
-app.post("/api/users/set-password", otpLimiter,          ...forwardPost("http://localhost:3000/api/users/set-password"))
+app.post("/api/users/set-password", otpLimiter,          ...forwardPost(`${USERS_SERVICE_URL}/api/users/set-password`))
 
 // ── Rutas PROTEGIDAS ──────────────────────────────────────────────────────────
 
@@ -114,7 +118,7 @@ app.post("/api/users/set-password", otpLimiter,          ...forwardPost("http://
 // proxyTimeout/timeout en 120 s porque la primera inferencia del modelo ML
 // puede tardar 30-90 s en frío (carga de pesos en GPU/CPU).
 app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMiddleware({
-  target: "http://localhost:5000",
+  target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/image" + path,
   proxyTimeout: 120_000,
@@ -138,7 +142,7 @@ app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMi
 // Historial de incidentes del ciudadano autenticado — lee desde el image-service
 // Sin imageLimiter porque es una consulta de solo lectura (no consume el modelo ML)
 app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
-  target: "http://localhost:5000",
+  target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/incidents" + path,
   on: {
@@ -160,7 +164,7 @@ app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
 // Gestión de incidentes — supervisores y admins
 // Incluye: listado, detalle, cambio de estado, asignación, estadísticas por zona
 app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware({
-  target: "http://localhost:5000",
+  target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/supervisor" + path,
   on: {
@@ -181,7 +185,7 @@ app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware
 
 // Asignaciones del operario autenticado (OPERARIO, SUPERVISOR, ADMIN)
 app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
-  target: "http://localhost:5000",
+  target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/operario" + path,
   on: {
@@ -203,7 +207,7 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
 // Gestión de usuarios (consulta, edición, desactivación): solo ADMIN
 // El registro público ya fue capturado arriba antes de llegar aquí
 app.use("/api/users", verifyToken, requireAdmin, createProxyMiddleware({
-  target: "http://localhost:3000",
+  target: USERS_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/users" + path
 }))
