@@ -225,6 +225,7 @@ CREATE TABLE incidents.incidents (
     estado          incidents.incident_status     NOT NULL DEFAULT 'PENDIENTE',
     prioridad       incidents.priority_level,                  -- Se llena tras analisis IA
     zona_id         UUID                          REFERENCES operations.zones(id) ON DELETE SET NULL,
+    nota_fallo      TEXT,                                      -- Causa cuando fn_assign_zone no asigna zona
     created_at      TIMESTAMPTZ                   NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ                   NOT NULL DEFAULT NOW(),
     resuelto_at     TIMESTAMPTZ                              -- Timestamp de resolucion
@@ -233,6 +234,7 @@ CREATE TABLE incidents.incidents (
 COMMENT ON TABLE  incidents.incidents             IS 'Incidencias de acumulacion de residuos reportadas por ciudadanos';
 COMMENT ON COLUMN incidents.incidents.ubicacion   IS 'Punto GPS del reporte — SRID 4326 (WGS84)';
 COMMENT ON COLUMN incidents.incidents.zona_id     IS 'Zona operativa determinada automaticamente por ST_Covers (trigger)';
+COMMENT ON COLUMN incidents.incidents.nota_fallo  IS 'Mensaje de fallo cuando fn_assign_zone no puede asignar zona_id (ubicacion fuera de todas las zonas activas)';
 
 -- Imagenes asociadas a una incidencia (1:N)
 CREATE TABLE incidents.incident_images (
@@ -444,22 +446,35 @@ CREATE TRIGGER trg_assignments_updated_at
 -- ── Funcion: Asignacion automatica de zona por ubicacion GPS ──────────────
 -- Usa ST_Covers (mas robusto que ST_Contains en bordes de poligono).
 -- Cuando dos zonas se superponen, asigna la mas especifica (menor area).
+-- Si no hay zona: escribe nota_fallo, emite WARNING al log y NOTIFY.
 CREATE OR REPLACE FUNCTION incidents.fn_assign_zone()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_zona_id UUID;
 BEGIN
-    NEW.zona_id := (
-        SELECT id
-        FROM   operations.zones
-        WHERE  activa = TRUE
-          AND  ST_Covers(geom, NEW.ubicacion)
-        ORDER BY ST_Area(geom) ASC   -- zona mas especifica (menor area) primero
-        LIMIT 1
-    );
+    SELECT id
+    INTO   v_zona_id
+    FROM   operations.zones
+    WHERE  activa = TRUE
+      AND  ST_Covers(geom, NEW.ubicacion)
+    ORDER BY ST_Area(geom) ASC   -- zona mas especifica (menor area) primero
+    LIMIT 1;
+
+    NEW.zona_id := v_zona_id;
+
+    IF v_zona_id IS NULL THEN
+        NEW.nota_fallo := 'Sin zona operativa cubre esta ubicación GPS';
+        RAISE WARNING 'Incidente % sin zona asignada', NEW.id;
+        PERFORM pg_notify('incidente_huerfano', NEW.id::TEXT);
+    END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-COMMENT ON FUNCTION incidents.fn_assign_zone IS 'Asigna automaticamente la zona operativa mas especifica usando ST_Covers + ORDER BY ST_Area';
+COMMENT ON FUNCTION incidents.fn_assign_zone IS
+    'Asigna automaticamente la zona operativa mas especifica usando ST_Covers + ORDER BY ST_Area. '
+    'Si no hay zona, escribe nota_fallo, emite WARNING al log y NOTIFY incidente_huerfano.';
 
 CREATE TRIGGER trg_auto_assign_zone
     BEFORE INSERT OR UPDATE OF ubicacion ON incidents.incidents

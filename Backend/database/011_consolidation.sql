@@ -84,8 +84,9 @@ $$;
 COMMENT ON FUNCTION incidents.fn_log_status_change IS
     'Registra cada transición de estado en status_history y setea resuelto_at al resolver.';
 
-DROP TRIGGER IF EXISTS trg_log_status_change ON incidents.incidents;
-CREATE TRIGGER trg_log_status_change
+-- Ejecuta ANTES del UPDATE; orden 10 (debe correr antes de la notificación al ciudadano)
+DROP TRIGGER IF EXISTS trg_10_log_status_change ON incidents.incidents;
+CREATE TRIGGER trg_10_log_status_change
     BEFORE UPDATE OF estado ON incidents.incidents
     FOR EACH ROW
     EXECUTE FUNCTION incidents.fn_log_status_change();
@@ -140,8 +141,9 @@ $$;
 COMMENT ON FUNCTION incidents.fn_notify_citizen IS
     'Inserta una notificación PUSH al ciudadano en cada transición de estado visible.';
 
-DROP TRIGGER IF EXISTS trg_notify_citizen ON incidents.incidents;
-CREATE TRIGGER trg_notify_citizen
+-- Ejecuta DESPUÉS del UPDATE; orden 20 (lee NEW.prioridad ya confirmada, corre tras el log de estado)
+DROP TRIGGER IF EXISTS trg_20_notify_citizen ON incidents.incidents;
+CREATE TRIGGER trg_20_notify_citizen
     AFTER UPDATE OF estado ON incidents.incidents
     FOR EACH ROW
     EXECUTE FUNCTION incidents.fn_notify_citizen();
