@@ -1,6 +1,7 @@
 // src/navigation/AppNavigator.tsx
 import { NavigationContainer } from "@react-navigation/native"
 import { createNativeStackNavigator } from "@react-navigation/native-stack"
+import { useAuth } from "../contexts/AuthContext"
 import { navigationRef } from "../utils/navigationService"
 
 import HomeScreen from "../screens/HomeScreen"
@@ -40,24 +41,34 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export default function AppNavigator() {
+  const { token, isLoading } = useAuth()
+
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-
-        <Stack.Screen name="Splash"             component={SplashScreen} />
-        <Stack.Screen name="Login"              component={LoginScreen} />
-        <Stack.Screen name="Register"           component={RegisterScreen} />
-        <Stack.Screen name="OtpVerification"    component={OtpVerificationScreen} />
-        <Stack.Screen name="SetPassword"        component={SetPasswordScreen} />
-        <Stack.Screen name="Home"               component={HomeScreen} />
-        <Stack.Screen name="Scan"               component={ScanScreen} />
-        <Stack.Screen name="ScanResult"         component={ScanResultScreen} />
-        <Stack.Screen name="ForgotPassword"     component={ForgotPasswordScreen} />
-        <Stack.Screen name="ForgotPasswordOtp"  component={ForgotPasswordOtpScreen} />
-        <Stack.Screen name="ResetPassword"      component={ResetPasswordScreen} />
-        <Stack.Screen name="Historial"          component={HistorialScreen} />
-        <Stack.Screen name="ReportDetail"       component={ReportDetailScreen} />
-
+        {isLoading ? (
+          <Stack.Group navigationKey="loading">
+            <Stack.Screen name="Splash" component={SplashScreen} />
+          </Stack.Group>
+        ) : token ? (
+          <Stack.Group navigationKey="private">
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="Scan" component={ScanScreen} />
+            <Stack.Screen name="ScanResult" component={ScanResultScreen} />
+            <Stack.Screen name="Historial" component={HistorialScreen} />
+            <Stack.Screen name="ReportDetail" component={ReportDetailScreen} />
+          </Stack.Group>
+        ) : (
+          <Stack.Group navigationKey="public">
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
+            <Stack.Screen name="SetPassword" component={SetPasswordScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+            <Stack.Screen name="ForgotPasswordOtp" component={ForgotPasswordOtpScreen} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+          </Stack.Group>
+        )}
       </Stack.Navigator>
     </NavigationContainer>
   )

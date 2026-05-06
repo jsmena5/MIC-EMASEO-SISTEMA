@@ -1,4 +1,3 @@
-import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useEffect } from "react"
 import { Dimensions, StyleSheet, Text, View } from "react-native"
 import Animated, {
@@ -14,14 +13,11 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated"
 
-import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
-
-type Props = NativeStackScreenProps<RootStackParamList, "Splash">
 
 const { width: W } = Dimensions.get("window")
 
-export default function SplashScreen({ navigation }: Props) {
+export default function SplashScreen() {
   const logoScale = useSharedValue(0)
   const logoOpacity = useSharedValue(0)
 
@@ -63,8 +59,6 @@ export default function SplashScreen({ navigation }: Props) {
     pulse(r2Scale, r2Opacity, 1050, 0.35)
     pulse(r3Scale, r3Opacity, 1400, 0.2)
 
-    const timer = setTimeout(() => navigation.replace("Login"), 3800)
-    return () => clearTimeout(timer)
   }, [])
 
   const logoStyle = useAnimatedStyle(() => ({

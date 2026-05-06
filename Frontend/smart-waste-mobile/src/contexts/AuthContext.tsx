@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { jwtDecode } from "jwt-decode"
 import { logoutUser } from "../services/auth.service"
+import { subscribeAuthSession } from "../utils/authSessionEvents"
 
 export interface DecodedToken {
   id: number
@@ -49,6 +50,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     restoreSession()
+  }, [])
+
+  useEffect(() => {
+    return subscribeAuthSession((sessionToken) => {
+      if (!sessionToken) {
+        setToken(null)
+        setUser(null)
+        return
+      }
+
+      try {
+        const decoded = jwtDecode<DecodedToken>(sessionToken)
+        setToken(sessionToken)
+        setUser(decoded)
+      } catch {
+        setToken(null)
+        setUser(null)
+      }
+    })
   }, [])
 
   const login = async (newToken: string) => {

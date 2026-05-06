@@ -28,9 +28,10 @@ export default function LoginPage() {
       if (user.rol === "ADMIN" || user.rol === "SUPERVISOR") {
         navigate("/dashboard/home");
       } else {
+        localStorage.removeItem("token");
         setError("No autorizado");
       }
-    } catch (error) {
+    } catch {
       setError("Error en el login");
     }
   };

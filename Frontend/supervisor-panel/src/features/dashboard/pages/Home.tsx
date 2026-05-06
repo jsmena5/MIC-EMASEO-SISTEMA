@@ -1,8 +1,7 @@
-import { getUserFromToken } from "../../../shared/utils/jwt";
+import { getStoredUser } from "../../../shared/utils/jwt";
 
 export default function Home() {
-  const token = localStorage.getItem("token")!;
-  const user = getUserFromToken(token);
+  const user = getStoredUser();
 
   return (
     <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-100 to-white">
@@ -13,10 +12,10 @@ export default function Home() {
           Bienvenido
         </h1>
 
-        <p className="text-gray-700">{user.nombre}</p>
+        <p className="text-gray-700">{user?.nombre ?? "Usuario no autenticado"}</p>
 
         <p className="text-sm text-gray-500 mt-1">
-          Rol: {user.rol}
+          Rol: {user?.rol ?? "Sin rol"}
         </p>
 
       </div>

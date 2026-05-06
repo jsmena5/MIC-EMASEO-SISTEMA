@@ -1,11 +1,9 @@
 import { useNavigate } from "react-router-dom";
-import { getUserFromToken } from "../../shared/utils/jwt";
+import { getStoredUser } from "../../shared/utils/jwt";
 
 export default function Topbar() {
   const navigate = useNavigate();
-
-  const token = localStorage.getItem("token")!;
-  const user = getUserFromToken(token);
+  const user = getStoredUser();
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -24,7 +22,7 @@ export default function Topbar() {
       <div className="flex items-center gap-4">
         
         <span className="text-sm text-blue-300 font-medium">
-          {user.nombre} ({user.rol})
+          {user ? `${user.nombre} (${user.rol})` : "Usuario no autenticado"}
         </span>
 
         <button

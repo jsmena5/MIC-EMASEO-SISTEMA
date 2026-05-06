@@ -1,8 +1,6 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { Ionicons } from "@expo/vector-icons"
-import { jwtDecode } from "jwt-decode"
-import React, { useEffect, useState } from "react"
+import React, { useEffect } from "react"
 import {
   Alert,
   Dimensions,
@@ -20,27 +18,20 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated"
 
+import { useAuth } from "../contexts/AuthContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
-import { logoutUser } from "../services/auth.service"
 import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">
 
 const { width: SW } = Dimensions.get("window")
 
-interface DecodedToken {
-  rol?: string
-  nombre?: string
-  nombre_completo?: string
-  name?: string
-  email?: string
-  sub?: string
-}
-
 export default function HomeScreen({ navigation }: Props) {
-  const [displayName, setDisplayName] = useState("")
-  const [role, setRole] = useState("")
-  const [initial, setInitial] = useState("U")
+  const { user, logout } = useAuth()
+
+  const displayName = user?.nombre ?? "Usuario"
+  const role = user?.rol ?? "ciudadano"
+  const initial = (user?.nombre?.[0] ?? "U").toUpperCase()
 
   const headerScale = useSharedValue(0.95)
   const headerOpacity = useSharedValue(0)
@@ -48,20 +39,6 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     headerScale.value = withSpring(1, { damping: 14 })
     headerOpacity.value = withSpring(1)
-
-    const loadUser = async () => {
-      const token = await AsyncStorage.getItem("token")
-      if (!token) return
-      try {
-        const dec = jwtDecode<DecodedToken>(token)
-        const name =
-          dec.nombre_completo ?? dec.nombre ?? dec.name ?? dec.email ?? dec.sub ?? "Usuario"
-        setDisplayName(name)
-        setRole(dec.rol ?? "ciudadano")
-        setInitial((name[0] ?? "U").toUpperCase())
-      } catch {}
-    }
-    loadUser()
   }, [])
 
   const headerStyle = useAnimatedStyle(() => ({
@@ -76,8 +53,7 @@ export default function HomeScreen({ navigation }: Props) {
         text: "Salir",
         style: "destructive",
         onPress: async () => {
-          await logoutUser()
-          navigation.replace("Login")
+          await logout()
         },
       },
     ])

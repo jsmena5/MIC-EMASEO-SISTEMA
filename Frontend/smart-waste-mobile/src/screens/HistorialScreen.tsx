@@ -30,6 +30,8 @@ export const ESTADO_CONFIG: Record<
   EN_ATENCION: { label: "En proceso", color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline" },
   RESUELTA:    { label: "Atendido",   color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
   RECHAZADA:   { label: "Rechazado",  color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
+  PROCESANDO:  { label: "Procesando", color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline" },
+  FALLIDO:     { label: "Fallido",    color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle-outline" },
 }
 
 export const NIVEL_COLOR: Record<string, string> = {

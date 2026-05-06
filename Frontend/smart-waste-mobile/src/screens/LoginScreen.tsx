@@ -3,6 +3,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useState } from "react"
 import { Alert, Text, TextInput, TouchableOpacity, View } from "react-native"
 import ButtonPrimary from "../components/ButtonPrimary"
+import { useAuth } from "../contexts/AuthContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { loginUser } from "../services/auth.service"
 import { globalStyles } from "../theme/styles"
@@ -10,6 +11,7 @@ import { globalStyles } from "../theme/styles"
 type Props = NativeStackScreenProps<RootStackParamList, "Login">
 
 export default function LoginScreen({ navigation }: Props) {
+  const { login } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -27,8 +29,8 @@ export default function LoginScreen({ navigation }: Props) {
 
     setLoading(true)
     try {
-      await loginUser({ email, password })
-      navigation.navigate("Home")
+      const res = await loginUser({ email, password })
+      await login(res.data.token)
     } catch (err: any) {
       const status = err?.response?.status
 

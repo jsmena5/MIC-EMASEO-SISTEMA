@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios, { InternalAxiosRequestConfig } from "axios"
 import { API_URL } from "../config/env"
-import { navigationRef } from "./navigationService"
+import { notifyAuthSessionExpired, notifyAuthTokenUpdated } from "./authSessionEvents"
 
 const BASE_URL = API_URL
 
@@ -85,6 +85,7 @@ api.interceptors.response.use(
         ["token", data.token],
         ["refreshToken", data.refreshToken],
       ])
+      notifyAuthTokenUpdated(data.token)
 
       processQueue(null, data.token)
 
@@ -94,9 +95,7 @@ api.interceptors.response.use(
     } catch (refreshError) {
       processQueue(refreshError, null)
       await AsyncStorage.multiRemove(["token", "refreshToken"])
-
-      // Redirigir a Login solo si el navegador ya está montado
-      if (navigationRef.isReady()) navigationRef.navigate("Login")
+      notifyAuthSessionExpired()
 
       return Promise.reject(refreshError)
 

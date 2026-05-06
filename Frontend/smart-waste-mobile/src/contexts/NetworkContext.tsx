@@ -49,12 +49,24 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await processQueue()
       await refreshPendingCount()
-      if (result.succeeded > 0) {
+      const completedFailures = Math.max(result.failed - result.remaining, 0)
+      if (result.succeeded > 0 || completedFailures > 0) {
+        const sentMessage =
+          result.succeeded > 0
+            ? `Se enviaron ${result.succeeded} reporte(s) pendiente(s).`
+            : ""
+        const failedMessage =
+          completedFailures > 0
+            ? `${completedFailures} reporte(s) no completaron el analisis.`
+            : ""
+        const retryMessage =
+          result.remaining > 0
+            ? `${result.remaining} no pudieron enviarse y se reintentaran mas tarde.`
+            : ""
+
         Alert.alert(
-          "Reportes enviados",
-          result.remaining === 0
-            ? `Se enviaron ${result.succeeded} reporte(s) pendiente(s) correctamente.`
-            : `Se enviaron ${result.succeeded} reporte(s). ${result.remaining} no pudieron enviarse y se reintentarán más tarde.`,
+          completedFailures > 0 ? "Reportes procesados" : "Reportes enviados",
+          [sentMessage, failedMessage, retryMessage].filter(Boolean).join(" "),
           [{ text: "OK" }],
         )
       }

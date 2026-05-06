@@ -1,5 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage"
-import { analyzeImage } from "./image.service"
+import {
+  analyzeImage,
+  TaskAnalysisFailedError,
+  waitForAnalysisResult,
+} from "./image.service"
 
 const QUEUE_KEY = "pending_reports"
 
@@ -10,6 +14,7 @@ export interface PendingReport {
   latitude: number
   longitude: number
   descripcion?: string
+  taskId?: string
   retries: number
 }
 
@@ -64,19 +69,51 @@ export async function processQueue(
 
   const total = queue.length
   let succeeded = 0
-  const failed: PendingReport[] = []
+  let failed = 0
+  let workingQueue = [...queue]
 
   for (let i = 0; i < total; i++) {
-    const report = queue[i]
+    const report = workingQueue[0]
+    if (!report) break
+
     onProgress?.(i + 1, total)
+
     try {
-      await analyzeImage(report.imageBase64, report.latitude, report.longitude, report.descripcion)
+      let taskId = report.taskId
+
+      if (!taskId) {
+        const accepted = await analyzeImage(
+          report.imageBase64,
+          report.latitude,
+          report.longitude,
+          report.descripcion,
+        )
+        taskId = accepted.task_id
+
+        workingQueue[0] = { ...report, taskId }
+        await writeQueue(workingQueue)
+      }
+
+      await waitForAnalysisResult(taskId)
+      workingQueue = workingQueue.slice(1)
+      await writeQueue(workingQueue)
       succeeded++
-    } catch {
-      failed.push({ ...report, retries: report.retries + 1 })
+    } catch (error) {
+      failed++
+
+      if (error instanceof TaskAnalysisFailedError) {
+        workingQueue = workingQueue.slice(1)
+      } else {
+        const currentReport = workingQueue[0] ?? report
+        workingQueue = [
+          ...workingQueue.slice(1),
+          { ...currentReport, retries: currentReport.retries + 1 },
+        ]
+      }
+
+      await writeQueue(workingQueue)
     }
   }
 
-  await writeQueue(failed)
-  return { succeeded, failed: failed.length, remaining: failed.length }
+  return { succeeded, failed, remaining: workingQueue.length }
 }

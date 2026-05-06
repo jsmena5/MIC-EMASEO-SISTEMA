@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { loginRequest } from "./authService";
 import { getUserFromToken } from "../../shared/utils/jwt";
+import type { AuthUser } from "../../shared/utils/jwt";
 
 export const useAuth = () => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   const login = async (email: string, password: string) => {
     const data = await loginRequest(email, password);
