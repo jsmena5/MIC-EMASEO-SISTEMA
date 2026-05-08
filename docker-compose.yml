@@ -5,7 +5,7 @@ x-ml-env: &ml-env
   REDIS_URL: redis://redis:6379/0
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   UPLOADS_DIR: /app/uploads
-  # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+  ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
 
 services:
 

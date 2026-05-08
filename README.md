@@ -89,7 +89,7 @@ Service      Service        Service         (FastAPI / Python)
 | Almacenamiento | MinIO (dev) / AWS S3 (prod) | Docker |
 | App móvil | React Native / Expo | SDK 54 |
 | Panel web | React + Vite | — |
-| Modelo IA | RT-DETR-L (`rtdetr_l_best.pt`) | Ultralytics |
+| Modelo IA | RT-DETR-L v2 (`rtdetr_l_best.pt`) — 1 clase, mAP@50=0.880 | Ultralytics |
 
 ---
 
@@ -156,8 +156,26 @@ Orquestador del flujo de reporte. Pasos en orden:
 ## 5. Servicio ML — RT-DETR-L
 
 **Archivo principal:** `Backend/ml-service/main.py`  
-**Modelo:** `ML/modelos/rtdetr_l_best.pt`  
-**Framework:** FastAPI + Ultralytics
+**Modelo:** `ML/modelos/rtdetr_l_best.pt` (v2 — entrenado en GPU Colab, best epoch 64/100)  
+**Framework:** FastAPI + Ultralytics  
+**Arquitectura:** RT-DETR-L, 32.8 M parámetros, 63 MB
+
+### Métricas del modelo en producción (RT-DETR-L v2)
+
+| Métrica | v1 (anterior) | v2 (actual) | Mejora |
+|---------|--------------|-------------|--------|
+| mAP@50 | 0.4752 | **0.8802** | +85.2% |
+| mAP@50:95 | 0.2450 | **0.6069** | +147.7% |
+| Precision | 0.5523 | **0.8840** | +60.1% |
+| Recall | 0.4353 | **0.8203** | +88.5% |
+
+> Best checkpoint (epoch 64/100) evaluado sobre conjunto de validación (623 imágenes).  
+> Ver detalles completos en `ML/resultados/README.md`.
+
+### Dataset de entrenamiento
+
+**1 clase** (`garbage`) — 12.180 imágenes totales (11.557 train / 623 val)  
+Fuente: Garbage Collector v8 — Roboflow
 
 ### Pipeline de inferencia
 
@@ -168,16 +186,18 @@ Imagen base64
 Decodificación PIL
      │
      ▼
-RTDETR.predict(conf=0.40)  ← filtro NMS interno
+RTDETR.predict(conf=0.35, iou=0.50)  ← NMS interno
      │
      ▼
 Filtro 1: Whitelist de clases
-│  Acepta: garbage, basura, plastico, organico,
-│          escombros, peligroso, domestico, reciclable
+│  Acepta: RECICLABLE, ORGANICO, ESCOMBROS, PELIGROSO, MIXTO
+│          (+ aliases: garbage, basura, organico, organic,
+│           escombros, debris, peligroso, hazardous,
+│           reciclable, recyclable, domestico, vidrio, glass)
 │  Descarta: person, dog, car, etc. (clases COCO heredadas)
      │
      ▼
-Filtro 2: Confianza ≥ 0.45  ← umbral post-NMS
+Filtro 2: bbox área < 0.5% del frame → descartado como ruido
      │
      ├── Sin detecciones válidas → has_waste: false  (Rechazo Amigable)
      │
@@ -187,18 +207,21 @@ Filtro 2: Confianza ≥ 0.45  ← umbral post-NMS
               ├─ confianza media de detecciones
               └─ effective_ratio (heurística anti-falsos positivos)
                        │
-                       ├─ conf_factor  = min(1.0, conf_media / 0.70)
-                       └─ det_factor   = min(1.0, 0.40 + 0.20 × num_detecciones)
+                       ├─ conf_factor  = min(1.0, conf_media / 0.60)
+                       ├─ det_factor   = min(1.0, 0.40 + 0.20 × num_detecciones)
+                       └─ class_weight = multiplicador por peligrosidad del tipo
 
-                       effective_ratio = coverage_ratio × conf_factor × det_factor
+                       effective_ratio = coverage_ratio × conf_factor × det_factor × class_weight
 ```
 
 ### Heurística `effective_ratio`
 
-El `effective_ratio` penaliza dos casos comunes de falsos positivos de volumen:
+El `effective_ratio` penaliza falsos positivos de volumen en tres pasos:
 
-- **Baja confianza**: si el modelo no está seguro, se reduce el coverage estimado.
-- **Primer plano con una sola detección**: un único objeto grande llena el frame pero no implica acumulación masiva. Con 1 caja: ×0.60; con 2: ×0.80; con 3+: ×1.0.
+1. **Baja confianza** (`conf_factor`): si el modelo no está seguro, se reduce el coverage estimado.
+2. **Pocas detecciones** (`det_factor`): 1 detección = ×0.60; 2 = ×0.80; 3+ = ×1.0.
+3. **Corrección de escala** (`ISOLATION_PENALTY = ×0.65`): un único objeto con cobertura > 55% del frame probablemente fue fotografiado de cerca y no representa acumulación masiva.
+4. **Peso por clase** (`class_weight`): PELIGROSO ×1.30; ESCOMBROS ×1.20; MIXTO ×1.00; ORGANICO ×0.95; DOMESTICO/VIDRIO ×0.90; RECICLABLE ×0.85.
 
 El `coverage_ratio` original se devuelve en la respuesta sin modificar para trazabilidad.
 
@@ -213,14 +236,15 @@ El `coverage_ratio` original se devuelve en la respuesta sin modificar para traz
 
 ### Mapeo de clases → `ai.waste_type`
 
-| Clase del modelo | ENUM PostgreSQL |
-|-----------------|----------------|
-| garbage, basura | MIXTO |
-| domestico, domestic | DOMESTICO |
-| plastico, plastic, reciclable, recyclable | RECICLABLE |
-| organico, organic | ORGANICO |
-| escombros, debris | ESCOMBROS |
-| peligroso, hazardous | PELIGROSO |
+| Clase del modelo | Aliases aceptados | ENUM PostgreSQL |
+|-----------------|------------------|----------------|
+| MIXTO | garbage, basura, mixto | MIXTO |
+| RECICLABLE | reciclable, recyclable | RECICLABLE |
+| ORGANICO | organico, organic | ORGANICO |
+| ESCOMBROS | escombros, debris | ESCOMBROS |
+| PELIGROSO | peligroso, hazardous | PELIGROSO |
+| DOMESTICO | domestico, domestic | DOMESTICO |
+| VIDRIO | vidrio, glass | VIDRIO |
 
 ---
 
