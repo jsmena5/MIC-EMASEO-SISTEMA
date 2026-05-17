@@ -16,6 +16,10 @@ export const validateImage = async (req, res) => {
     return reply(res, 400, { valid: false, message: "El campo 'image' (base64) es requerido." })
   }
 
+  if (image.length > 10 * 1024 * 1024) {
+    return reply(res, 413, { valid: false, message: "La imagen excede el tamaño máximo permitido (10 MB en base64)." })
+  }
+
   let buffer
   try {
     buffer = Buffer.from(image, "base64")

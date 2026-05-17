@@ -244,7 +244,7 @@ export const setPassword = async (req, res) => {
         tipo_perfil: "ciudadano"
       },
       process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { expiresIn: process.env.JWT_EXPIRES_IN || "15m" }
     )
 
     res.json({ token, refreshToken: rawRefreshToken })

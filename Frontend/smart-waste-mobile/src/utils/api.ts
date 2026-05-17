@@ -1,7 +1,7 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios, { InternalAxiosRequestConfig } from "axios"
 import { API_URL } from "../config/env"
 import { notifyAuthSessionExpired, notifyAuthTokenUpdated } from "./authSessionEvents"
+import { saveSecure, getSecure, deleteSecure } from "./secureStorage"
 
 const BASE_URL = API_URL
 
@@ -12,7 +12,7 @@ const api = axios.create({
 
 // ─── Request interceptor — adjunta el access token automáticamente ────────────
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem("token")
+  const token = await getSecure("emaseo_access_token")
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -74,17 +74,15 @@ api.interceptors.response.use(
     isRefreshing = true
 
     try {
-      const refreshToken = await AsyncStorage.getItem("refreshToken")
+      const refreshToken = await getSecure("emaseo_refresh_token")
       if (!refreshToken) throw new Error("no_refresh_token")
 
       // Usamos axios directamente (no la instancia `api`) para que esta
       // llamada no pase por el interceptor de respuesta y cause un bucle.
       const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken })
 
-      await AsyncStorage.multiSet([
-        ["token", data.token],
-        ["refreshToken", data.refreshToken],
-      ])
+      await saveSecure("emaseo_access_token", data.token)
+      await saveSecure("emaseo_refresh_token", data.refreshToken)
       notifyAuthTokenUpdated(data.token)
 
       processQueue(null, data.token)
@@ -94,7 +92,8 @@ api.interceptors.response.use(
 
     } catch (refreshError) {
       processQueue(refreshError, null)
-      await AsyncStorage.multiRemove(["token", "refreshToken"])
+      await deleteSecure("emaseo_access_token")
+      await deleteSecure("emaseo_refresh_token")
       notifyAuthSessionExpired()
 
       return Promise.reject(refreshError)

@@ -1,6 +1,7 @@
 import "dotenv/config"
 import express from "express"
 import cors from "cors"
+import helmet from "helmet"
 import morgan from "morgan"
 import { createProxyMiddleware } from "http-proxy-middleware"
 import { fileURLToPath } from "url"
@@ -34,6 +35,7 @@ const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
   : ["http://localhost:5173", "http://localhost:4000"]
 
+app.use(helmet())
 app.use(cors({
   origin: (origin, cb) => {
     // Sin origin → petición server-to-server o herramienta CLI → permitir
@@ -51,9 +53,10 @@ app.use("/docs", express.static(path.join(__dirname, "../public")))
 // ── Helper: reenvío POST directo al microservicio ─────────────────────────────
 // http-proxy-middleware v3 no hace pipe correcto del response cuando se usa como
 // route handler (app.post) en Express 5 — usamos fetch nativo como workaround.
-const parseJson = express.json()
+const parseJson = express.json({ limit: "10mb" })
 
 const FORWARD_TIMEOUT_MS = 10_000
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN
 
 const forwardPost = (targetUrl) => [
   parseJson,
@@ -64,7 +67,10 @@ const forwardPost = (targetUrl) => [
     try {
       const upstream = await fetch(targetUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Token": INTERNAL_TOKEN,
+        },
         body: JSON.stringify(req.body),
         signal: controller.signal,
       })
@@ -99,7 +105,8 @@ app.post("/api/auth/reset-password",   passwordResetLimiter,  ...forwardPost(`${
 app.use("/api/auth", authLimiter, createProxyMiddleware({
   target: AUTH_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: (path) => "/api/auth" + path
+  pathRewrite: (path) => "/api/auth" + path,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
 }))
 
 // Registro de ciudadanos — endpoint público (auto-registro desde la app móvil)
@@ -125,6 +132,7 @@ app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMi
   timeout: 120_000,
   on: {
     proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -147,6 +155,7 @@ app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
   pathRewrite: (path) => "/api/incidents" + path,
   on: {
     proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -169,6 +178,7 @@ app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware
   pathRewrite: (path) => "/api/supervisor" + path,
   on: {
     proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -190,6 +200,7 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
   pathRewrite: (path) => "/api/operario" + path,
   on: {
     proxyReq: (proxyReq, req) => {
+      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -209,7 +220,8 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
 app.use("/api/users", verifyToken, requireAdmin, createProxyMiddleware({
   target: USERS_SERVICE_URL,
   changeOrigin: true,
-  pathRewrite: (path) => "/api/users" + path
+  pathRewrite: (path) => "/api/users" + path,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
 }))
 
 app.listen(4000, () => {

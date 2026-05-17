@@ -1,7 +1,7 @@
 import { pool } from "../db.js"
 import jwt from "jsonwebtoken"
 import { sendPasswordResetEmail } from "../utils/mailer.js"
-import { hashToken, generateOpaqueToken } from "../utils/crypto.js"
+import { hashToken, generateOpaqueToken, generateOtp } from "../utils/crypto.js"
 
 const PASSWORD_RESET_OTP_TTL_MIN = 15
 
@@ -198,9 +198,8 @@ export const forgotPassword = async (req, res) => {
       [userId]
     )
 
-    // Generar OTP de 6 dígitos criptográficamente seguro (100000-999999, nunca ceros a la izquierda)
-    const otp      = String(crypto.randomInt(100_000, 1_000_000))
-    const otpHash  = crypto.createHash("sha256").update(otp).digest("hex")
+    const otp       = generateOtp()
+    const otpHash   = hashToken(otp)
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MIN * 60_000)
 
     await pool.query(
@@ -249,7 +248,7 @@ export const verifyResetOtp = async (req, res) => {
     }
 
     const userId  = userResult.rows[0].id
-    const otpHash = crypto.createHash("sha256").update(String(otp)).digest("hex")
+    const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
       `SELECT id FROM auth.password_reset_tokens
@@ -304,7 +303,7 @@ export const resetPassword = async (req, res) => {
     }
 
     const user    = userResult.rows[0]
-    const otpHash = crypto.createHash("sha256").update(String(otp)).digest("hex")
+    const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
       `SELECT id FROM auth.password_reset_tokens

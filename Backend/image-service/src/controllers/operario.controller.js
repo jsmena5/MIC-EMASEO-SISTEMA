@@ -98,7 +98,7 @@ export const completarAsignacion = async (req, res) => {
     )
 
     // Inyectar actor para el trigger de status_history
-    await client.query(`SET LOCAL app.current_user_id = '${userId}'`)
+    await client.query('SELECT set_config($1, $2, true)', ['app.current_user_id', userId])
 
     // Cambiar el incidente a RESUELTA — el trigger fn_log_status_change
     // escribe en status_history y setea resuelto_at automáticamente.

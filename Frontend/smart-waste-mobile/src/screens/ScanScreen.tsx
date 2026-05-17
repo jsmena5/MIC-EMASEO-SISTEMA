@@ -36,6 +36,7 @@ type AnalysisPhase = "idle" | "uploading" | "queued" | "analyzing" | "saving" | 
 
 const POLL_INTERVAL_MS = 2000
 const SLOW_THRESHOLD_MS = 10000
+const LOCATION_RETRY_DELAY_MS = 3000
 
 function overlayLabel(phase: AnalysisPhase, slow: boolean): string {
   if (phase === "queued")    return "Imagen recibida, preparando análisis..."
@@ -52,6 +53,8 @@ export default function ScanScreen() {
 
   const [camGranted, setCamGranted]   = useState<boolean | null>(null)
   const [locDenied, setLocDenied]     = useState(false)
+  const [locError, setLocError]       = useState<string | null>(null) // Nuevo: error de GPS
+  const [isRetryingLocation, setIsRetryingLocation] = useState(false)
 
   const [capturedUri, setCapturedUri] = useState<string | null>(null)
   const [capturedB64, setCapturedB64] = useState<string | null>(null)
@@ -76,7 +79,7 @@ export default function ScanScreen() {
         if (!camCanAsk) {
           Alert.alert(
             "Permisos Denegados",
-            "Por favor, habilita la cámara y ubicación en la configuración de tu celular",
+            "Por favor, habilita la cámara en la configuración de tu celular",
             [
               { text: "Abrir Configuración", onPress: () => Linking.openSettings() },
               { text: "Cancelar", style: "cancel" },
@@ -94,7 +97,7 @@ export default function ScanScreen() {
         if (!locCanAsk) {
           Alert.alert(
             "Permisos Denegados",
-            "Por favor, habilita la cámara y ubicación en la configuración de tu celular",
+            "Por favor, habilita la ubicación en la configuración de tu celular",
             [
               { text: "Abrir Configuración", onPress: () => Linking.openSettings() },
               { text: "Cancelar", style: "cancel" },
@@ -120,15 +123,64 @@ export default function ScanScreen() {
     pollingInProgressRef.current = false
   }
 
+  // Función mejorada para obtener ubicación con reintentos
+  const getCurrentLocation = async (showErrorAlert = false): Promise<{ latitude: number; longitude: number } | null> => {
+    try {
+      setLocError(null)
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      })
+      const coords = {
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      }
+      // Validar que las coordenadas sean reales (no 0,0)
+      if (coords.latitude === 0 && coords.longitude === 0) {
+        throw new Error("Coordenadas inválidas (0,0)")
+      }
+      return coords
+    } catch (error: any) {
+      console.log("[ScanScreen] Error obteniendo ubicación:", error.message)
+      
+      let userMessage = "No se pudo obtener tu ubicación. "
+      
+      if (error.message?.includes("location services disabled") || error.code === "E_LOCATION_SERVICES_DISABLED") {
+        userMessage += "El GPS está desactivado."
+      } else if (error.message?.includes("timeout")) {
+        userMessage += "La búsqueda de GPS tomó demasiado tiempo. Asegúrate de estar en un lugar abierto."
+      } else {
+        userMessage += "Activa el GPS o acerca tu dispositivo a una ventana."
+      }
+      
+      if (showErrorAlert) {
+        Alert.alert("Ubicación no disponible", userMessage, [
+          { text: "Reintentar", onPress: () => getCurrentLocation(true) },
+          { text: "Usar sin ubicación", style: "cancel", onPress: () => setLocError("no_location") },
+        ])
+      }
+      
+      setLocError(userMessage)
+      return null
+    }
+  }
+
   // Called by CameraCapture once the shutter fires
   const handlePictureTaken = async (base64: string, uri: string) => {
     setCapturedUri(uri)
     setCapturedB64(base64)
+    setLocError(null)
+    setIsRetryingLocation(true)
+    
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-      setLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude })
-    } catch {
-      setLocation(null)
+      const loc = await getCurrentLocation(true) // Mostrar alerta si falla
+      if (loc) {
+        setLocation(loc)
+        setLocError(null)
+      } else {
+        setLocation(null)
+      }
+    } finally {
+      setIsRetryingLocation(false)
     }
   }
 
@@ -137,6 +189,8 @@ export default function ScanScreen() {
     abortControllerRef.current?.abort()
     setCapturedUri(null)
     setCapturedB64(null)
+    setLocation(null)
+    setLocError(null)
     setPhase("idle")
     setIsSlowMessage(false)
     setUploadProgress(0)
@@ -147,16 +201,51 @@ export default function ScanScreen() {
     abortControllerRef.current?.abort()
     setPhase("idle")
     setIsSlowMessage(false)
-    // Stay on photo-review screen so the user can retake or retry
   }
 
   const handleAnalyze = async () => {
     if (!capturedB64) return
 
-    const lat = location?.latitude ?? 0
-    const lng = location?.longitude ?? 0
-    const b64 = capturedB64  // stable capture for closures inside Alert handlers
-
+    // ── Validar que tengamos ubicación antes de enviar ──────────────────────
+    let currentLat = location?.latitude ?? null
+    let currentLng = location?.longitude ?? null
+    
+    // Si no hay ubicación, intentar obtenerla de nuevo
+    if (!currentLat || !currentLng) {
+      setIsRetryingLocation(true)
+      const loc = await getCurrentLocation(true)
+      setIsRetryingLocation(false)
+      
+      if (loc) {
+        setLocation(loc)
+        currentLat = loc.latitude
+        currentLng = loc.longitude
+      } else {
+        // Usuario decidió continuar sin ubicación (usar coordenadas por defecto de Quito)
+        Alert.alert(
+          "Ubicación no disponible",
+          "No pudimos obtener tu ubicación exacta. El reporte se registrará con una ubicación aproximada en Quito.",
+          [
+            {
+              text: "Continuar de todos modos",
+              onPress: () => {
+                // Coordenadas aproximadas de Quito
+                currentLat = -0.180653
+                currentLng = -78.467838
+                performAnalysis(capturedB64, currentLat!, currentLng!)
+              },
+            },
+            { text: "Cancelar", style: "cancel" },
+          ]
+        )
+        return
+      }
+    }
+    
+    performAnalysis(capturedB64, currentLat, currentLng)
+  }
+  
+  const performAnalysis = async (b64: string, lat: number, lng: number) => {
     // ── Offline path: save to local queue and notify user ───────────────────
     if (!isConnected) {
       await enqueuePendingReport(b64, lat, lng)
@@ -196,7 +285,7 @@ export default function ScanScreen() {
           : "No se pudo enviar la imagen. Por favor inténtalo de nuevo.",
         isNetworkError
           ? [
-              { text: "Reintentar", onPress: handleAnalyze },
+              { text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) },
               {
                 text: "Guardar para después",
                 onPress: async () => {
@@ -207,7 +296,7 @@ export default function ScanScreen() {
                 },
               },
             ]
-          : [{ text: "Reintentar", onPress: handleAnalyze }],
+          : [{ text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) }],
       )
       return
     }
@@ -261,7 +350,7 @@ export default function ScanScreen() {
         Alert.alert(
           "Error de conexión",
           "No se pudo obtener el estado del análisis. Inténtalo de nuevo.",
-          [{ text: "Reintentar", onPress: handleAnalyze }],
+          [{ text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) }],
         )
       } finally {
         pollingInProgressRef.current = false
@@ -332,6 +421,8 @@ export default function ScanScreen() {
     const isActive = phase !== "idle"
     const showOverlay = phase === "queued" || phase === "analyzing" || phase === "saving"
     const canCancel = phase === "queued" || phase === "analyzing"
+    const hasLocation = location !== null
+    const isLocationLoading = isRetryingLocation
 
     return (
       <View style={styles.reviewContainer}>
@@ -353,10 +444,38 @@ export default function ScanScreen() {
             </View>
           </View>
 
+          {/* Indicador de estado de ubicación */}
+          <View style={styles.locationStatus}>
+            {isLocationLoading ? (
+              <>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
+              </>
+            ) : hasLocation ? (
+              <>
+                <Ionicons name="location" size={16} color={colors.success} />
+                <Text style={[styles.locationStatusText, styles.locationSuccess]}>
+                  Ubicación disponible
+                </Text>
+              </>
+            ) : locError ? (
+              <>
+                <Ionicons name="warning" size={16} color={colors.critico} />
+                <Text style={[styles.locationStatusText, styles.locationError]}>
+                  {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
+                </Text>
+              </>
+            ) : null}
+          </View>
+
           <TouchableOpacity
-            style={[styles.analyzeBtn, isActive && styles.analyzeBtnLoading]}
+            style={[
+              styles.analyzeBtn, 
+              isActive && styles.analyzeBtnLoading,
+              (!hasLocation && !isLocationLoading) && styles.analyzeBtnDisabled
+            ]}
             onPress={handleAnalyze}
-            disabled={isActive}
+            disabled={isActive || (!hasLocation && !isLocationLoading)}
             activeOpacity={0.85}
           >
             {phase === "uploading" ? (
@@ -369,7 +488,9 @@ export default function ScanScreen() {
             ) : (
               <>
                 <Ionicons name="analytics-outline" size={20} color="#fff" />
-                <Text style={styles.analyzeBtnText}>Analizar y Reportar</Text>
+                <Text style={styles.analyzeBtnText}>
+                  {(!hasLocation && !isLocationLoading) ? "Esperando ubicación..." : "Analizar y Reportar"}
+                </Text>
               </>
             )}
           </TouchableOpacity>
@@ -493,6 +614,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
   analyzeBtnLoading: { backgroundColor: colors.secondaryDark, opacity: 0.8 },
+  analyzeBtnDisabled: { backgroundColor: colors.gray400, opacity: 0.6 },
   analyzeBtnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
 
   retakeBtn: {
@@ -509,4 +631,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10, paddingHorizontal: 14,
   },
   pendingBannerText: { color: "#fff", fontSize: 13, fontWeight: "600", flex: 1 },
+
+  // Nuevos estilos para ubicación
+  locationStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: colors.gray100,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+  },
+  locationStatusText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  locationSuccess: {  
+    color: colors.success,
+  },
+  locationError: {
+    color: colors.critico,
+    flex: 1,
+    flexWrap: "wrap",
+  },
 })

@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { jwtDecode } from "jwt-decode"
 import { logoutUser } from "../services/auth.service"
 import { subscribeAuthSession } from "../utils/authSessionEvents"
+import { saveSecure, getSecure, deleteSecure } from "../utils/secureStorage"
 
 export interface DecodedToken {
   id: number
@@ -24,6 +25,23 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// One-time migration: move tokens from plain AsyncStorage to SecureStore.
+// Runs before any token read so no session is lost on first upgrade.
+async function migrateTokensToSecureStore(): Promise<void> {
+  const migrated = await AsyncStorage.getItem("emaseo_tokens_migrated")
+  if (migrated) return
+
+  const accessToken = await AsyncStorage.getItem("token")
+  const refreshToken = await AsyncStorage.getItem("refreshToken")
+
+  if (accessToken) await saveSecure("emaseo_access_token", accessToken)
+  if (refreshToken) await saveSecure("emaseo_refresh_token", refreshToken)
+
+  await AsyncStorage.removeItem("token")
+  await AsyncStorage.removeItem("refreshToken")
+  await AsyncStorage.setItem("emaseo_tokens_migrated", "true")
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<DecodedToken | null>(null)
   const [token, setToken] = useState<string | null>(null)
@@ -32,18 +50,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const restoreSession = async () => {
       try {
-        const stored = await AsyncStorage.getItem("token")
+        await migrateTokensToSecureStore()
+
+        const stored = await getSecure("emaseo_access_token")
         if (stored) {
           const decoded = jwtDecode<DecodedToken>(stored)
           if (decoded.exp * 1000 > Date.now()) {
             setToken(stored)
             setUser(decoded)
           } else {
-            await AsyncStorage.multiRemove(["token", "refreshToken"])
+            await deleteSecure("emaseo_access_token")
+            await deleteSecure("emaseo_refresh_token")
           }
         }
       } catch {
-        await AsyncStorage.multiRemove(["token", "refreshToken"])
+        await deleteSecure("emaseo_access_token")
+        await deleteSecure("emaseo_refresh_token")
       } finally {
         setIsLoading(false)
       }
@@ -73,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (newToken: string) => {
     const decoded = jwtDecode<DecodedToken>(newToken)
-    await AsyncStorage.setItem("token", newToken)
+    await saveSecure("emaseo_access_token", newToken)
     setToken(newToken)
     setUser(decoded)
   }

@@ -6,29 +6,59 @@ import { mlBreaker, ML_DEGRADED_CODE } from "../mlCircuitBreaker.js"
 import { MIN_FILE_BYTES, MIN_SIDE_PX, getImageDimensions } from "../utils/imageValidation.js"
 export { validateImageBuffer } from "../utils/imageValidation.js"
 
-const DB_RETRY_OPTS = { retries: 3, factor: 2, minTimeout: 500 }
+// ──────────────────────────────────────────────────────────────────────────────
+// Constantes y configuración
+// ──────────────────────────────────────────────────────────────────────────────
 
-// ── Configuración ─────────────────────────────────────────────────────────────
+const DB_RETRY_OPTS = { 
+  retries: 3, 
+  factor: 2, 
+  minTimeout: 500 
+}
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
-const ML_HEALTH_URL  = (() => {
-  try { return `${new URL(ML_SERVICE_URL).origin}/health` } catch { return "http://localhost:8000/health" }
+const ML_HEALTH_URL = (() => {
+  try { 
+    return `${new URL(ML_SERVICE_URL).origin}/health` 
+  } catch { 
+    return "http://localhost:8000/health" 
+  }
 })()
-const BUCKET      = process.env.S3_BUCKET      ?? "emaseo-incidents"
+
+const BUCKET = process.env.S3_BUCKET ?? "emaseo-incidents"
 const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL
 
+// Límites geográficos de Ecuador (WGS84)
+const ECUADOR_BBOX = {
+  lat: { min: -5.02, max: 1.45 },
+  lon: { min: -92.01, max: -75.18 }
+}
+
+// Valor temporal para prioridad mientras el ML procesa
+const TEMP_PRIORIDAD = 'BAJA'
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Cliente S3 (MinIO / AWS)
+// ──────────────────────────────────────────────────────────────────────────────
+
 const s3 = new S3Client({
-  endpoint:    process.env.S3_ENDPOINT,
-  region:      process.env.S3_REGION ?? "us-east-1",
+  endpoint: process.env.S3_ENDPOINT,
+  region: process.env.S3_REGION ?? "us-east-1",
   credentials: {
-    accessKeyId:     process.env.S3_ACCESS_KEY_ID,
+    accessKeyId: process.env.S3_ACCESS_KEY_ID,
     secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
   },
   forcePathStyle: true,
 })
 
-// ── Helpers privados ──────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+// Helpers privados
+// ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Verifica que el servicio ML esté saludable
+ * @throws {Error} Si el servicio no responde en 3 segundos
+ */
 async function checkMlHealth() {
   try {
     const res = await fetch(ML_HEALTH_URL, { signal: AbortSignal.timeout(3_000) })
@@ -40,69 +70,125 @@ async function checkMlHealth() {
   }
 }
 
-// ── runMlAnalysis — tarea pesada ejecutada en background ─────────────────────
+/**
+ * Valida que las coordenadas estén dentro del territorio ecuatoriano
+ */
+function isValidEcuadorLocation(lat, lon) {
+  const latNum = Number(lat)
+  const lonNum = Number(lon)
+  
+  if (isNaN(latNum) || isNaN(lonNum)) return false
+  
+  return (
+    latNum >= ECUADOR_BBOX.lat.min && 
+    latNum <= ECUADOR_BBOX.lat.max &&
+    lonNum >= ECUADOR_BBOX.lon.min && 
+    lonNum <= ECUADOR_BBOX.lon.max
+  )
+}
+
+/**
+ * Crea un error con código HTTP para el controller
+ */
+function createHttpError(message, httpStatus, cause = null) {
+  const error = new Error(message)
+  error.httpStatus = httpStatus
+  if (cause) error.cause = cause
+  return error
+}
+
+/**
+ * Marca un incidente como FALLIDO en la base de datos
+ */
+async function markIncidentAsFailed(incidentId, reason, logError) {
+  try {
+    await pool.query(
+      `UPDATE incidents.incidents 
+       SET estado = 'FALLIDO', nota_fallo = $2, updated_at = NOW() 
+       WHERE id = $1`,
+      [incidentId, reason]
+    )
+  } catch (dbErr) {
+    logError(`No se pudo marcar como FALLIDO: ${dbErr.message}`)
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// runMlAnalysis — Pipeline principal en background
+// ──────────────────────────────────────────────────────────────────────────────
 //
 // Progresión de estado:
-//   PROCESANDO → PENDIENTE  si todo el pipeline tiene éxito
-//   PROCESANDO → FALLIDO    en cualquier error (health, ML, S3, DB)
+//   PROCESANDO → PENDIENTE  → Éxito (ML detectó basura, todo OK)
+//   PROCESANDO → FALLIDO    → Error (health check, ML, S3, o DB)
+//
+// @param {string} incidentId - ID del incidente (taskId)
+// @param {Object} params - { buffer: Buffer, image: string (base64) }
 
-async function runMlAnalysis(taskId, { buffer, image }) {
-  const log  = (msg) => console.log(`[image-service]  [task=${taskId}] ${msg}`)
-  const logE = (msg) => console.error(`[image-service] [task=${taskId}] ${msg}`)
-
-  const markFailed = async (reason) => {
-    try {
-      await pool.query(
-        `UPDATE incidents.incidents SET estado = 'FALLIDO', nota_fallo = $2, updated_at = NOW() WHERE id = $1`,
-        [taskId, reason],
-      )
-    } catch (dbErr) {
-      logE(`No se pudo marcar como FALLIDO: ${dbErr.message}`)
-    }
-    logE(`FALLIDO — ${reason}`)
-  }
+async function runMlAnalysis(incidentId, { buffer, image }) {
+  const log = (msg) => console.log(`[image-service] [incident=${incidentId}] ${msg}`)
+  const logError = (msg) => console.error(`[image-service] [incident=${incidentId}] ${msg}`)
 
   try {
-    // 1. Health check rápido (3 s) — evita enviar el payload base64 si el ML está caído
+    // 1. Health check del servicio ML (timeout 3s)
+    log("Verificando salud del servicio ML...")
     try {
       await checkMlHealth()
-      log("health check ok")
+      log("✓ Health check OK")
     } catch (err) {
-      return await markFailed(`health check: ${err.cause?.message ?? err.message}`)
+      await markIncidentAsFailed(incidentId, `health check: ${err.cause?.message ?? err.message}`, logError)
+      logError(`✗ FALLIDO — Servicio ML no disponible`)
+      return
     }
 
-    // 2. Inferencia ML vía Circuit Breaker (timeout 15 s, umbral 50 %)
+    // 2. Inferencia ML vía Circuit Breaker
+    log("Enviando imagen al servicio ML...")
     let mlResult
     try {
-      mlResult = await mlBreaker.fire({ image_base64: image, image_width: 1280, image_height: 960 })
-      log(`ML ok — has_waste=${mlResult.has_waste} nivel=${mlResult.nivel_acumulacion} t=${mlResult.tiempo_inferencia_ms}ms`)
+      mlResult = await mlBreaker.fire({ 
+        image_base64: image, 
+        image_width: 1280, 
+        image_height: 960 
+      })
+      log(`✓ ML response — has_waste=${mlResult.has_waste}, ` +
+          `nivel=${mlResult.nivel_acumulacion}, ` +
+          `prioridad=${mlResult.prioridad}, ` +
+          `t=${mlResult.tiempo_inferencia_ms}ms`)
     } catch (err) {
       const reason = err.code === ML_DEGRADED_CODE
         ? `circuit breaker abierto: ${err.message}`
         : `ML predict: ${err.message}`
-      return await markFailed(reason)
+      await markIncidentAsFailed(incidentId, reason, logError)
+      logError(`✗ FALLIDO — ${reason}`)
+      return
     }
 
-    // 3. ML no detectó residuos → incidente sin valor, cerrar como FALLIDO
+    // 3. Validar que ML haya detectado residuos
     if (!mlResult.has_waste) {
-      return await markFailed("ML no detectó residuos en la imagen")
+      await markIncidentAsFailed(incidentId, "ML no detectó residuos en la imagen", logError)
+      logError(`✗ FALLIDO — No se detectaron residuos`)
+      return
     }
 
     // 4. Subir imagen a MinIO/S3
-    const s3Key   = `incidents/${uuidv4()}.jpg`
+    const s3Key = `incidents/${uuidv4()}.jpg`
     const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
 
+    log(`Subiendo imagen a S3: ${s3Key}`)
     try {
       await s3.send(new PutObjectCommand({
-        Bucket: BUCKET, Key: s3Key, Body: buffer, ContentType: "image/jpeg",
+        Bucket: BUCKET,
+        Key: s3Key,
+        Body: buffer,
+        ContentType: "image/jpeg",
       }))
-      log(`MinIO ok — key=${s3Key}`)
+      log(`✓ Imagen subida correctamente`)
     } catch (err) {
-      return await markFailed(`upload S3: ${err.message}`)
+      await markIncidentAsFailed(incidentId, `upload S3: ${err.message}`, logError)
+      logError(`✗ FALLIDO — Error al subir imagen: ${err.message}`)
+      return
     }
 
-    // 5. Transacción: actualizar incidente + imagen + resultado IA
-    // La compensación S3 solo ocurre si se agotan todos los reintentos.
+    // 5. Transacción atómica: actualizar incidente + imagen + resultados IA
     try {
       await retry(
         async () => {
@@ -110,37 +196,50 @@ async function runMlAnalysis(taskId, { buffer, image }) {
           try {
             await client.query("BEGIN")
 
+            // Obtener created_at original y actualizar estado + prioridad
             const { rows: updRows } = await client.query(
               `UPDATE incidents.incidents
-               SET estado = 'PENDIENTE', prioridad = $2, updated_at = NOW()
+               SET estado = 'PENDIENTE', 
+                   prioridad = $2, 
+                   updated_at = NOW()
                WHERE id = $1
                RETURNING created_at`,
-              [taskId, mlResult.prioridad],
+              [incidentId, mlResult.prioridad]
             )
+
             const incidentCreatedAt = updRows[0].created_at
+
+            // Insertar imagen del incidente
             await client.query(
               `INSERT INTO incidents.incident_images
                  (incident_id, incident_created_at, image_url, es_principal)
                VALUES ($1, $2, $3, TRUE)`,
-              [taskId, incidentCreatedAt, imageUrl],
+              [incidentId, incidentCreatedAt, imageUrl]
             )
+
+            // Insertar resultados del análisis IA
             await client.query(
               `INSERT INTO ai.analysis_results
                  (incident_id, incident_created_at, modelo_nombre, tipo_residuo,
                   nivel_acumulacion, volumen_estimado_m3, confianza, detecciones,
                   tiempo_inferencia_ms)
-               VALUES ($1, $2, $3, $4::ai.waste_type, $5::ai.accumulation_level, $6, $7, $8::jsonb, $9)`,
+               VALUES ($1, $2, $3, $4::ai.waste_type, 
+                       $5::ai.accumulation_level, $6, $7, $8::jsonb, $9)`,
               [
-                taskId,
+                incidentId,
                 incidentCreatedAt,
-                mlResult.modelo_nombre,   mlResult.tipo_residuo,
-                mlResult.nivel_acumulacion, mlResult.volumen_estimado_m3,
-                mlResult.confianza,         JSON.stringify(mlResult.detecciones),
+                mlResult.modelo_nombre,
+                mlResult.tipo_residuo,
+                mlResult.nivel_acumulacion,
+                mlResult.volumen_estimado_m3,
+                mlResult.confianza,
+                JSON.stringify(mlResult.detecciones),
                 mlResult.tiempo_inferencia_ms,
-              ],
+              ]
             )
 
             await client.query("COMMIT")
+            log(`✓ Transacción completada — incidente PENDIENTE con prioridad=${mlResult.prioridad}`)
           } catch (dbErr) {
             await client.query("ROLLBACK").catch(() => {})
             throw dbErr
@@ -150,88 +249,110 @@ async function runMlAnalysis(taskId, { buffer, image }) {
         },
         {
           ...DB_RETRY_OPTS,
-          onRetry: (err, attempt) => logE(`DB transacción retry ${attempt}: ${err.message}`),
-        },
+          onRetry: (err, attempt) => logError(`DB transacción retry ${attempt}: ${err.message}`),
+        }
       )
-      log(`COMPLETADO — incidente PENDIENTE prioridad=${mlResult.prioridad}`)
     } catch (dbErr) {
+      // Si falla la DB, limpiar la imagen subida (compensación)
       await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key })).catch(() => {})
-      throw dbErr // lo atrapa el catch externo → markFailed
+      await markIncidentAsFailed(incidentId, `DB transaction: ${dbErr.message}`, logError)
+      logError(`✗ FALLIDO — Error en transacción DB: ${dbErr.message}`)
     }
   } catch (err) {
-    await markFailed(err.message).catch(() => {})
+    // Catch general por si algo no manejado explota
+    logError(`✗ Error no controlado: ${err.message}`)
+    await markIncidentAsFailed(incidentId, `error no controlado: ${err.message}`, logError)
   }
 }
 
-// ── analyzeImage ──────────────────────────────────────────────────────────────
-// 1. Valida parámetros (lanza error tipado con httpStatus si algo falla).
-// 2. INSERT en incidents con estado PROCESANDO.
-// 3. Despacha runMlAnalysis en background con setImmediate.
-// 4. Retorna { httpStatus: 202, task_id, poll_url } — sin tocar res.
-
-// Bounding box de Ecuador continental + Galápagos (WGS84)
-const LAT_MIN = -5.02, LAT_MAX = 1.45
-const LON_MIN = -92.01, LON_MAX = -75.18
+// ──────────────────────────────────────────────────────────────────────────────
+// analyzeImage — Endpoint principal
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// 1. Valida parámetros de entrada (lanza error con httpStatus)
+// 2. Valida coordenadas en Ecuador
+// 3. Valida formato de imagen base64
+// 4. INSERT en incidents con estado PROCESANDO y prioridad temporal
+// 5. Despacha runMlAnalysis en background (setImmediate)
+// 6. Retorna 202 Accepted con task_id para polling
 
 export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", userId }) {
-  // Validación de parámetros — los errores incluyen httpStatus para el controller
-  if (!image)
-    throw Object.assign(new Error("El campo 'image' (base64) es requerido."), { httpStatus: 400 })
-  if (latitude === undefined || longitude === undefined)
-    throw Object.assign(new Error("Los campos 'latitude' y 'longitude' son requeridos."), { httpStatus: 400 })
-  if (!userId)
-    throw Object.assign(new Error("No se pudo identificar al usuario. Token inválido o ausente."), { httpStatus: 401 })
+  
+  // 1. Validar campos requeridos
+  if (!image) {
+    throw createHttpError("El campo 'image' (base64) es requerido.", 400)
+  }
+  
+  if (latitude === undefined || longitude === undefined) {
+    throw createHttpError("Los campos 'latitude' y 'longitude' son requeridos.", 400)
+  }
+  
+  if (!userId) {
+    throw createHttpError("No se pudo identificar al usuario. Token inválido o ausente.", 401)
+  }
 
-  // Validar que las coordenadas correspondan al territorio ecuatoriano
-  const lat = Number(latitude), lon = Number(longitude)
-  if (isNaN(lat) || isNaN(lon) || lat < LAT_MIN || lat > LAT_MAX || lon < LON_MIN || lon > LON_MAX) {
-    throw Object.assign(
-      new Error("No se pudo obtener tu ubicación GPS en Ecuador. Activa el GPS e intenta de nuevo."),
-      { httpStatus: 422 },
+  // 2. Validar coordenadas de Ecuador
+  if (!isValidEcuadorLocation(latitude, longitude)) {
+    throw createHttpError(
+      "No se pudo obtener tu ubicación GPS en Ecuador. Activa el GPS e intenta de nuevo.",
+      422
     )
+  }
+
+  // 3. Validar formato base64
+  if (image.length > 10 * 1024 * 1024) {
+    throw createHttpError("La imagen excede el tamaño máximo permitido (10 MB en base64).", 413)
   }
 
   let buffer
   try {
     buffer = Buffer.from(image, "base64")
   } catch {
-    throw Object.assign(new Error("Imagen base64 inválida o corrupta."), { httpStatus: 400 })
+    throw createHttpError("Imagen base64 inválida o corrupta.", 400)
   }
 
-  // INSERT inmediato — prioridad y resultado IA llegan en background
+  // 4. Insertar incidente con estado PROCESANDO y prioridad temporal
+  const lat = Number(latitude)
+  const lon = Number(longitude)
+  
   const { rows } = await retry(
     () => pool.query(
-      `INSERT INTO incidents.incidents (reportado_por, descripcion, ubicacion, direccion, estado)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO')
+      `INSERT INTO incidents.incidents 
+       (reportado_por, descripcion, ubicacion, direccion, estado, prioridad)
+       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO', $6)
        RETURNING id`,
-      [userId, descripcion || null, lon, lat, direccion || null],
+      [userId, descripcion || null, lon, lat, direccion || null, TEMP_PRIORIDAD]
     ),
     {
       ...DB_RETRY_OPTS,
       onRetry: (err, attempt) =>
         console.warn(`[image-service] INSERT incidents retry ${attempt}: ${err.message}`),
-    },
-  )
-  const taskId = rows[0].id
-  console.log(`[image-service] Incidente creado id=${taskId} estado=PROCESANDO`)
-
-  // Despachar pipeline pesado sin bloquear la respuesta HTTP
-  runMlAnalysis(taskId, { buffer, image }).catch((err) =>
-    console.error(`[image-service] Error no controlado en runMlAnalysis task=${taskId}:`, err.message)
+    }
   )
 
+  const incidentId = rows[0].id
+  console.log(`[image-service] ✅ Incidente creado id=${incidentId} estado=PROCESANDO prioridad_temp=${TEMP_PRIORIDAD}`)
+
+  // 5. Despachar pipeline pesado en background (no bloquear respuesta HTTP)
+  setImmediate(() => {
+    runMlAnalysis(incidentId, { buffer, image }).catch((err) => {
+      console.error(`[image-service] Error no controlado en runMlAnalysis incident=${incidentId}:`, err.message)
+    })
+  })
+
+  // 6. Respuesta inmediata para polling
   return {
     httpStatus: 202,
-    task_id:    taskId,
-    estado:     "PROCESANDO",
-    message:    "Imagen recibida. El análisis está en progreso.",
-    poll_url:   `/api/image/status/${taskId}`,
+    task_id: incidentId,
+    estado: "PROCESANDO",
+    message: "Imagen recibida. El análisis está en progreso.",
+    poll_url: `/api/image/status/${incidentId}`,
   }
 }
 
-// ── getTaskStatus ─────────────────────────────────────────────────────────────
-// Busca el incidente en PostgreSQL y retorna un objeto con httpStatus.
-// Caso 404: lanza un error tipado (el controller lo captura en catch).
+// ──────────────────────────────────────────────────────────────────────────────
+// getTaskStatus — Polling para obtener estado del incidente
+// ──────────────────────────────────────────────────────────────────────────────
 
 export async function getTaskStatus(taskId, userId) {
   const { rows } = await pool.query(
@@ -247,66 +368,73 @@ export async function getTaskStatus(taskId, userId) {
      LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
      LEFT JOIN ai.analysis_results ar ON ar.incident_id = i.id
      WHERE i.id = $1 AND i.reportado_por = $2`,
-    [taskId, userId],
+    [taskId, userId]
   )
 
   if (!rows.length) {
-    throw Object.assign(new Error("Tarea no encontrada."), { httpStatus: 404 })
+    throw createHttpError("Tarea no encontrada.", 404)
   }
 
   const row = rows[0]
 
+  // Incidente aún en procesamiento
   if (row.estado === "PROCESANDO") {
     return {
       httpStatus: 202,
       task_id: row.id,
-      estado:  "PROCESANDO",
+      estado: "PROCESANDO",
       message: "En proceso, vuelve a consultar en unos segundos.",
     }
   }
 
+  // Incidente fallido (sin residuos detectados o error)
   if (row.estado === "FALLIDO") {
     return {
       httpStatus: 200,
       task_id: row.id,
-      estado:  "FALLIDO",
+      estado: "FALLIDO",
       message: "No se detectaron residuos en la imagen o el análisis falló. Intenta con otra foto.",
     }
   }
 
-  // PENDIENTE | EN_ATENCION | RESUELTA | RECHAZADA — datos completos del incidente
+  // Incidente completado exitosamente (PENDIENTE, EN_ATENCION, RESUELTA, RECHAZADA)
   return {
-    httpStatus:          200,
-    task_id:             row.id,
-    estado:              row.estado,
-    incident_id:         row.id,
-    prioridad:           row.prioridad,
-    descripcion:         row.descripcion,
-    latitud:             row.latitud,
-    longitud:            row.longitud,
-    image_url:           row.image_url,
-    nivel_acumulacion:   row.nivel_acumulacion,
+    httpStatus: 200,
+    task_id: row.id,
+    estado: row.estado,
+    incident_id: row.id,
+    prioridad: row.prioridad,
+    descripcion: row.descripcion,
+    latitud: row.latitud,
+    longitud: row.longitud,
+    image_url: row.image_url,
+    nivel_acumulacion: row.nivel_acumulacion,
     volumen_estimado_m3: row.volumen_estimado_m3,
-    tipo_residuo:        row.tipo_residuo,
-    confianza:           row.confianza,
+    tipo_residuo: row.tipo_residuo,
+    confianza: row.confianza,
     tiempo_inferencia_ms: row.tiempo_inferencia_ms,
-    num_detecciones:     row.num_detecciones,
-    created_at:          row.created_at,
-    updated_at:          row.updated_at,
+    num_detecciones: row.num_detecciones,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
   }
 }
 
-// ── recoverStaleIncidents ─────────────────────────────────────────────────────
-// Marca como FALLIDO cualquier incidente que haya quedado en estado PROCESANDO
-// por más de 10 minutos (proceso caído antes de terminar el pipeline ML).
+// ──────────────────────────────────────────────────────────────────────────────
+// recoverStaleIncidents — Recuperación de incidentes huérfanos
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Marca como FALLIDO cualquier incidente en estado PROCESANDO que tenga más de
+// 10 minutos de antigüedad (el proceso que lo procesaba probablemente murió).
 // Llamar una vez al arrancar el servicio.
 
 export async function recoverStaleIncidents() {
   try {
     const { rowCount } = await pool.query(
       `UPDATE incidents.incidents
-       SET estado = 'FALLIDO', nota_fallo = 'Proceso interrumpido — recuperación en arranque', updated_at = NOW()
-       WHERE estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes'`,
+       SET estado = 'FALLIDO', 
+           nota_fallo = 'Proceso interrumpido — recuperación en arranque', 
+           updated_at = NOW()
+       WHERE estado = 'PROCESANDO' AND updated_at < NOW() - INTERVAL '10 minutes'`
     )
     if (rowCount > 0) {
       console.warn(`[image-service] recoverStaleIncidents: ${rowCount} incidente(s) marcados como FALLIDO`)
@@ -316,11 +444,16 @@ export async function recoverStaleIncidents() {
   }
 }
 
-// ── getMyIncidents — handler legacy (usado por incident.routes.js) ─────────────
+// ──────────────────────────────────────────────────────────────────────────────
+// getMyIncidents — Handler legacy para historial de ciudadano
+// ──────────────────────────────────────────────────────────────────────────────
 
 export const getMyIncidents = async (req, res) => {
   const userId = req.headers["x-user-id"]
-  if (!userId) return res.status(401).json({ error: "No se pudo identificar al usuario." })
+  
+  if (!userId) {
+    return res.status(401).json({ error: "No se pudo identificar al usuario." })
+  }
 
   try {
     const { rows } = await pool.query(
@@ -338,8 +471,9 @@ export const getMyIncidents = async (req, res) => {
        WHERE i.reportado_por = $1
        ORDER BY i.created_at DESC
        LIMIT 50`,
-      [userId],
+      [userId]
     )
+    
     return res.json({ incidents: rows })
   } catch (err) {
     console.error("[image-service] getMyIncidents error:", err.message)

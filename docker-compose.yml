@@ -2,7 +2,7 @@
 # Para inferencia real: DUMMY_MODE=false en el .env de la raíz del proyecto
 # y descomentar ML_MODEL_PATH.
 x-ml-env: &ml-env
-  REDIS_URL: redis://redis:6379/0
+  REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   UPLOADS_DIR: /app/uploads
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
@@ -17,9 +17,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: MIC-EMASEO
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-MIC-EMASEO}"
+      # Las contraseñas de roles de servicio se leen por el script de init 07_db_users_isolation.sh
+      DB_PASSWORD_AUTH: "${DB_PASSWORD_AUTH}"
+      DB_PASSWORD_USERS: "${DB_PASSWORD_USERS}"
+      DB_PASSWORD_IMAGE: "${DB_PASSWORD_IMAGE}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./Backend/database/01_init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql
@@ -28,7 +32,7 @@ services:
       - ./Backend/database/009_password_reset_tokens.sql:/docker-entrypoint-initdb.d/04_password_reset_tokens.sql
       - ./Backend/database/010_incident_status_async.sql:/docker-entrypoint-initdb.d/05_incident_status_async.sql
       - ./Backend/database/011_consolidation.sql:/docker-entrypoint-initdb.d/06_consolidation.sql
-      - ./Backend/database/012_db_users_isolation.sql:/docker-entrypoint-initdb.d/07_db_users_isolation.sql
+      - ./Backend/database/012_db_users_isolation.sh:/docker-entrypoint-initdb.d/07_db_users_isolation.sh
       - ./Backend/database/014_initial_status_history.sql:/docker-entrypoint-initdb.d/08_initial_status_history.sql
       - ./Backend/database/015_missing_indexes.sql:/docker-entrypoint-initdb.d/09_missing_indexes.sql
       - ./Backend/database/016_data_validation.sql:/docker-entrypoint-initdb.d/10_data_validation.sql
@@ -42,8 +46,10 @@ services:
       - ./Backend/database/024_pgcrypto_pii.sql:/docker-entrypoint-initdb.d/18_pgcrypto_pii.sql
       - ./Backend/database/025_rls_image_svc.sql:/docker-entrypoint-initdb.d/19_rls_image_svc.sql
       - ./Backend/database/026_retention_policy.sql:/docker-entrypoint-initdb.d/20_retention_policy.sql
+    networks:
+      - emaseo_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d MIC-EMASEO"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -55,14 +61,19 @@ services:
     container_name: emaseo-minio
     restart: unless-stopped
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # MinIO Console
+      # Se publican solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
+      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
+      # El image-service siempre accede a MinIO por la red interna (http://minio:9000).
+      - "${EXPOSE_DEV_PORTS:+127.0.0.1:9000:9000}"
+      - "${EXPOSE_DEV_PORTS:+127.0.0.1:9001:9001}"
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
@@ -88,6 +99,8 @@ services:
         echo 'Bucket emaseo-incidents listo.'
       "
     restart: on-failure
+    networks:
+      - emaseo_network
 
   # ── 4. Redis — Broker + Result Backend para Celery ────────────────────────────
   redis:
@@ -95,10 +108,22 @@ services:
     container_name: emaseo-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Se publica solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
+      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
+      # Los microservicios siempre usan redis:6379 por la red interna.
+      - "${EXPOSE_DEV_PORTS:+127.0.0.1:6379:6379}"
+    environment:
+      # REDISCLI_AUTH permite que redis-cli (healthcheck) autentique automáticamente
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --appendfsync everysec
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --requirepass "${REDIS_PASSWORD}"
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -111,24 +136,28 @@ services:
       context: ./Backend/auth-service
     container_name: emaseo-auth
     restart: unless-stopped
-    ports:
-      - "3002:3002"
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    # El gateway es el único punto de entrada externo.
     environment:
       PORT: 3002
       JWT_SECRET: "${JWT_SECRET}"
-      DB_USER: "${DB_USER:-postgres}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      DB_USER_AUTH: "${DB_USER_AUTH:-auth_svc}"
       DB_HOST: postgres
-      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
-      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_AUTH: "${DB_PASSWORD_AUTH}"
       DB_PORT: 5432
       SMTP_HOST: "${SMTP_HOST}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USER: "${SMTP_USER}"
       SMTP_PASS: "${SMTP_PASS}"
       EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
       interval: 10s
@@ -142,24 +171,27 @@ services:
       context: ./Backend/users-service
     container_name: emaseo-users
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
     environment:
       PORT: 3000
       JWT_SECRET: "${JWT_SECRET}"
-      DB_USER: "${DB_USER:-postgres}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      DB_USER_USERS: "${DB_USER_USERS:-users_svc}"
       DB_HOST: postgres
-      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
-      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_USERS: "${DB_PASSWORD_USERS}"
       DB_PORT: 5432
       SMTP_HOST: "${SMTP_HOST}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USER: "${SMTP_USER}"
       SMTP_PASS: "${SMTP_PASS}"
       EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 10s
@@ -173,14 +205,13 @@ services:
       context: ./Backend/image-service
     container_name: emaseo-image
     restart: unless-stopped
-    ports:
-      - "5000:5000"
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
     environment:
       PORT: 5000
-      DB_USER: "${DB_USER:-postgres}"
+      DB_USER_IMAGE: "${DB_USER_IMAGE:-image_svc}"
       DB_HOST: postgres
-      DB_NAME: "${DB_NAME:-MIC-EMASEO}"
-      DB_PASSWORD: "${DB_PASSWORD:-postgres}"
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_IMAGE: "${DB_PASSWORD_IMAGE}"
       DB_PORT: 5432
       S3_ENDPOINT: "http://minio:9000"
       S3_BUCKET: "${S3_BUCKET:-emaseo-incidents}"
@@ -189,6 +220,7 @@ services:
       S3_REGION: "${S3_REGION:-us-east-1}"
       S3_PUBLIC_URL: "${S3_PUBLIC_URL:-http://localhost:9000}"
       ML_SERVICE_URL: "http://ml-api:8000/predict"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,6 +228,8 @@ services:
         condition: service_healthy
       ml-api:
         condition: service_healthy
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
       interval: 10s
@@ -216,6 +250,7 @@ services:
       AUTH_SERVICE_URL: "http://auth-service:3002"
       USERS_SERVICE_URL: "http://users-service:3000"
       IMAGE_SERVICE_URL: "http://image-service:5000"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
     depends_on:
       auth-service:
         condition: service_healthy
@@ -223,6 +258,8 @@ services:
         condition: service_healthy
       image-service:
         condition: service_healthy
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 10s
@@ -236,8 +273,8 @@ services:
       context: ./Backend/ml-service
     container_name: emaseo-ml-api
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    # El image-service lo llama internamente en http://ml-api:8000/predict.
     environment:
       <<: *ml-env
       # GUNICORN_WORKERS: 5   # override manual; por defecto = (2×cores)+1
@@ -250,6 +287,8 @@ services:
     # En desarrollo local reemplaza este comando por:
     #   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     command: gunicorn main:app -c gunicorn.conf.py
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -293,6 +332,8 @@ services:
         -Q ml_queue,dead_letter
         --loglevel=info
         --hostname=worker@%h
+    networks:
+      - emaseo_network
     deploy:
       resources:
         limits:
@@ -305,19 +346,35 @@ services:
         #       capabilities: [gpu]
 
   # ── 11. Flower — dashboard de tareas Celery ───────────────────────────────────
+  # Acceso: http://localhost:5555  (usuario: admin, contraseña: FLOWER_PASSWORD)
+  # PRODUCCIÓN: elimina el bloque `ports:` o ponlo detrás de un reverse proxy
+  # con TLS. Nunca expongas el puerto 5555 directamente a Internet.
   flower:
     image: mher/flower:2.0
     container_name: emaseo-flower
     restart: unless-stopped
     ports:
-      - "5555:5555"
+      # Se publica solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
+      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
+      # Nunca exponer el puerto 5555 directamente a Internet — usar un proxy TLS si es necesario.
+      - "${EXPOSE_DEV_PORTS:+127.0.0.1:5555:5555}"
     environment:
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      # Flower reconoce FLOWER_BASIC_AUTH automáticamente (usuario:contraseña).
+      FLOWER_BASIC_AUTH: "${FLOWER_USER}:${FLOWER_PASSWORD}"
     depends_on:
       redis:
         condition: service_healthy
-    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    networks:
+      - emaseo_network
+    # --basic_auth usa vars del host (.env) porque Compose no interpola
+    # environment: dentro de command:. FLOWER_BASIC_AUTH queda en el
+    # contenedor como respaldo por si Flower lo detecta automáticamente.
+    command: >
+      celery --broker=redis://:${REDIS_PASSWORD}@redis:6379/0
+        flower --port=5555
+          --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
 
 volumes:
   postgres_data:
@@ -326,3 +383,7 @@ volumes:
   # Volumen compartido entre ml-api (escribe) y ml-worker (lee + elimina)
   # Docker gestiona el ciclo de vida; los archivos viven solo durante la inferencia.
   shared_uploads:
+
+networks:
+  emaseo_network:
+    driver: bridge

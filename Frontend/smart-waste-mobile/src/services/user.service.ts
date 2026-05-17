@@ -1,7 +1,7 @@
 // src/services/user.service.ts
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { OtpVerify, PreRegisterUser, SetPasswordData } from "../types/user.types"
 import api from "../utils/api"
+import { saveSecure } from "../utils/secureStorage"
 
 /** Paso 1: envía datos básicos y dispara el OTP al correo */
 export const registerUser = (data: PreRegisterUser) => {
@@ -20,8 +20,8 @@ export const setPassword = async (data: SetPasswordData) => {
   const token: string = res.data.token
   const refreshToken: string = res.data.refreshToken
 
-  await AsyncStorage.setItem("token", token)
-  if (refreshToken) await AsyncStorage.setItem("refreshToken", refreshToken)
+  await saveSecure("emaseo_access_token", token)
+  if (refreshToken) await saveSecure("emaseo_refresh_token", refreshToken)
   api.defaults.headers.common["Authorization"] = `Bearer ${token}`
 
   return res
