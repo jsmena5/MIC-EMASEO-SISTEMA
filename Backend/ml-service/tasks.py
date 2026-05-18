@@ -247,6 +247,12 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
 
         # ── Paso 1: effective_ratio base ─────────────────────────────────────────
+        # TODO(M-08): los multiplicadores conf_factor, det_factor e ISOLATION_PENALTY
+        # NO han sido validados contra un dataset etiquetado con niveles reales.
+        # Acumulaciones difusas (p.ej. 5 bboxes pequeños, coverage ~8 %, conf ~0.55,
+        # tipo RECICLABLE) obtienen effective_ratio ≈ 0.062 → BAJO, cuando
+        # visualmente corresponderían a MEDIO. Ejecutar ML/tests/test_classification_bands.py
+        # con un conjunto de prueba etiquetado antes de ajustar los pesos.
         conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
         det_factor      = min(1.0, DET_FACTOR_BASE + DET_FACTOR_STEP * num_detecciones)
         effective_ratio = coverage_ratio * conf_factor * det_factor

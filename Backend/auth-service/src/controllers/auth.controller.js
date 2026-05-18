@@ -2,11 +2,12 @@ import { pool } from "../db.js"
 import jwt from "jsonwebtoken"
 import { sendPasswordResetEmail } from "../utils/mailer.js"
 import { hashToken, generateOpaqueToken, generateOtp } from "../utils/crypto.js"
+import { validatePassword } from "../utils/passwordValidator.js"
 
 const PASSWORD_RESET_OTP_TTL_MIN = 15
 
 // Access token de vida corta: con refresh token podemos usar ventanas pequeñas
-const ACCESS_TOKEN_TTL       = "15m"
+const ACCESS_TOKEN_TTL       = process.env.JWT_EXPIRES_IN || "15m"
 const REFRESH_TOKEN_TTL_DAYS = 7
 
 async function issueRefreshToken(userId) {
@@ -170,7 +171,9 @@ export const refresh = async (req, res) => {
 
 // ─── Forgot Password ─────────────────────────────────────────────────────────
 // Genera un OTP de 6 dígitos, lo almacena hasheado y envía el email.
-// Responde siempre 200 para no revelar si el email existe (enumeración).
+// Siempre responde con el mismo mensaje genérico (sin emailSent) para evitar
+// enumeración de correos. El envío se despacha en background con setImmediate
+// para que el tiempo de respuesta no varíe según si el email existe.
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body
@@ -179,18 +182,20 @@ export const forgotPassword = async (req, res) => {
     return res.status(400).json({ message: "Email requerido" })
   }
 
+  const GENERIC_MSG = "Si el correo está registrado, recibirás un código de verificación."
+
   try {
     const userResult = await pool.query(
       `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
-    // Respuesta genérica: no revelar si el email está registrado
     if (userResult.rows.length === 0) {
-      return res.json({ message: "Si el email está registrado recibirás un código en breve." })
+      return res.json({ message: GENERIC_MSG })
     }
 
-    const userId = userResult.rows[0].id
+    const userId        = userResult.rows[0].id
+    const normalizedEmail = email.toLowerCase().trim()
 
     // Eliminar tokens previos del mismo usuario para evitar acumulación
     await pool.query(
@@ -208,18 +213,15 @@ export const forgotPassword = async (req, res) => {
       [userId, otpHash, expiresAt]
     )
 
-    let emailSent = false
-    try {
-      await sendPasswordResetEmail(email, otp)
-      emailSent = true
-    } catch (emailError) {
-      console.error("[forgotPassword] Error enviando email:", emailError)
-    }
-
-    res.json({
-      message: "Si el email está registrado recibirás un código en breve.",
-      emailSent,
+    // Despachar el envío en background: la respuesta llega al cliente antes de
+    // que termine el envío, igualando el tiempo observable desde el exterior.
+    setImmediate(() => {
+      sendPasswordResetEmail(normalizedEmail, otp).catch((emailError) => {
+        console.error("[forgotPassword] Error enviando email:", emailError)
+      })
     })
+
+    res.json({ message: GENERIC_MSG })
   } catch (error) {
     console.error("[forgotPassword]", error)
     res.status(500).json({ message: "Error al procesar la solicitud" })
@@ -281,8 +283,9 @@ export const resetPassword = async (req, res) => {
     return res.status(400).json({ message: "Email, código y nueva contraseña son requeridos" })
   }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres" })
+  const pwCheck = validatePassword(newPassword)
+  if (!pwCheck.valid) {
+    return res.status(400).json({ message: pwCheck.message })
   }
 
   try {
@@ -344,7 +347,7 @@ export const resetPassword = async (req, res) => {
 
       await client.query(
         `UPDATE auth.users
-         SET password_hash = crypt($1, gen_salt('bf')),
+         SET password_hash = crypt($1, gen_salt('bf', 10)),
              updated_at    = NOW()
          WHERE id = $2`,
         [newPassword, user.id]

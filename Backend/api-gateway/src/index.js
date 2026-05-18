@@ -6,8 +6,12 @@ import morgan from "morgan"
 import { createProxyMiddleware } from "http-proxy-middleware"
 import { fileURLToPath } from "url"
 import path from "path"
+import swaggerUi from "swagger-ui-express"
+import { swaggerSpec } from "./swagger.js"
 import { verifyToken } from "./middlewares/auth.middleware.js"
 import { requireCiudadano, requireAdmin, requireSupervisor, requireStaff } from "./middlewares/rbac.middleware.js"
+import { requestId } from "./middlewares/requestId.middleware.js"
+import { logger } from "./utils/logger.js"
 import {
   globalLimiter,
   authLimiter,
@@ -44,11 +48,20 @@ app.use(cors({
   },
   credentials: true,
 }))
-app.use(morgan("dev"))
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"))
+app.use(requestId)
 app.use(globalLimiter)
 
-// ── Documentación API (Swagger UI) ────────────────────────────────────────────
+// Health — responde antes de cualquier middleware de autenticación
+app.get("/health", (_req, res) => res.json({ status: "ok" }))
+
+// ── Documentación API ─────────────────────────────────────────────────────────
+// /docs  — Swagger UI estático (archivos legacy)
 app.use("/docs", express.static(path.join(__dirname, "../public")))
+// /api-docs — OpenAPI generado con swagger-jsdoc (spec vivo)
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: "MIC-EMASEO API Docs",
+}))
 
 // ── Helper: reenvío POST directo al microservicio ─────────────────────────────
 // http-proxy-middleware v3 no hace pipe correcto del response cuando se usa como
@@ -58,10 +71,17 @@ const parseJson = express.json({ limit: "10mb" })
 const FORWARD_TIMEOUT_MS = 10_000
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN
 
+const SENSITIVE_KEYS = new Set(["password", "otp", "token", "refreshToken"])
+const sanitizeBody = (body) => {
+  if (!body || typeof body !== "object") return body
+  return Object.fromEntries(
+    Object.entries(body).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? "[REDACTED]" : v])
+  )
+}
+
 const forwardPost = (targetUrl) => [
   parseJson,
   async (req, res) => {
-    console.log(`[GW] → ${targetUrl}`, JSON.stringify(req.body))
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS)
     try {
@@ -75,14 +95,13 @@ const forwardPost = (targetUrl) => [
         signal: controller.signal,
       })
       const data = await upstream.json()
-      console.log(`[GW] ← ${upstream.status}`, JSON.stringify(data))
       res.status(upstream.status).json(data)
     } catch (err) {
       if (err.name === "AbortError") {
-        console.error(`[GW] TIMEOUT en fetch a ${targetUrl} (>${FORWARD_TIMEOUT_MS} ms)`)
+        logger.error({ targetUrl, timeoutMs: FORWARD_TIMEOUT_MS }, "Gateway Timeout en fetch")
         return res.status(504).json({ message: "Gateway Timeout: el servicio no respondió a tiempo." })
       }
-      console.error(`[GW] ERROR en fetch a ${targetUrl}:`, err.message)
+      logger.error({ targetUrl, err: err.message }, "Error en fetch al microservicio")
       res.status(502).json({ message: "Error de conexión con el servicio: " + err.message })
     } finally {
       clearTimeout(timer)
@@ -139,7 +158,7 @@ app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMi
       }
     },
     error: (err, req, res) => {
-      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      logger.error({ method: req.method, path: req.path, code: err.code, err: err.message }, "Proxy error")
       if (!res.headersSent) {
         res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
       }
@@ -162,7 +181,7 @@ app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
       }
     },
     error: (err, req, res) => {
-      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      logger.error({ method: req.method, path: req.path, code: err.code, err: err.message }, "Proxy error")
       if (!res.headersSent) {
         res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
       }
@@ -185,7 +204,7 @@ app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware
       }
     },
     error: (err, req, res) => {
-      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      logger.error({ method: req.method, path: req.path, code: err.code, err: err.message }, "Proxy error")
       if (!res.headersSent) {
         res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
       }
@@ -207,7 +226,7 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
       }
     },
     error: (err, req, res) => {
-      console.error(`[GW] Proxy error en ${req.method} ${req.path} → code=${err.code} msg=${err.message}`)
+      logger.error({ method: req.method, path: req.path, code: err.code, err: err.message }, "Proxy error")
       if (!res.headersSent) {
         res.status(502).json({ error: "Error de proxy al image-service.", code: err.code })
       }
@@ -225,5 +244,5 @@ app.use("/api/users", verifyToken, requireAdmin, createProxyMiddleware({
 }))
 
 app.listen(4000, () => {
-  console.log("API Gateway running on port 4000")
+  logger.info({ port: 4000 }, "API Gateway started")
 })

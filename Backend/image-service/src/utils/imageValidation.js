@@ -1,3 +1,5 @@
+import sharp from "sharp"
+
 export const MIN_FILE_BYTES = 1_000
 export const MIN_SIDE_PX   = 320
 
@@ -26,6 +28,8 @@ export function getImageDimensions(buf) {
   return null
 }
 
+// Filtro rápido basado solo en magic bytes y tamaño (sin I/O de decodificación).
+// Úsalo como guardia de primer nivel antes de llamar a validateImageBufferDeep.
 export function validateImageBuffer(buffer) {
   if (buffer.length < MIN_FILE_BYTES) {
     return { valid: false, message: "Imagen demasiado pequeña o vacía. Vuelve a intentarlo." }
@@ -41,4 +45,38 @@ export function validateImageBuffer(buffer) {
   }
 
   return { valid: true, message: "Imagen lista para análisis.", ...dims }
+}
+
+// Validación profunda con decodificación real vía sharp.
+// Rechaza polyglots y archivos con magic bytes válidos pero contenido corrupto.
+export async function validateImageBufferDeep(buffer) {
+  // Filtro rápido primero — descarta basura sin pasar por sharp
+  const quick = validateImageBuffer(buffer)
+  if (!quick.valid) return quick
+
+  try {
+    const meta = await sharp(buffer).metadata()
+
+    // El formato real del decodificador debe coincidir con el declarado por los magic bytes
+    const expectedFormats = { JPEG: "jpeg", PNG: "png" }
+    if (meta.format !== expectedFormats[quick.format]) {
+      return { valid: false, message: "Formato no soportado. Se aceptan JPEG y PNG." }
+    }
+
+    // Dimensiones reales del decodificador (más confiables que los magic bytes)
+    if (!meta.width || !meta.height || meta.width < MIN_SIDE_PX || meta.height < MIN_SIDE_PX) {
+      return { valid: false, message: "Acércate más al objeto para capturar una imagen de mayor resolución." }
+    }
+
+    return {
+      valid:   true,
+      message: "Imagen lista para análisis.",
+      format:  quick.format,
+      width:   meta.width,
+      height:  meta.height,
+    }
+  } catch {
+    // sharp lanzó error → el buffer no es una imagen decodificable (polyglot, truncado, etc.)
+    return { valid: false, message: "Imagen corrupta o inválida. Vuelve a intentarlo." }
+  }
 }

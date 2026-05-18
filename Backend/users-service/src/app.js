@@ -6,13 +6,15 @@ import userRoutes from "./routes/user.routes.js"
 import operariosRoutes from "./routes/operarios.routes.js"
 import supervisorRoutes from "./routes/supervisor.routes.js"
 import { internalAuth } from "./middleware/internalAuth.middleware.js"
+import { requestId } from "./middleware/requestId.middleware.js"
+import { logger } from "./utils/logger.js"
 
 // Validar variables obligatorias antes de arrancar.
 // Si alguna falta el contenedor termina con código 1 y un mensaje claro.
 const REQUIRED_ENV = ["JWT_SECRET", "INTERNAL_TOKEN", "DB_PASSWORD_USERS"]
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
-    console.error(`[users-service] FATAL: Variable de entorno obligatoria no definida: ${key}. El servicio no puede iniciar.`)
+    logger.fatal({ missingEnv: key }, `Variable de entorno obligatoria no definida: ${key}`)
     process.exit(1)
   }
 }
@@ -22,6 +24,7 @@ const app = express()
 // Servicio interno — solo el gateway (server-to-server) debe acceder.
 app.use(cors({ origin: false }))
 app.use(express.json())
+app.use(requestId)
 
 // Healthcheck para docker-compose — sin autenticación interna.
 app.get("/health", (_req, res) => res.json({ status: "ok" }))
@@ -45,5 +48,5 @@ app.use("/api/users", supervisorRoutes)
 
 
 app.listen(3000, () => {
-  console.log("Users service running on port 3000")
+  logger.info({ port: 3000 }, "Users service started")
 })

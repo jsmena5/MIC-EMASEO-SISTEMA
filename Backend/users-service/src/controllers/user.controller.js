@@ -1,6 +1,7 @@
 import { pool } from "../db.js"
 import { sendOtpEmail } from "../utils/mailer.js"
 import { validarCedula } from "../utils/cedula.js"
+import { validatePassword } from "../utils/passwordValidator.js"
 import jwt from "jsonwebtoken"
 import crypto from "crypto"
 import dotenv from "dotenv"
@@ -41,6 +42,7 @@ export const registerUser = async (req, res) => {
     }
 
     const otp        = generateOtp()
+    const otpHash    = hashToken(otp)          // solo el hash va a la BD
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000) // + 10 min
 
     // Guardar o reemplazar el registro pendiente para este email
@@ -56,7 +58,7 @@ export const registerUser = async (req, res) => {
          otp_expires_at = EXCLUDED.otp_expires_at,
          is_verified    = FALSE,
          created_at     = NOW()`,
-      [nombre.trim(), apellido.trim(), cedula, email, otp, otpExpires]
+      [nombre.trim(), apellido.trim(), cedula, email, otpHash, otpExpires]
     )
 
     // En desarrollo, imprimir OTP en consola para testing sin SMTP
@@ -127,10 +129,12 @@ export const verifyOtp = async (req, res) => {
       return res.status(400).json({ message: "El código expiró. Inicia el registro de nuevo." })
     }
 
-    // Comparación segura
-    const a = Buffer.from(otp.trim().padEnd(6))
-    const b = Buffer.from(reg.otp_code.padEnd(6))
-    const match = crypto.timingSafeEqual(a, b) && otp.trim() === reg.otp_code
+    // Comparar hashes SHA-256 (64 hex chars, longitud fija → timingSafeEqual es seguro)
+    const inputHash  = hashToken(otp.trim())
+    const storedHash = reg.otp_code
+    const a = Buffer.from(inputHash,  "hex")
+    const b = Buffer.from(storedHash, "hex")
+    const match = crypto.timingSafeEqual(a, b)
 
     if (!match) {
       return res.status(400).json({ message: "Código incorrecto" })
@@ -167,8 +171,9 @@ export const setPassword = async (req, res) => {
       return res.status(400).json({ message: "Email y contraseña son requeridos" })
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres" })
+    const pwCheck = validatePassword(password)
+    if (!pwCheck.valid) {
+      return res.status(400).json({ message: pwCheck.message })
     }
 
     // Leer datos del registro pendiente — debe estar verificado
@@ -184,8 +189,7 @@ export const setPassword = async (req, res) => {
 
     const { nombre, apellido, cedula } = result.rows[0]
 
-    // Username = cédula (único, sin requerir que el usuario lo elija)
-    const username = cedula
+    const username = `usr_${crypto.randomBytes(8).toString("hex")}`
 
     await client.query("BEGIN")
 
@@ -194,7 +198,7 @@ export const setPassword = async (req, res) => {
       `INSERT INTO auth.users
          (username, email, password_hash, estado, is_verified)
        VALUES
-         ($1, $2, crypt($3, gen_salt('bf')), 'ACTIVO', TRUE)
+         ($1, $2, crypt($3, gen_salt('bf', 10)), 'ACTIVO', TRUE)
        RETURNING id, username, email, rol`,
       [username, email, password]
     )
@@ -260,5 +264,45 @@ export const setPassword = async (req, res) => {
     res.status(500).json({ message: "Error en servidor" })
   } finally {
     client.release()
+  }
+}
+
+// ============================================================================
+// POST /api/users/push-token  — Registrar/actualizar token de push notification
+// Body: { token, platform, app_version? }
+// Header: x-user-id (inyectado por el gateway)
+// ============================================================================
+export const registerPushToken = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+
+  if (!userId) {
+    return res.status(401).json({ message: "No se pudo identificar al usuario." })
+  }
+
+  const { token, platform, app_version } = req.body
+
+  if (!token || !platform) {
+    return res.status(400).json({ message: "Los campos 'token' y 'platform' son requeridos." })
+  }
+
+  if (!["ios", "android", "web"].includes(platform)) {
+    return res.status(400).json({ message: "Platform debe ser 'ios', 'android' o 'web'." })
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO auth.device_tokens (user_id, token, platform, app_version, last_seen_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (token) DO UPDATE SET
+         user_id      = EXCLUDED.user_id,
+         platform     = EXCLUDED.platform,
+         app_version  = EXCLUDED.app_version,
+         last_seen_at = NOW()`,
+      [userId, token, platform, app_version ?? null]
+    )
+    return res.status(200).json({ message: "Token registrado correctamente." })
+  } catch (err) {
+    console.error("[users-controller] registerPushToken:", err.message)
+    return res.status(500).json({ message: "Error al registrar el token de notificaciones." })
   }
 }

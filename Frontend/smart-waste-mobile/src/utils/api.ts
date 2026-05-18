@@ -7,7 +7,8 @@ const BASE_URL = API_URL
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 50000, // necesario para DB + SMTP (Gmail puede tardar 8s+)
+  // 125 s > proxyTimeout de 120 s en el gateway; el cliente espera más que el proxy.
+  timeout: 125000,
 })
 
 // ─── Request interceptor — adjunta el access token automáticamente ────────────

@@ -50,11 +50,13 @@ COMMENT ON FUNCTION incidents.fn_assign_zone IS
 -- D2: ciudadanos.telefono  → formato ecuatoriano (+593... / 09...)
 -- D3: incidents.ubicacion  → bounding box Ecuador continental + Galápagos
 -- D4: analysis_results.tiempo_inferencia_ms → no puede ser negativo
--- D5: incidents.prioridad  → requerida salvo en PENDIENTE y RECHAZADA
+-- D5: incidents.prioridad  → requerida salvo en PENDIENTE, RECHAZADA,
+--     PROCESANDO y FALLIDO  (ver 027_fix_chk_prioridad_requerida.sql)
 --
--- NOTA D5: incidents.incident_status define 'PENDIENTE', 'EN_ATENCION',
--- 'RESUELTA', 'RECHAZADA'. Se permite NULL en PENDIENTE (IA aún no procesó)
--- y RECHAZADA (puede rechazarse antes del análisis IA).
+-- NOTA D5: Se permite NULL en PENDIENTE (IA aún no procesó), RECHAZADA
+-- (puede rechazarse antes del análisis), PROCESANDO (análisis en curso) y
+-- FALLIDO (la IA no pudo asignar prioridad). La constraint original solo
+-- cubría PENDIENTE y RECHAZADA; fue ampliada en la migración 027.
 -- ============================================================================
 
 -- PostGIS requerida por D3 (ya activa en 01_init_schema.sql; idempotente)
@@ -116,6 +118,8 @@ ALTER TABLE ai.analysis_results
     CHECK (tiempo_inferencia_ms IS NULL OR tiempo_inferencia_ms > 0);
 
 -- ── D5: Prioridad requerida cuando el estado implica análisis IA completado ─
+-- ATENCIÓN: esta definición fue ampliada en 027_fix_chk_prioridad_requerida.sql
+-- para incluir PROCESANDO y FALLIDO. La definición vigente está en 027.
 ALTER TABLE incidents.incidents
     ADD CONSTRAINT chk_prioridad_requerida
     CHECK (

@@ -7,7 +7,7 @@ import crypto from "crypto"
 export const getOperarios = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
+      SELECT
         o.id,
         o.user_id,
         o.nombre,
@@ -22,6 +22,7 @@ export const getOperarios = async (req, res) => {
         u.estado
       FROM operations.operarios o
       JOIN auth.users u ON u.id = o.user_id
+      WHERE u.estado = 'ACTIVO'
       ORDER BY o.created_at DESC
     `)
 
@@ -74,7 +75,7 @@ export const createOperario = async (req, res) => {
     // 1. Crear user — rol forzado en backend; no se acepta del payload
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt($3, gen_salt('bf')), 'OPERARIO')
+      VALUES ($1, $2, crypt($3, gen_salt('bf', 10)), 'OPERARIO')
       RETURNING id
     `, [cedula, email, initialPassword])
 
@@ -121,6 +122,7 @@ export const updateOperario = async (req, res) => {
     )
 
     if (op.rows.length === 0) {
+      await client.query("ROLLBACK")
       return res.status(404).json({ message: "No encontrado" })
     }
 
@@ -155,25 +157,32 @@ export const updateOperario = async (req, res) => {
 // ===============================
 export const deleteOperario = async (req, res) => {
   const { id } = req.params
+  const client = await pool.connect()
 
   try {
-    const op = await pool.query(
-      `SELECT user_id FROM operations.operarios WHERE id=$1`,
+    await client.query("BEGIN")
+
+    const { rows, rowCount } = await client.query(
+      `UPDATE auth.users
+       SET estado = 'INACTIVO', updated_at = NOW()
+       WHERE id = (SELECT user_id FROM operations.operarios WHERE id = $1)
+       RETURNING id`,
       [id]
     )
 
-    if (op.rows.length === 0) {
+    if (rowCount === 0) {
+      await client.query("ROLLBACK")
       return res.status(404).json({ message: "No encontrado" })
     }
 
-    const userId = op.rows[0].user_id
-
-    // elimina todo por cascade
-    await pool.query(`DELETE FROM auth.users WHERE id=$1`, [userId])
-
-    res.json({ message: "Eliminado" })
+    await client.query("COMMIT")
+    res.json({ message: "Operario desactivado" })
 
   } catch (error) {
-    res.status(500).json({ message: "Error eliminando" })
+    await client.query("ROLLBACK")
+    console.error(error)
+    res.status(500).json({ message: "Error eliminando operario" })
+  } finally {
+    client.release()
   }
 }

@@ -20,5 +20,14 @@ COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ./
 # Directorio compartido con el worker (sobreescrito por el volumen en producción)
 RUN mkdir -p /app/uploads
 
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid 1001 --no-create-home --shell /bin/false appuser && \
+    chown -R appuser:appgroup /app
+
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
 # Default: API con Gunicorn+Uvicorn workers (el worker ML sobreescribe en docker-compose)
 CMD ["gunicorn", "main:app", "-c", "gunicorn.conf.py"]

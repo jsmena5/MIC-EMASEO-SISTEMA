@@ -6,13 +6,15 @@ import cors from "cors"
 import rateLimit from "express-rate-limit"
 import authRoutes from "./routes/auth.routes.js"
 import { internalAuth } from "./middleware/internalAuth.middleware.js"
+import { requestId } from "./middleware/requestId.middleware.js"
+import { logger } from "./utils/logger.js"
 
 // Validar variables obligatorias antes de arrancar.
 // Si alguna falta el contenedor termina con código 1 y un mensaje claro.
 const REQUIRED_ENV = ["JWT_SECRET", "INTERNAL_TOKEN", "DB_PASSWORD_AUTH"]
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
-    console.error(`[auth-service] FATAL: Variable de entorno obligatoria no definida: ${key}. El servicio no puede iniciar.`)
+    logger.fatal({ missingEnv: key }, `Variable de entorno obligatoria no definida: ${key}`)
     process.exit(1)
   }
 }
@@ -23,6 +25,7 @@ const app = express()
 // Cualquier petición directa desde un browser (con cabecera Origin) es rechazada.
 app.use(cors({ origin: false }))
 app.use(express.json())
+app.use(requestId)
 
 // Healthcheck para docker-compose — sin autenticación interna.
 app.get("/health", (_req, res) => res.json({ status: "ok" }))
@@ -42,6 +45,7 @@ const loginLimiter = rateLimit({
 app.use("/api/auth/login", loginLimiter)
 app.use("/api/auth", authRoutes)
 
-app.listen(process.env.PORT || 3002, () => {
-  console.log("Auth service running on port 3002")
+const PORT = process.env.PORT || 3002
+app.listen(PORT, () => {
+  logger.info({ port: PORT }, "Auth service started")
 })

@@ -3,7 +3,7 @@ VALUES (
   'aaaaaaaa-0000-0000-0000-000000000099',
   'qa.test@emaseo.local',
   'qa.test',
-  crypt('QaTest2024', gen_salt('bf')),
+  crypt('QaTest2024', gen_salt('bf', 10)),
   'CIUDADANO',
   'ACTIVO',
   TRUE

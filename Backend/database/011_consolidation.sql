@@ -21,7 +21,7 @@ VALUES (
     '00000000-0000-0000-0000-000000000001',
     'sistema@emaseo.gob.ec',
     'SISTEMA',
-    crypt(gen_random_uuid()::text, gen_salt('bf')),
+    crypt(gen_random_uuid()::text, gen_salt('bf', 10)),
     'ADMIN',
     'ACTIVO',
     TRUE

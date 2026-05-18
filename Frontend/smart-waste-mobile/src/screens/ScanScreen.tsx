@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from "@expo/vector-icons"
 import { useNavigation } from "@react-navigation/native"
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
@@ -36,7 +37,10 @@ type AnalysisPhase = "idle" | "uploading" | "queued" | "analyzing" | "saving" | 
 
 const POLL_INTERVAL_MS = 2000
 const SLOW_THRESHOLD_MS = 10000
+const POLL_TIMEOUT_MS = 120_000
 const LOCATION_RETRY_DELAY_MS = 3000
+// AsyncStorage key for task IDs whose analysis is still in progress on the server
+const PROCESSING_TASKS_KEY = "processing_task_ids"
 
 function overlayLabel(phase: AnalysisPhase, slow: boolean): string {
   if (phase === "queued")    return "Imagen recibida, preparando análisis..."
@@ -229,10 +233,10 @@ export default function ScanScreen() {
             {
               text: "Continuar de todos modos",
               onPress: () => {
-                // Coordenadas aproximadas de Quito
+                // A-07: coordenadas de referencia de Quito — se marca como aproximada
                 currentLat = -0.180653
                 currentLng = -78.467838
-                performAnalysis(capturedB64, currentLat!, currentLng!)
+                performAnalysis(capturedB64, currentLat!, currentLng!, true)
               },
             },
             { text: "Cancelar", style: "cancel" },
@@ -245,7 +249,7 @@ export default function ScanScreen() {
     performAnalysis(capturedB64, currentLat, currentLng)
   }
   
-  const performAnalysis = async (b64: string, lat: number, lng: number) => {
+  const performAnalysis = async (b64: string, lat: number, lng: number, ubicacionAproximada = false) => {
     // ── Offline path: save to local queue and notify user ───────────────────
     if (!isConnected) {
       await enqueuePendingReport(b64, lat, lng)
@@ -272,6 +276,7 @@ export default function ScanScreen() {
       const accepted = await analyzeImage(b64, lat, lng, undefined, {
         signal: controller.signal,
         onUploadProgress: setUploadProgress,
+        ubicacion_aproximada: ubicacionAproximada,
       })
       taskId = accepted.task_id
     } catch (e: any) {
@@ -285,7 +290,7 @@ export default function ScanScreen() {
           : "No se pudo enviar la imagen. Por favor inténtalo de nuevo.",
         isNetworkError
           ? [
-              { text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) },
+              { text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng, ubicacionAproximada) },
               {
                 text: "Guardar para después",
                 onPress: async () => {
@@ -311,6 +316,27 @@ export default function ScanScreen() {
       pollingInProgressRef.current = true
 
       const elapsed = Date.now() - pollingStartRef.current
+
+      // A-04: Hard cap — stop polling after 120 s and save task_id for later retrieval
+      if (elapsed >= POLL_TIMEOUT_MS) {
+        stopPolling()
+        setPhase("idle")
+        setIsSlowMessage(false)
+        try {
+          const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
+          const tasks: string[] = raw ? JSON.parse(raw) : []
+          if (!tasks.includes(taskId)) tasks.push(taskId)
+          await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
+        } catch {}
+        Alert.alert(
+          "Análisis en progreso",
+          "El análisis está tardando más de lo esperado. Podrás ver el resultado en tu historial cuando esté listo.",
+          [{ text: "Entendido" }],
+        )
+        pollingInProgressRef.current = false
+        return
+      }
+
       if (elapsed >= SLOW_THRESHOLD_MS) setIsSlowMessage(true)
 
       // Switch from "queued" to "analyzing" after first tick arrives

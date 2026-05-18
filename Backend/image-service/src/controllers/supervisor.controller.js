@@ -16,21 +16,24 @@ const TRANSICIONES_VALIDAS = {
 
 export const listIncidents = async (req, res) => {
   const { estado, prioridad, zona_id, page = 1, limit = 20 } = req.query
-  const offset = (Math.max(1, Number(page)) - 1) * Math.min(50, Number(limit))
-  const pageSize = Math.min(50, Number(limit))
+  const pageNum  = Math.max(1, Number(page))
+  const pageSize = Math.min(50, Math.max(1, Number(limit)))
+  const offset   = (pageNum - 1) * pageSize
 
   const conditions = []
   const params     = []
 
-  if (estado)   { params.push(estado);   conditions.push(`i.estado = $${params.length}`) }
+  if (estado)    { params.push(estado);    conditions.push(`i.estado = $${params.length}`) }
   if (prioridad) { params.push(prioridad); conditions.push(`i.prioridad = $${params.length}`) }
-  if (zona_id)  { params.push(zona_id);  conditions.push(`i.zona_id = $${params.length}`) }
+  if (zona_id)   { params.push(zona_id);   conditions.push(`i.zona_id = $${params.length}`) }
 
   const where = conditions.length ? "WHERE " + conditions.join(" AND ") : ""
 
   params.push(pageSize, offset)
 
   try {
+    // COUNT(*) OVER() devuelve el total en cada fila sin una query separada,
+    // eliminando la posible inconsistencia entre COUNT y SELECT en lecturas concurrentes.
     const { rows } = await pool.query(
       `SELECT
          i.id, i.estado, i.prioridad, i.nota_fallo, i.descripcion, i.direccion,
@@ -45,7 +48,8 @@ export const listIncidents = async (req, res) => {
          ar.nivel_acumulacion, ar.tipo_residuo,
          ar.volumen_estimado_m3, ar.confianza,
          (SELECT COUNT(*) FROM incidents.assignments a
-          WHERE a.incident_id = i.id AND a.completada = FALSE) AS asignaciones_activas
+          WHERE a.incident_id = i.id AND a.completada = FALSE) AS asignaciones_activas,
+         COUNT(*) OVER() AS total_count
        FROM incidents.incidents i
        LEFT JOIN operations.zones z      ON z.id = i.zona_id
        LEFT JOIN public.ciudadanos c     ON c.user_id = i.reportado_por
@@ -62,16 +66,17 @@ export const listIncidents = async (req, res) => {
       params,
     )
 
-    const { rows: total } = await pool.query(
-      `SELECT COUNT(*) FROM incidents.incidents i ${where}`,
-      params.slice(0, -2),
-    )
+    const total = rows.length > 0 ? Number(rows[0].total_count) : 0
+    const incidents = rows.map(({ total_count, ...row }) => row)
 
     return res.json({
-      incidents: rows,
-      total:     Number(total[0].count),
-      page:      Number(page),
-      limit:     pageSize,
+      incidents,
+      pagination: {
+        total,
+        page:  pageNum,
+        limit: pageSize,
+        pages: Math.ceil(total / pageSize),
+      },
     })
   } catch (err) {
     console.error("[supervisor] listIncidents:", err.message)
@@ -338,8 +343,21 @@ export const listOperarios = async (req, res) => {
 
 // ─── GET /api/supervisor/zonas/mapa ──────────────────────────────────────────
 // GeoJSON de zonas activas + markers de incidentes activos para mapa en tiempo real.
+// Query params:
+//   page     (default 1)
+//   limit    (default 100, máx 500)
+//   sw_lat, sw_lon, ne_lat, ne_lon  — rectángulo geográfico del viewport del mapa
+//     Si se proporcionan los 4 valores se filtra con ST_MakeEnvelope y solo se
+//     devuelven incidentes dentro del viewport, reduciendo el payload al mínimo útil.
 
 export const mapaZonas = async (req, res) => {
+  const pageNum  = Math.max(1, Number(req.query.page  ?? 1))
+  const pageSize = Math.min(500, Math.max(1, Number(req.query.limit ?? 100)))
+  const offset   = (pageNum - 1) * pageSize
+
+  const { sw_lat, sw_lon, ne_lat, ne_lon } = req.query
+  const hasBounds = [sw_lat, sw_lon, ne_lat, ne_lon].every(v => v !== undefined && v !== "")
+
   try {
     const client = await pool.connect()
     try {
@@ -376,24 +394,60 @@ export const mapaZonas = async (req, res) => {
         ORDER BY z.nombre
       `)
 
-      // B. Incidentes activos para markers — OPCIÓN B: ubicacion GEOMETRY(Point, 4326)
-      const { rows: incidentes } = await client.query(`
-        SELECT
-          i.id,
-          i.estado,
-          i.prioridad,
-          i.descripcion,
-          i.zona_id,
-          i.created_at,
-          ST_Y(i.ubicacion::geometry) AS latitud,
-          ST_X(i.ubicacion::geometry) AS longitud,
-          z.nombre AS zona_nombre
-        FROM incidents.incidents i
-        LEFT JOIN operations.zones z ON z.id = i.zona_id
-        WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
-        ORDER BY i.created_at DESC
-        LIMIT 500
-      `)
+      // B. Incidentes activos para markers, con filtro de viewport si se proporcionan bounds
+      let incidentesQuery
+      let incidentesParams
+
+      if (hasBounds) {
+        // ST_MakeEnvelope(xmin, ymin, xmax, ymax, srid) — SW=(lon,lat), NE=(lon,lat)
+        incidentesQuery = `
+          SELECT
+            i.id,
+            i.estado,
+            i.prioridad,
+            i.descripcion,
+            i.zona_id,
+            i.created_at,
+            ST_Y(i.ubicacion::geometry) AS latitud,
+            ST_X(i.ubicacion::geometry) AS longitud,
+            z.nombre AS zona_nombre,
+            COUNT(*) OVER() AS total_count
+          FROM incidents.incidents i
+          LEFT JOIN operations.zones z ON z.id = i.zona_id
+          WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+            AND ST_Within(
+              i.ubicacion::geometry,
+              ST_MakeEnvelope($1::float, $2::float, $3::float, $4::float, 4326)
+            )
+          ORDER BY i.created_at DESC
+          LIMIT $5 OFFSET $6`
+        // ST_MakeEnvelope(xmin=sw_lon, ymin=sw_lat, xmax=ne_lon, ymax=ne_lat)
+        incidentesParams = [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), pageSize, offset]
+      } else {
+        incidentesQuery = `
+          SELECT
+            i.id,
+            i.estado,
+            i.prioridad,
+            i.descripcion,
+            i.zona_id,
+            i.created_at,
+            ST_Y(i.ubicacion::geometry) AS latitud,
+            ST_X(i.ubicacion::geometry) AS longitud,
+            z.nombre AS zona_nombre,
+            COUNT(*) OVER() AS total_count
+          FROM incidents.incidents i
+          LEFT JOIN operations.zones z ON z.id = i.zona_id
+          WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+          ORDER BY i.created_at DESC
+          LIMIT $1 OFFSET $2`
+        incidentesParams = [pageSize, offset]
+      }
+
+      const { rows: incidentesRaw } = await client.query(incidentesQuery, incidentesParams)
+
+      const total      = incidentesRaw.length > 0 ? Number(incidentesRaw[0].total_count) : 0
+      const incidentes = incidentesRaw.map(({ total_count, ...row }) => row)
 
       // C. Calcular nivel de actividad por zona
       const calcNivel = (z) => {
@@ -435,6 +489,12 @@ export const mapaZonas = async (req, res) => {
           latitud:     Number(i.latitud),
           longitud:    Number(i.longitud),
         })),
+        pagination: {
+          total,
+          page:  pageNum,
+          limit: pageSize,
+          pages: Math.ceil(total / pageSize),
+        },
         generado_at: new Date().toISOString(),
       })
 

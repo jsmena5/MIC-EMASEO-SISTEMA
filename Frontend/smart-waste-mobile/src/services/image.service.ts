@@ -98,11 +98,18 @@ export const analyzeImage = async (
   options?: {
     signal?: AbortSignal
     onUploadProgress?: (percentage: number) => void
+    ubicacion_aproximada?: boolean
   }
 ): Promise<AnalyzeAccepted> => {
   const res = await api.post(
     "/image/analyze",
-    { image: imageBase64, latitude, longitude, descripcion: descripcion ?? "" },
+    {
+      image: imageBase64,
+      latitude,
+      longitude,
+      descripcion: descripcion ?? "",
+      ubicacion_aproximada: options?.ubicacion_aproximada ?? false,
+    },
     {
       signal: options?.signal,
       onUploadProgress: options?.onUploadProgress

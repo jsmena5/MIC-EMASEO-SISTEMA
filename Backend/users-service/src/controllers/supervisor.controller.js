@@ -21,7 +21,7 @@ export const getSupervisores = async (req, res) => {
         u.estado
       FROM operations.operarios s
       JOIN auth.users u ON u.id = s.user_id
-      WHERE u.rol = 'SUPERVISOR'
+      WHERE u.rol = 'SUPERVISOR' AND u.estado = 'ACTIVO'
       ORDER BY s.created_at DESC
     `)
 
@@ -116,6 +116,7 @@ export const updateSupervisor = async (req, res) => {
     )
 
     if (op.rows.length === 0) {
+      await client.query("ROLLBACK")
       return res.status(404).json({ message: "No encontrado" })
     }
 
@@ -148,27 +149,37 @@ export const updateSupervisor = async (req, res) => {
 // ===============================
 export const deleteSupervisor = async (req, res) => {
   const { id } = req.params
+  const client = await pool.connect()
 
   try {
-    const op = await pool.query(
-      `SELECT o.user_id
-       FROM operations.operarios o
-       JOIN auth.users u ON u.id = o.user_id
-       WHERE o.id = $1 AND u.rol = 'SUPERVISOR'`,
+    await client.query("BEGIN")
+
+    const { rowCount } = await client.query(
+      `UPDATE auth.users
+       SET estado = 'INACTIVO', updated_at = NOW()
+       WHERE id = (
+         SELECT o.user_id
+         FROM operations.operarios o
+         JOIN auth.users u ON u.id = o.user_id
+         WHERE o.id = $1 AND u.rol = 'SUPERVISOR'
+       )
+       RETURNING id`,
       [id]
     )
 
-    if (op.rows.length === 0) {
+    if (rowCount === 0) {
+      await client.query("ROLLBACK")
       return res.status(404).json({ message: "No encontrado" })
     }
 
-    const userId = op.rows[0].user_id
-
-    await pool.query(`DELETE FROM auth.users WHERE id=$1`, [userId])
-
-    res.json({ message: "Eliminado" })
+    await client.query("COMMIT")
+    res.json({ message: "Supervisor desactivado" })
 
   } catch (error) {
-    res.status(500).json({ message: "Error eliminando" })
+    await client.query("ROLLBACK")
+    console.error(error)
+    res.status(500).json({ message: "Error eliminando supervisor" })
+  } finally {
+    client.release()
   }
 }

@@ -158,7 +158,7 @@ CREATE TABLE public.pending_registrations (
     apellido        VARCHAR(100) NOT NULL,
     cedula          VARCHAR(10)  NOT NULL,
     email           VARCHAR(150) NOT NULL UNIQUE,
-    otp_code        VARCHAR(6),
+    otp_code        VARCHAR(64),
     otp_expires_at  TIMESTAMPTZ,
     is_verified     BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()

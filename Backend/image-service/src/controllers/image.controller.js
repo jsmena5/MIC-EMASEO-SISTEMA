@@ -1,5 +1,5 @@
 import {
-  validateImageBuffer,
+  validateImageBufferDeep,
   analyzeImage   as analyzeImageService,
   getTaskStatus  as getTaskStatusService,
 } from "../services/image.service.js"
@@ -28,7 +28,7 @@ export const validateImage = async (req, res) => {
   }
 
   try {
-    return reply(res, 200, validateImageBuffer(buffer))
+    return reply(res, 200, await validateImageBufferDeep(buffer))
   } catch (err) {
     console.error("[image-controller] validateImage:", err.message)
     return reply(res, 500, { valid: false, message: "Error interno al validar la imagen." })
@@ -40,13 +40,13 @@ export const validateImage = async (req, res) => {
 // el resultado (o error tipado) a una respuesta HTTP.
 
 export const analyzeImage = async (req, res) => {
-  const { image, latitude, longitude, descripcion } = req.body
+  const { image, latitude, longitude, descripcion, ubicacion_aproximada } = req.body
   const userId = req.headers["x-user-id"]
 
-  console.log(`[image-controller] POST /analyze userId=${userId} lat=${latitude} lon=${longitude}`)
+  console.log(`[image-controller] POST /analyze userId=${userId} lat=${latitude} lon=${longitude} aprox=${!!ubicacion_aproximada}`)
 
   try {
-    const result = await analyzeImageService({ image, latitude, longitude, descripcion, userId })
+    const result = await analyzeImageService({ image, latitude, longitude, descripcion, ubicacion_aproximada: !!ubicacion_aproximada, userId })
     const { httpStatus, ...body } = result
     return reply(res, httpStatus, body)
   } catch (err) {
