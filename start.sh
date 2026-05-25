@@ -106,6 +106,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
   JWT_SECRET=$(gen 48)
   MINIO_ROOT_PASSWORD=$(gen 24)
   REDIS_PASSWORD=$(gen 24)
+  # Percent-encode para Flower (+ → %2B, / → %2F) — necesario porque Redis URL parsea mal esos chars
+  REDIS_PASSWORD_ENCODED=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''))" "$REDIS_PASSWORD" 2>/dev/null \
+    || printf '%s' "$REDIS_PASSWORD" | sed 's/+/%2B/g; s|/|%2F|g')
   INTERNAL_TOKEN=$(gen 32)
   FLOWER_PASSWORD=$(gen 24)
 
@@ -145,6 +148,8 @@ S3_PUBLIC_URL=http://localhost:9000
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 REDIS_PASSWORD=${REDIS_PASSWORD}
+# Versión percent-encoded para Flower (+ → %2B, / → %2F). No editar manualmente.
+REDIS_PASSWORD_ENCODED=${REDIS_PASSWORD_ENCODED}
 
 # ── SMTP — COMPLETAR MANUALMENTE ─────────────────────────────────────────────
 SMTP_HOST=smtp.tudominio.com
@@ -190,9 +195,10 @@ if [[ "$ENABLE_DEV_PORTS" == true ]]; then
 fi
 
 # Cargar variables del .env para usar en el script
+# tr -d '\r' elimina CRLF de archivos generados en Windows antes de sourcear
 set -a
 # shellcheck disable=SC1090
-source "$ENV_FILE"
+source <(tr -d '\r' < "$ENV_FILE")
 set +a
 
 # ── 3. Construcción de imágenes ───────────────────────────────────────────────

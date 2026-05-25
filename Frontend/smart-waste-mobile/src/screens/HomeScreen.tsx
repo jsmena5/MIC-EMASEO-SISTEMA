@@ -1,7 +1,8 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { Ionicons } from "@expo/vector-icons"
-import React, { useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   ScrollView,
@@ -28,6 +29,7 @@ const { width: SW } = Dimensions.get("window")
 
 export default function HomeScreen({ navigation }: Props) {
   const { user, logout } = useAuth()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const displayName = user?.nombre ?? "Usuario"
   const role = user?.rol ?? "ciudadano"
@@ -47,13 +49,25 @@ export default function HomeScreen({ navigation }: Props) {
   }))
 
   const handleLogout = () => {
+    // Evitar abrir el diálogo si ya se está cerrando sesión
+    if (isLoggingOut) return
+
     Alert.alert("Cerrar sesión", "¿Estás seguro que deseas salir?", [
       { text: "Cancelar", style: "cancel" },
       {
         text: "Salir",
         style: "destructive",
         onPress: async () => {
-          await logout()
+          setIsLoggingOut(true)
+          try {
+            await logout()
+            // AppNavigator cambia automáticamente al grupo público cuando
+            // token = null (gracias a navigationKey en Stack.Group), lo que
+            // resetea el historial sin necesidad de navigation.reset().
+          } catch {
+            Alert.alert("Error", "No se pudo cerrar sesión. Intenta de nuevo.")
+            setIsLoggingOut(false)
+          }
         },
       },
     ])
@@ -79,8 +93,16 @@ export default function HomeScreen({ navigation }: Props) {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.avatarCircle} onPress={handleLogout}>
-            <Text style={styles.avatarText}>{initial}</Text>
+          <TouchableOpacity
+            style={[styles.avatarCircle, isLoggingOut && styles.avatarCircleDisabled]}
+            onPress={handleLogout}
+            disabled={isLoggingOut}
+            activeOpacity={0.8}
+          >
+            {isLoggingOut
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Text style={styles.avatarText}>{initial}</Text>
+            }
           </TouchableOpacity>
         </View>
 
@@ -135,21 +157,21 @@ export default function HomeScreen({ navigation }: Props) {
             label="Conciencia"
             sublabel="Ambiental"
             color="#059669"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("EnvironmentalAwareness")}
           />
           <GridCard
             icon="book-outline"
             label="Manual"
             sublabel="De uso"
             color="#7C3AED"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Manual")}
           />
           <GridCard
             icon="notifications-outline"
             label="Alertas"
             sublabel="Notificaciones"
             color="#D97706"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Alerts")}
           />
         </Animated.View>
 
@@ -163,9 +185,19 @@ export default function HomeScreen({ navigation }: Props) {
 
         {/* ── Logout ── */}
         <Animated.View entering={FadeInDown.delay(650).duration(400)}>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-            <Ionicons name="log-out-outline" size={18} color={colors.error} />
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
+          <TouchableOpacity
+            style={[styles.logoutBtn, isLoggingOut && styles.logoutBtnDisabled]}
+            onPress={handleLogout}
+            activeOpacity={0.8}
+            disabled={isLoggingOut}
+          >
+            {isLoggingOut
+              ? <ActivityIndicator size="small" color={colors.error} />
+              : <Ionicons name="log-out-outline" size={18} color={colors.error} />
+            }
+            <Text style={[styles.logoutText, isLoggingOut && styles.logoutTextMuted]}>
+              {isLoggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
+            </Text>
           </TouchableOpacity>
         </Animated.View>
       </ScrollView>
@@ -285,6 +317,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
+  },
+  avatarCircleDisabled: {
+    opacity: 0.6,
   },
   avatarText: {
     color: "#fff",
@@ -437,9 +472,16 @@ const styles = StyleSheet.create({
     borderColor: colors.gray200,
     backgroundColor: colors.surface,
   },
+  logoutBtnDisabled: {
+    opacity: 0.55,
+  },
   logoutText: {
     color: colors.error,
     fontWeight: "600",
     fontSize: 15,
+  },
+  logoutTextMuted: {
+    color: colors.error,
+    opacity: 0.7,
   },
 })

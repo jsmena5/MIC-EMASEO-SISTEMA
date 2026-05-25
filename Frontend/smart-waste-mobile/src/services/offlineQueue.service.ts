@@ -61,6 +61,14 @@ export async function getPendingCount(): Promise<number> {
   return queue.length
 }
 
+/**
+ * Retorna todos los reportes actualmente en la cola offline.
+ * Siempre lee de AsyncStorage (no requiere red).
+ */
+export async function getPendingReports(): Promise<PendingReport[]> {
+  return readQueue()
+}
+
 export async function processQueue(
   onProgress?: (current: number, total: number) => void,
 ): Promise<QueueProcessResult> {

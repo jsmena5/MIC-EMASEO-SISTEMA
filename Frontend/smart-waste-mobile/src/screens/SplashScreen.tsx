@@ -1,3 +1,23 @@
+/**
+ * SplashScreen.tsx
+ *
+ * Pantalla de arranque personalizada de EMASEO EP.
+ *
+ * Flujo:
+ *  1. App.tsx llama SplashScreen.preventAutoHideAsync() → el splash nativo
+ *     (fondo #001828, imagen splash-icon.png) permanece visible mientras
+ *     descarga el bundle JS.
+ *  2. AppNavigator muestra este componente cuando isLoading === true
+ *     (AuthContext está verificando la sesión guardada).
+ *  3. En el primer efecto llamamos SplashScreen.hideAsync() → el splash
+ *     nativo desaparece y el usuario ve ESTE componente con el mismo fondo
+ *     oscuro, por lo que la transición es invisible.
+ *  4. Las animaciones de entrada se reproducen (logo, texto, dots pulsantes).
+ *  5. Cuando AuthContext termina de verificar la sesión (isLoading → false),
+ *     AppNavigator navega a Login o Home.  La prop onFinish (opcional) permite
+ *     coordinar una salida animada antes de esa navegación.
+ */
+import * as ExpoSplashScreen from "expo-splash-screen"
 import React, { useEffect } from "react"
 import { Dimensions, StyleSheet, Text, View } from "react-native"
 import Animated, {
@@ -17,7 +37,12 @@ import { colors } from "../theme/colors"
 
 const { width: W } = Dimensions.get("window")
 
-export default function SplashScreen() {
+interface Props {
+  /** Llamado cuando la animación de salida ha terminado (opcional). */
+  onFinish?: () => void
+}
+
+export default function SplashScreen({ onFinish: _onFinish }: Props) {
   const logoScale = useSharedValue(0)
   const logoOpacity = useSharedValue(0)
 
@@ -29,10 +54,23 @@ export default function SplashScreen() {
   const r3Opacity = useSharedValue(0.2)
 
   useEffect(() => {
+    // ── Ocultar el splash nativo lo antes posible ──────────────────────────
+    // El fondo de ambos es #001828, así que la transición es imperceptible.
+    ExpoSplashScreen.hideAsync().catch(() => {
+      // Ignorar: puede que ya estuviera oculto (recargas en desarrollo)
+    })
+
+    // ── Animación del logo ─────────────────────────────────────────────────
     logoScale.value = withSpring(1, { damping: 11, stiffness: 90 })
     logoOpacity.value = withTiming(1, { duration: 500 })
 
-    const pulse = (sv: typeof r1Scale, op: typeof r1Opacity, delay: number, opStart: number) => {
+    // ── Anillos pulsantes ──────────────────────────────────────────────────
+    const pulse = (
+      sv: typeof r1Scale,
+      op: typeof r1Opacity,
+      delay: number,
+      opStart: number,
+    ) => {
       sv.value = withDelay(
         delay,
         withRepeat(
@@ -58,7 +96,6 @@ export default function SplashScreen() {
     pulse(r1Scale, r1Opacity, 700, 0.55)
     pulse(r2Scale, r2Opacity, 1050, 0.35)
     pulse(r3Scale, r3Opacity, 1400, 0.2)
-
   }, [])
 
   const logoStyle = useAnimatedStyle(() => ({
@@ -80,12 +117,12 @@ export default function SplashScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Atmospheric background circles */}
+      {/* ── Círculos de atmósfera ── */}
       <View style={styles.bgCircleBottomRight} />
       <View style={styles.bgCircleTopLeft} />
       <View style={styles.bgCircleSmall} />
 
-      {/* Logo + pulsing rings */}
+      {/* ── Logo + anillos pulsantes ── */}
       <View style={styles.logoSection}>
         <Animated.View style={[styles.ring, r3Style]} />
         <Animated.View style={[styles.ring, r2Style]} />
@@ -96,7 +133,7 @@ export default function SplashScreen() {
         </Animated.View>
       </View>
 
-      {/* Brand name */}
+      {/* ── Nombre de la marca ── */}
       <Animated.View entering={FadeInDown.delay(350).duration(600)} style={styles.brandRow}>
         <Text style={styles.brandName}>EMASEO</Text>
         <View style={styles.epBadge}>
@@ -112,20 +149,22 @@ export default function SplashScreen() {
         Quito · Ecuador
       </Animated.Text>
 
-      {/* Animated dots */}
+      {/* ── Indicador de carga (dots pulsantes) ── */}
       <Animated.View entering={FadeIn.delay(1100)} style={styles.dotsRow}>
         <PulseDot delay={0} />
         <PulseDot delay={220} />
         <PulseDot delay={440} />
       </Animated.View>
 
-      {/* Footer */}
+      {/* ── Pie de página ── */}
       <Animated.Text entering={FadeIn.delay(1400)} style={styles.version}>
         v1.0.0
       </Animated.Text>
     </View>
   )
 }
+
+// ─── Dot pulsante ─────────────────────────────────────────────────────────────
 
 function PulseDot({ delay }: { delay: number }) {
   const scale = useSharedValue(0.4)
@@ -162,6 +201,8 @@ function PulseDot({ delay }: { delay: number }) {
   return <Animated.View style={[styles.dot, dotStyle]} />
 }
 
+// ─── Estilos ──────────────────────────────────────────────────────────────────
+
 const BADGE = 108
 
 const styles = StyleSheet.create({
@@ -173,7 +214,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // Background atmosphere
+  // Atmósfera de fondo
   bgCircleBottomRight: {
     position: "absolute",
     width: 480,
@@ -205,7 +246,7 @@ const styles = StyleSheet.create({
     left: W * 0.05,
   },
 
-  // Logo area
+  // Área del logo
   logoSection: {
     width: BADGE,
     height: BADGE,
@@ -241,7 +282,7 @@ const styles = StyleSheet.create({
     letterSpacing: -2,
   },
 
-  // Brand
+  // Marca
   brandRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -280,7 +321,7 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
 
-  // Loading
+  // Indicador de carga
   dotsRow: {
     flexDirection: "row",
     gap: 10,
@@ -293,7 +334,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary,
   },
 
-  // Footer
+  // Pie de página
   version: {
     position: "absolute",
     bottom: 36,

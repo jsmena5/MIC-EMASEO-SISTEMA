@@ -5,6 +5,22 @@ import { logoutUser } from "../services/auth.service"
 import { subscribeAuthSession } from "../utils/authSessionEvents"
 import { saveSecure, getSecure, deleteSecure } from "../utils/secureStorage"
 
+/**
+ * Tiempo mínimo que el splash permanece visible (ms).
+ *
+ * 1000 ms permite que las animaciones principales del splash (logo spring-in
+ * + FadeInDown de la marca a los 350 ms) sean perceptibles, a la vez que
+ * la app con sesión activa llega a Home en < 1.5 s en producción.
+ *
+ * Desglose típico en producción (Expo build):
+ *   ~300 ms — arranque del motor JS + boot de la app
+ *   ~100 ms — lectura de SecureStore + jwtDecode
+ *   1000 ms — MIN_SPLASH_MS (este valor)
+ *   ──────────────────────────────────────────
+ *   ~1.4 s  — total hasta Home  ✓
+ */
+const MIN_SPLASH_MS = 1000
+
 export interface DecodedToken {
   id: number
   username: string
@@ -49,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const restoreSession = async () => {
+      const t0 = Date.now()
       try {
         await migrateTokensToSecureStore()
 
@@ -67,6 +84,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await deleteSecure("emaseo_access_token")
         await deleteSecure("emaseo_refresh_token")
       } finally {
+        // Respetar el tiempo mínimo del splash para que la animación
+        // de entrada tenga tiempo de reproducirse completamente.
+        const elapsed = Date.now() - t0
+        const remaining = MIN_SPLASH_MS - elapsed
+        if (remaining > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, remaining))
+        }
         setIsLoading(false)
       }
     }
@@ -101,9 +125,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
-    await logoutUser()
-    setToken(null)
-    setUser(null)
+    try {
+      await logoutUser()
+    } finally {
+      // Garantiza que el estado local siempre se limpia,
+      // incluso si el backend o SecureStore falla.
+      setToken(null)
+      setUser(null)
+    }
   }
 
   return (

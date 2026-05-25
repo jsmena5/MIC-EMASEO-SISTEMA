@@ -18,9 +18,19 @@ import * as Location from "expo-location"
 
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { getMyIncidents, Incident } from "../services/image.service"
+import { getPendingReports, PendingReport } from "../services/offlineQueue.service"
+import { useNetwork } from "../contexts/NetworkContext"
 import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Historial">
+
+// ─── Tipos de item de la lista combinada ─────────────────────────────────────
+
+type ListItem =
+  | { kind: "online";  data: Incident;       key: string }
+  | { kind: "pending"; data: PendingReport;  key: string }
+
+// ─── Configuración de estados ─────────────────────────────────────────────────
 
 export const ESTADO_CONFIG: Record<
   Incident["estado"],
@@ -45,7 +55,7 @@ export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
-// ─── ReportCard ───────────────────────────────────────────────────────────────
+// ─── ReportCard (reporte del servidor) ───────────────────────────────────────
 
 interface CardProps {
   item: Incident
@@ -129,59 +139,157 @@ function ReportCard({ item, index, onPress }: CardProps) {
   )
 }
 
+// ─── PendingCard (reporte en cola offline) ────────────────────────────────────
+
+interface PendingCardProps {
+  item: PendingReport
+  index: number
+  /** True cuando NetworkContext está procesando la cola (animación de sync). */
+  isSyncing: boolean
+}
+
+function PendingCard({ item, index, isSyncing }: PendingCardProps) {
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 60).duration(380)}>
+      {/* No es TouchableOpacity: el item pendiente aún no existe en el servidor */}
+      <View style={[styles.card, styles.pendingCardBorder]}>
+        {/* Thumbnail — placeholder offline */}
+        <View style={styles.thumbWrap}>
+          <View style={[styles.thumbImage, styles.thumbFallback, styles.thumbPending]}>
+            <Ionicons name="cloud-offline-outline" size={26} color={colors.warning} />
+          </View>
+        </View>
+
+        {/* Content */}
+        <View style={styles.cardContent}>
+          {/* Badge "En cola" / "Sincronizando..." */}
+          <View style={[styles.estadoBadge, { backgroundColor: "#FEF3C7" }]}>
+            {isSyncing ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.warning}
+                style={styles.syncSpinner}
+              />
+            ) : (
+              <Ionicons name="time-outline" size={11} color={colors.warning} />
+            )}
+            <Text style={[styles.estadoText, { color: colors.warning }]}>
+              {isSyncing ? "Sincronizando..." : "En cola"}
+            </Text>
+          </View>
+
+          <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
+
+          <Text style={[styles.cardNivel, { color: colors.textSecondary }]}>
+            Pendiente de envio
+            {item.retries > 0 ? ` · Intento ${item.retries + 1}` : ""}
+          </Text>
+        </View>
+
+        {/* Sin chevron — no se puede navegar a un item pendiente */}
+        <View style={styles.chevronPlaceholder} />
+
+        {/* Barra lateral warning */}
+        <View style={[styles.nivelBar, { backgroundColor: colors.warning }]} />
+      </View>
+    </Animated.View>
+  )
+}
+
 // ─── HistorialScreen ──────────────────────────────────────────────────────────
 
 export default function HistorialScreen({ navigation }: Props) {
-  const [incidents, setIncidents] = useState<Incident[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { pendingCount, isProcessingQueue } = useNetwork()
 
-  const fetchIncidents = useCallback(async (isRefresh = false) => {
+  const [incidents, setIncidents]           = useState<Incident[]>([])
+  const [pendingReports, setPendingReports] = useState<PendingReport[]>([])
+  const [loading, setLoading]               = useState(true)
+  const [refreshing, setRefreshing]         = useState(false)
+  const [serverError, setServerError]       = useState<string | null>(null)
+
+  // ── Cargar reportes offline (AsyncStorage, siempre disponible) ──────────────
+  const loadPending = useCallback(async () => {
+    try {
+      const pending = await getPendingReports()
+      setPendingReports(pending)
+    } catch {
+      // Fallo silencioso — no cortar la UI por un error de AsyncStorage
+    }
+  }, [])
+
+  // ── Carga principal ───────────────────────────────────────────────────────
+  const fetchAll = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
-    setError(null)
+    setServerError(null)
+
+    // Siempre carga pending primero (no requiere red)
+    await loadPending()
+
     try {
       const data = await getMyIncidents()
       setIncidents(data)
     } catch {
-      setError("No se pudo cargar el historial.\nVerifica tu conexión e inténtalo de nuevo.")
+      setServerError("No se pudo cargar el historial del servidor.\nVerifica tu conexion e intentalo de nuevo.")
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [loadPending])
 
+  // Carga al ganar foco (igual que antes)
   useFocusEffect(
     useCallback(() => {
-      fetchIncidents()
-    }, [fetchIncidents])
+      fetchAll()
+    }, [fetchAll])
   )
+
+  // Refresca la cola cuando pendingCount cambia (item flushed o añadido)
+  useEffect(() => {
+    loadPending()
+  }, [pendingCount, loadPending])
 
   // Auto-polling: si hay incidentes en PROCESANDO, refresca cada 5 s de forma
   // silenciosa (sin spinner) para mostrar el resultado en cuanto esté listo.
-  // Se detiene automáticamente cuando ningún incidente queda en PROCESANDO.
   const hasProcessing = incidents.some((i) => i.estado === "PROCESANDO")
   useEffect(() => {
     if (!hasProcessing) return
     const timer = setInterval(() => {
       getMyIncidents()
         .then((data) => setIncidents(data))
-        .catch(() => {}) // fallo silencioso — no romper la UI por un poll fallido
+        .catch(() => {}) // fallo silencioso
     }, 5_000)
     return () => clearInterval(timer)
   }, [hasProcessing])
 
-  function renderItem({ item, index }: { item: Incident; index: number }) {
+  // ── Lista combinada: pendientes primero, luego del servidor ────────────────
+  const listData: ListItem[] = [
+    ...pendingReports.map((r) => ({ kind: "pending" as const, data: r, key: `p_${r.id}` })),
+    ...incidents.map((i) => ({ kind: "online" as const, data: i, key: `o_${i.id}` })),
+  ]
+  const totalCount = listData.length
+
+  // ── Render de cada item ──────────────────────────────────────────────────
+  function renderItem({ item, index }: { item: ListItem; index: number }) {
+    if (item.kind === "pending") {
+      return (
+        <PendingCard
+          item={item.data}
+          index={index}
+          isSyncing={isProcessingQueue}
+        />
+      )
+    }
     return (
       <ReportCard
-        item={item}
+        item={item.data}
         index={index}
-        onPress={() => navigation.navigate("ReportDetail", { incident: item })}
+        onPress={() => navigation.navigate("ReportDetail", { incident: item.data })}
       />
     )
   }
 
+  // ── Layout ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
@@ -203,46 +311,72 @@ export default function HistorialScreen({ navigation }: Props) {
 
       {/* Body */}
       {loading ? (
+        // ── Spinner inicial ────────────────────────────────────────────────
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Cargando historial…</Text>
+          <Text style={styles.loadingText}>Cargando historial...</Text>
         </View>
-      ) : error ? (
+      ) : (serverError && totalCount === 0) ? (
+        // ── Error total (sin datos que mostrar) ───────────────────────────
         <View style={styles.center}>
           <Ionicons name="cloud-offline-outline" size={52} color={colors.gray300} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchIncidents()} activeOpacity={0.85}>
+          <Text style={styles.errorText}>{serverError}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchAll()} activeOpacity={0.85}>
             <Ionicons name="refresh-outline" size={16} color="#fff" />
             <Text style={styles.retryText}>Reintentar</Text>
           </TouchableOpacity>
         </View>
       ) : (
+        // ── Lista combinada ───────────────────────────────────────────────
         <FlatList
-          data={incidents}
-          keyExtractor={(item) => item.id}
+          data={listData}
+          keyExtractor={(item) => item.key}
           renderItem={renderItem}
           contentContainerStyle={
-            incidents.length === 0 ? styles.emptyContainer : styles.listContent
+            totalCount === 0 ? styles.emptyContainer : styles.listContent
           }
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => fetchIncidents(true)}
+              onRefresh={() => fetchAll(true)}
               colors={[colors.primary]}
               tintColor={colors.primary}
             />
           }
           ListHeaderComponent={
-            incidents.length > 0 ? (
-              <Text style={styles.listCount}>{incidents.length} reporte{incidents.length !== 1 ? "s" : ""}</Text>
-            ) : null
+            <>
+              {/* Banner inline de error del servidor (cuando sí hay datos offline) */}
+              {serverError && totalCount > 0 && (
+                <View style={styles.inlineBanner}>
+                  <Ionicons name="cloud-offline-outline" size={14} color={colors.warning} />
+                  <Text style={styles.inlineBannerText}>
+                    Sin acceso al servidor. Mostrando datos guardados localmente.
+                  </Text>
+                  <TouchableOpacity onPress={() => fetchAll()} style={styles.inlineRetryBtn}>
+                    <Text style={styles.inlineRetryText}>Reintentar</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Contador */}
+              {totalCount > 0 && (
+                <Text style={styles.listCount}>
+                  {incidents.length} reporte{incidents.length !== 1 ? "s" : ""}
+                  {pendingReports.length > 0
+                    ? ` · ${pendingReports.length} en cola`
+                    : ""}
+                </Text>
+              )}
+            </>
           }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons name="document-text-outline" size={60} color={colors.gray300} />
-              <Text style={styles.emptyTitle}>Sin reportes aún</Text>
-              <Text style={styles.emptySub}>Aquí aparecerán las incidencias que hayas reportado.</Text>
+              <Text style={styles.emptyTitle}>Sin reportes aun</Text>
+              <Text style={styles.emptySub}>
+                Aqui apareceran las incidencias que hayas reportado.
+              </Text>
               <TouchableOpacity
                 style={styles.emptyBtn}
                 onPress={() => navigation.navigate("Scan")}
@@ -322,7 +456,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Loading / Error
+  // Loading / Error states
   center: {
     flex: 1,
     justifyContent: "center",
@@ -355,6 +489,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  // Inline error banner (cuando hay datos offline pero falla el servidor)
+  inlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  inlineBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.warning,
+    lineHeight: 17,
+  },
+  inlineRetryBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: colors.warning,
+  },
+  inlineRetryText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
   // List
   listContent: {
     padding: 16,
@@ -371,7 +536,7 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  // Card
+  // Card (compartido por ReportCard y PendingCard)
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -384,6 +549,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
+  pendingCardBorder: {
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+
+  // Thumbnail
   thumbWrap: {
     width: 80,
     height: 80,
@@ -398,6 +569,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  thumbPending: {
+    backgroundColor: "#FFF7ED",
+  },
+
+  // Card content
   cardContent: {
     flex: 1,
     padding: 12,
@@ -437,11 +613,18 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginRight: 10,
   },
+  chevronPlaceholder: {
+    width: 30,          // ocupa el mismo espacio que el chevron
+    marginLeft: 4,
+  },
   nivelBar: {
     width: 4,
     alignSelf: "stretch",
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
+  },
+  syncSpinner: {
+    transform: [{ scale: 0.65 }],
   },
 
   // Empty state

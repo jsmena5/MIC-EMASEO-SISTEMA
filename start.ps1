@@ -143,6 +143,8 @@ if (-not (Test-Path $EnvFile)) {
     $jwtSecret        = New-SecureSecret 48
     $minioPassword    = New-SecureSecret 24
     $redisPassword    = New-SecureSecret 24
+    # Percent-encode para Flower (+ → %2B, / → %2F) — necesario en URLs Redis
+    $redisPasswordEncoded = [Uri]::EscapeDataString($redisPassword)
     $internalToken    = New-SecureSecret 32
     $flowerPassword   = New-SecureSecret 24
     $timestamp        = (Get-Date -Format "yyyy-MM-dd HH:mm") + " UTC"
@@ -184,6 +186,8 @@ S3_PUBLIC_URL=http://localhost:9000
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 REDIS_PASSWORD=$redisPassword
+# Versión percent-encoded para Flower (+ → %2B, / → %2F). No editar manualmente.
+REDIS_PASSWORD_ENCODED=$redisPasswordEncoded
 
 # ── SMTP — COMPLETAR MANUALMENTE ─────────────────────────────────────────────
 SMTP_HOST=smtp.tudominio.com
