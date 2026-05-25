@@ -12,6 +12,7 @@ import {
 } from "react-native"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { resetPassword } from "../services/auth.service"
+import { useAuth } from "../contexts/AuthContext"
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
@@ -19,6 +20,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "ResetPassword">
 
 export default function ResetPasswordScreen({ navigation, route }: Props) {
   const { email, otp } = route.params
+  const { login } = useAuth()
 
   const [password, setPassword]   = useState("")
   const [confirm, setConfirm]     = useState("")
@@ -26,9 +28,14 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
   const [showConf, setShowConf]   = useState(false)
   const [loading, setLoading]     = useState(false)
 
+  // Mismas reglas que el backend (passwordValidator.js):
+  // 8+ chars, 1 mayúscula, 1 minúscula, 1 dígito
   const validate = (): string | null => {
-    if (password.length < 6) return "La contraseña debe tener al menos 6 caracteres"
-    if (password !== confirm)  return "Las contraseñas no coinciden"
+    if (password.length < 8)         return "La contraseña debe tener al menos 8 caracteres"
+    if (!/[A-Z]/.test(password))     return "La contraseña debe contener al menos una mayúscula"
+    if (!/[a-z]/.test(password))     return "La contraseña debe contener al menos una minúscula"
+    if (!/[0-9]/.test(password))     return "La contraseña debe contener al menos un número"
+    if (password !== confirm)        return "Las contraseñas no coinciden"
     return null
   }
 
@@ -38,9 +45,14 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
 
     try {
       setLoading(true)
-      await resetPassword({ email, otp, newPassword: password })
-      // Limpiar el stack para que el usuario no pueda volver atrás
-      navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+      const res = await resetPassword({ email, otp, newPassword: password })
+
+      // El backend devuelve un JWT listo para usar.
+      // Llamar login() actualiza el AuthContext → AppNavigator cambia
+      // automáticamente al grupo privado (Home) sin necesidad de navegar
+      // manualmente. Intentar navigation.reset("Home") desde el grupo
+      // público produce el error "not handled by any navigator".
+      await login(res.data.token)
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "No se pudo restablecer la contraseña")
     } finally {

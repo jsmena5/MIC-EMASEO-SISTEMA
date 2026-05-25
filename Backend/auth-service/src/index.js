@@ -21,6 +21,11 @@ for (const key of REQUIRED_ENV) {
 
 const app = express()
 
+// El servicio corre detrás del API Gateway (1 nivel de proxy).
+// Necesario para que express-rate-limit lea X-Forwarded-For correctamente
+// y cuente intentos por IP real del cliente, no por IP del gateway.
+app.set("trust proxy", 1)
+
 // Servicio interno — solo el gateway (server-to-server) debe acceder.
 // Cualquier petición directa desde un browser (con cabecera Origin) es rechazada.
 app.use(cors({ origin: false }))

@@ -158,6 +158,20 @@ export default function HistorialScreen({ navigation }: Props) {
     }, [fetchIncidents])
   )
 
+  // Auto-polling: si hay incidentes en PROCESANDO, refresca cada 5 s de forma
+  // silenciosa (sin spinner) para mostrar el resultado en cuanto esté listo.
+  // Se detiene automáticamente cuando ningún incidente queda en PROCESANDO.
+  const hasProcessing = incidents.some((i) => i.estado === "PROCESANDO")
+  useEffect(() => {
+    if (!hasProcessing) return
+    const timer = setInterval(() => {
+      getMyIncidents()
+        .then((data) => setIncidents(data))
+        .catch(() => {}) // fallo silencioso — no romper la UI por un poll fallido
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [hasProcessing])
+
   function renderItem({ item, index }: { item: Incident; index: number }) {
     return (
       <ReportCard

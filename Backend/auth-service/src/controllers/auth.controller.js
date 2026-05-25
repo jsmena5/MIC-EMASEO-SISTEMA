@@ -52,8 +52,12 @@ export const login = async (req, res) => {
       [email.toLowerCase().trim()]
     )
 
+    // Mismo mensaje para "usuario no existe" y "contraseña incorrecta"
+    // para evitar user enumeration (el atacante no puede saber cuál falló).
+    const INVALID_CREDS = "Correo o contraseña incorrectos"
+
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Credenciales incorrectas" })
+      return res.status(401).json({ message: INVALID_CREDS })
     }
 
     const user = result.rows[0]
@@ -70,7 +74,7 @@ export const login = async (req, res) => {
     )
 
     if (!validPasswordResult.rows[0].valid) {
-      return res.status(401).json({ message: "Contraseña incorrecta" })
+      return res.status(401).json({ message: INVALID_CREDS })
     }
 
     // tipo_perfil permite al gateway y al frontend distinguir en qué tabla

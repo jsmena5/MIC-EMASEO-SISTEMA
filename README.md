@@ -1,6 +1,6 @@
 # MIC EMASEO — Sistema de Gestión Inteligente de Residuos Urbanos
 
-> **v2.0 — Post-Auditoría de Seguridad y Calidad**  
+> **v2.1 — Modelo ML Activo · Pipeline Asíncrono · Seguridad Reforzada**  
 > Plataforma de detección y gestión de acumulación de basura para **EMASEO EP** (Quito, Ecuador).  
 > Los ciudadanos reportan mediante foto + GPS; la IA clasifica el nivel de acumulación; supervisores y operarios gestionan la respuesta.
 
@@ -21,8 +21,9 @@
 11. [Inicio Rápido](#11-inicio-rápido)
 12. [Variables de Entorno](#12-variables-de-entorno)
 13. [Flujos Principales](#13-flujos-principales)
-14. [Estructura del Proyecto](#14-estructura-del-proyecto)
-15. [Licencia y Créditos](#15-licencia-y-créditos)
+14. [Usuarios de Prueba](#14-usuarios-de-prueba)
+15. [Estructura del Proyecto](#15-estructura-del-proyecto)
+16. [Licencia y Créditos](#16-licencia-y-créditos)
 
 ---
 
@@ -32,12 +33,13 @@
 - **Detección con IA (RT-DETR-L v2, mAP@50 = 0.8802)** — Modelo transformer entrenado en GPU sobre 12 180 imágenes; +85 % de mejora respecto al baseline.
 - **Clasificación de nivel y volumen** — BAJO / MEDIO / ALTO / CRÍTICO con volumen estimado en m³.
 - **Rechazo amigable** — Si la IA no detecta basura, la imagen se elimina de MinIO y el ciudadano recibe un mensaje legible (sin registros huérfanos en BD).
-- **Pipeline asíncrono (202 + polling con backoff)** — La respuesta HTTP llega antes de que el ML procese; el cliente sondea con backoff exponencial.
+- **Pipeline asíncrono (202 + polling con backoff)** — La respuesta HTTP llega inmediatamente; el cliente sondea con backoff exponencial (500 ms → 8 s). El usuario puede cancelar la espera y el análisis continúa en segundo plano.
+- **Seguimiento en segundo plano** — Si el usuario cancela la espera, el `task_id` se guarda en AsyncStorage y la pantalla de Historial muestra el resultado cuando esté listo (auto-polling cada 5 s).
 - **Circuit Breaker sobre el ML Service** — Degrada elegantemente ante fallos del servicio de inferencia sin colgar el Image Service.
 - **Asignación automática por zona geográfica** — PostGIS asigna el operario más cercano según polígonos EPSG:4326.
 - **Panel de supervisor (web)** — Listado, detalle, cambio de estado, asignación de operarios y estadísticas por zona.
 - **Microservicios aislados** — Cada servicio tiene su propio rol de BD con mínimo privilegio; comunicación interna autenticada por token.
-- **Recuperación periódica de tareas** — Un worker de recovery retoma tareas Celery huérfanas en estado PROCESANDO.
+- **Recuperación periódica de tareas** — Un worker de recovery retoma tareas Celery huérfanas en estado PROCESANDO cada 30 segundos.
 
 ---
 
@@ -148,10 +150,12 @@ Maneja identidad y sesiones:
 | `POST /api/auth/logout` | Revoca el refresh token |
 | `POST /api/auth/forgot-password` | OTP de 6 dígitos (15 min), **hash bcrypt almacenado en DB** |
 | `POST /api/auth/verify-reset-otp` | Valida el OTP hasheado |
-| `POST /api/auth/reset-password` | Actualiza contraseña en transacción atómica; marca OTP como usado |
+| `POST /api/auth/reset-password` | Actualiza contraseña en transacción atómica; marca OTP como usado; devuelve JWT listo para usar |
 | `POST /api/auth/register` | Inicia registro (paso 1) — INSERT en `pending_registrations` + OTP por email |
 | `POST /api/auth/verify-otp` | Verifica OTP de registro (paso 2) |
 | `POST /api/auth/set-password` | Finaliza registro: INSERT `auth.users` + `public.ciudadanos` (paso 3) |
+
+**Seguridad anti-enumeración:** login devuelve el mismo mensaje "Credenciales incorrectas" tanto si el email no existe como si la contraseña es incorrecta. No es posible descubrir qué emails están registrados.
 
 ### Users Service `:3000`
 
@@ -185,7 +189,7 @@ Orquestador del flujo de reporte:
    ← 202 PROCESANDO | 200 FALLIDO | 200 PENDIENTE (con metadata)
 ```
 
-**Recovery periódico**: cada 5 minutos se revisan incidentes en estado PROCESANDO por más de 3 minutos y se intenta recuperar su tarea Celery.
+**Recovery periódico**: cada 30 segundos se revisan incidentes en estado PROCESANDO por más de 3 minutos y se intenta recuperar su tarea Celery.
 
 ---
 
@@ -237,29 +241,37 @@ Imagen base64 → Decodificación PIL
 | 0.40 – 0.70 | ALTO | ALTA | 2.0 – 5.0 m³ |
 | 0.70 – 1.00 | CRÍTICO | CRÍTICA | 5.0 – 15.0 m³ |
 
+### Nota técnica — URL encoding de Redis
+
+El `REDIS_PASSWORD` generado con `openssl rand -base64 24` contiene caracteres especiales (`+`, `/`) que son reservados en URLs. El archivo `celery_app.py` construye la URL de conexión usando `urllib.parse.quote(password, safe='')` para codificarlos correctamente antes de armar la cadena `redis://:PASS@host:port/db`. Flower (imagen pre-compilada) usa la variable `REDIS_PASSWORD_ENCODED` (con `+`→`%2B`, `/`→`%2F`) ya que no tiene acceso al código Python.
+
 ---
 
 ## 6. Infraestructura Docker
 
-Todo el sistema corre dentro de Docker. El único puerto publicado al host por defecto es el **4000** del API Gateway.
+Todo el sistema corre dentro de Docker con **nombre de proyecto fijo `emaseo`** (`name: emaseo` en `docker-compose.yml`). Esto garantiza que los volúmenes siempre se llamen `emaseo_postgres_data`, `emaseo_minio_data`, etc., sin importar el directorio desde el que se ejecute el comando.
+
+El único puerto publicado al host por defecto es el **4000** del API Gateway.
 
 | Contenedor | Imagen / Build | Función | Puerto host |
 |-----------|---------------|---------|-------------|
 | `emaseo-postgres` | `postgis/postgis:16-3.4` | BD + extensiones geoespaciales | 5432 |
 | `emaseo-minio` | `minio/minio:latest` | Object Storage S3-compatible | 9000, 9001 (\*) |
-| `emaseo-minio-init` | `minio/mc:latest` | Crea bucket y permisos (efímero) | — |
+| `emaseo-minio-init` | `minio/mc:latest` | Crea bucket y permisos (efímero, se detiene solo) | — |
 | `emaseo-redis` | `redis:7-alpine` | Broker + result backend Celery | 6379 (\*) |
 | `emaseo-auth` | Build `./Backend/auth-service` | Autenticación y sesiones | — |
 | `emaseo-users` | Build `./Backend/users-service` | CRUD de perfiles | — |
 | `emaseo-image` | Build `./Backend/image-service` | Orquestador de reportes | — |
 | `emaseo-gateway` | Build `./Backend/api-gateway` | API Gateway (único acceso externo) | **4000** |
 | `emaseo-ml-api` | Build `./Backend/ml-service` | API ML (Gunicorn + Uvicorn) | — |
-| `ml-worker` | Build `./Backend/ml-service` | Worker Celery (inferencia GPU/CPU) | — |
+| `emaseo-ml-worker-1` | Build `./Backend/ml-service` | Worker Celery (inferencia RT-DETR GPU/CPU) | — |
 | `emaseo-flower` | `mher/flower:2.0` | Dashboard de tareas Celery | 5555 (\*) |
 
-> (\*) Solo publicados en `127.0.0.1` cuando `EXPOSE_DEV_PORTS=true` en el `.env`.
+> (\*) Solo publicados en `127.0.0.1` cuando se usa `docker-compose.dev.yml` (con `-f docker-compose.dev.yml`).
 
-**Volúmenes persistentes:** `postgres_data`, `minio_data`, `redis_data`, `shared_uploads`  
+> **`emaseo-minio-init`** aparece como "Exited" en Docker Desktop una vez que termina de crear el bucket — esto es normal y esperado. No es un error.
+
+**Volúmenes persistentes:** `emaseo_postgres_data`, `emaseo_minio_data`, `emaseo_redis_data`, `emaseo_shared_uploads`  
 **Red interna:** `emaseo_network` (bridge) — los contenedores se comunican por nombre de servicio.  
 **Healthchecks:** todos los servicios con `depends_on: condition: service_healthy`.  
 **Escalado ML:** `docker compose up -d --scale ml-worker=N` para N réplicas del worker Celery.
@@ -275,14 +287,31 @@ Todo el sistema corre dentro de Docker. El único puerto publicado al host por d
 | Pantalla | Descripción |
 |----------|-------------|
 | Login / Register | Wizard de 3 pasos: datos → OTP email → contraseña |
-| ForgotPassword | Recuperación por OTP con flujo seguro |
-| ScanScreen | Cámara + GPS; permisos secuenciales; animación de escaneo; timeout 110 s |
+| ForgotPassword | Recuperación por OTP con flujo seguro de 3 pasos |
+| ResetPassword | Nueva contraseña; al completar llama `login(token)` para cambiar al grupo privado automáticamente |
+| ScanScreen | Cámara + GPS; permisos secuenciales; animación de escaneo; timeout 110 s; cancel guarda task_id en AsyncStorage |
 | ScanResult | Resultado del análisis IA (nivel, volumen, tipo, confianza) |
-| Historial | Lista de reportes del ciudadano |
+| Historial | Lista de reportes; auto-polling cada 5 s si hay incidentes en estado PROCESANDO |
 | ReportDetail | Mapa interactivo + geocoding inverso + foto MinIO |
 | Perfil | Datos del ciudadano autenticado |
 
-**Seguridad móvil:** tokens almacenados con **SecureStore** (no AsyncStorage); aborto de peticiones con `AbortController`; barra de progreso de upload; cancelación por el usuario.
+**Seguridad móvil:** tokens almacenados con **SecureStore** (no AsyncStorage); aborto de peticiones con `AbortController`; barra de progreso de upload; cancelación no bloqueante (el análisis continúa en segundo plano).
+
+**Validación de contraseña (sincronizada con el backend):**
+- Mínimo 8 caracteres
+- Al menos 1 letra mayúscula
+- Al menos 1 letra minúscula
+- Al menos 1 dígito numérico
+
+**Flujo de recuperación de contraseña:**
+1. `ForgotPasswordScreen` — el usuario ingresa su email y recibe un OTP por correo
+2. `OtpScreen` — verifica el OTP de 6 dígitos
+3. `ResetPasswordScreen` — elige nueva contraseña; el backend devuelve un JWT listo y se llama `login(token)` para que `AppNavigator` cambie automáticamente al grupo privado (Home) sin necesidad de `navigation.reset()`
+
+**Procesamiento en segundo plano:**
+- Al cancelar el análisis en `ScanScreen`, el `task_id` se guarda en `AsyncStorage` bajo la clave `PROCESSING_TASKS_KEY`
+- `HistorialScreen` detecta incidentes con `estado === "PROCESANDO"` y activa auto-polling cada 5 s
+- El usuario puede cerrar la pantalla de escaneo y consultar el resultado en su historial cuando esté listo
 
 ### Panel de Supervisor — `Frontend/supervisor-panel/`
 
@@ -294,7 +323,7 @@ Acceso en `http://localhost:5173` — listado y gestión de incidentes, asignaci
 ## 8. Esquema de Base de Datos
 
 **Motor:** PostgreSQL 16 + PostGIS 3.4 + pgcrypto  
-**Scripts:** `Backend/database/` (montados en `docker-entrypoint-initdb.d`)
+**Scripts:** `Backend/database/` (montados en `docker-entrypoint-initdb.d`) — 31 migraciones numeradas
 
 | Schema | Tablas principales |
 |--------|-------------------|
@@ -326,7 +355,8 @@ CREATE INDEX ON ai.analysis_results USING GIN  (detecciones);
 
 **RLS activo** en tablas del image-service para que `image_svc` solo acceda a sus propias filas.  
 **Particionamiento:** `incidents.incidents` particionado por `created_at` (mensual).  
-**Retención:** política automática de limpieza de imágenes huérfanas y notificaciones antiguas.
+**Retención:** política automática de limpieza de imágenes huérfanas y notificaciones antiguas.  
+**Validación de cédula ecuatoriana:** función `fn_validar_cedula_ec()` implementa el algoritmo Módulo 10 del Registro Civil del Ecuador.
 
 ---
 
@@ -336,12 +366,14 @@ CREATE INDEX ON ai.analysis_results USING GIN  (detecciones);
 |------|--------|
 | **Red** | Microservicios sin puertos expuestos; solo Gateway en :4000 |
 | **Autenticación** | JWT (15 min) + Refresh Token rotatorio (7 días, hash SHA-256 en BD) |
-| **Contraseñas** | bcrypt con cost factor 10 |
+| **Contraseñas** | bcrypt con cost factor 10; reglas: 8+ chars, mayúscula, minúscula, dígito |
+| **Anti-enumeración** | Login devuelve el mismo mensaje para email inexistente y contraseña incorrecta |
 | **OTP** | 6 dígitos, hash bcrypt en BD, TTL 15 min, un solo uso |
 | **Comunicación interna** | `X-Internal-Token` en cada petición; 403 si falta |
 | **HTTP Headers** | Helmet.js (CSP, HSTS, X-Frame-Options, etc.) |
 | **CORS** | Origins configurables por variable de entorno |
 | **Rate Limiting** | Granular por endpoint (global / login / OTP / imagen / forgot-password) |
+| **Trust Proxy** | `app.set("trust proxy", 1)` en todos los servicios para leer IP real detrás de Cloudflare |
 | **Validación de imágenes** | sharp: magic bytes, dimensiones mínimas, anti-polyglot |
 | **Almacenamiento móvil** | SecureStore (cifrado del dispositivo) en lugar de AsyncStorage |
 | **BD: mínimo privilegio** | Roles `auth_svc`, `users_svc`, `image_svc` con GRANT mínimos |
@@ -364,41 +396,76 @@ CREATE INDEX ON ai.analysis_results USING GIN  (detecciones);
 
 ## 11. Inicio Rápido
 
-> Requisitos: **Docker** y **Docker Compose** instalados. No se necesita Node.js ni Python para correr el sistema completo.
+> **Requisitos:** Docker Desktop instalado y corriendo. No se necesita Node.js ni Python para ejecutar el sistema completo.
+
+### Windows (recomendado)
+
+El script `start.ps1` automatiza todo el proceso:
+
+```powershell
+# Levantar todos los servicios (backend completo)
+.\start.ps1
+
+# Con Cloudflare Quick Tunnel (expone :4000 a internet)
+.\start.ps1 -Tunnel
+
+# Con servidor Expo (para desarrollo de la app móvil)
+.\start.ps1 -Expo
+
+# Exponer puertos de administración (MinIO :9001, Redis :6379, Flower :5555)
+.\start.ps1 -Dev
+
+# Reconstruir imágenes Docker (tras cambios en el código)
+.\start.ps1 -Build
+
+# Sin reconstruir (inicio rápido)
+.\start.ps1 -NoBuild
+```
+
+> **Nota para Windows:** si la ruta del repositorio tiene espacios (ej. `C:\REPOSITORIOS GITHUB\...`), Docker Compose puede fallar con `invalid proto:`. Solución: crear un junction sin espacios:
+> ```powershell
+> cmd /c mklink /J C:\MIC-EMASEO-WORK "C:\REPOSITORIOS GITHUB\MIC-EMASEO-SISTEMA"
+> cd C:\MIC-EMASEO-WORK
+> .\start.ps1
+> ```
+
+### Linux / macOS / WSL
 
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/jsmena5/MIC-EMASEO-SISTEMA.git
-cd MIC-EMASEO-SISTEMA
-
-# 2. Generar secretos y levantar todo (recomendado)
+# Generar secretos y levantar todo
 bash start.sh
 
-# — O, si prefieres hacerlo manualmente —
-bash scripts/generate_env.sh   # genera .env con secretos seguros
-docker compose up -d --build   # construye imágenes y levanta los 11 servicios
+# O manualmente:
+cp .env.example .env   # completar variables manualmente
+docker compose up -d --build
 ```
 
+### Acceder a los servicios
+
 ```
-# 3. Acceder a los servicios
 API Gateway:   http://localhost:4000
 Swagger UI:    http://localhost:4000/api-docs
-MinIO Console: http://localhost:9001   (requiere EXPOSE_DEV_PORTS=true)
-Flower:        http://localhost:5555   (requiere EXPOSE_DEV_PORTS=true)
+Panel Web:     http://localhost:5173  (con npm run dev en supervisor-panel)
+MinIO Console: http://localhost:9001  (solo con -Dev o docker-compose.dev.yml)
+Flower:        http://localhost:5555  (solo con -Dev o docker-compose.dev.yml)
 ```
 
-> Para activar los puertos de administración, establece `EXPOSE_DEV_PORTS=true` en el `.env` antes de levantar.  
-> Ver la **[Guía de Ejecución completa](GUIA_EJECUCION.md)** para configuración detallada, app móvil, panel web y resolución de problemas.
+### Puertos de desarrollo (opcional)
+
+Para exponer MinIO, Redis y Flower sin reiniciar todo el sistema:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
 
 ---
 
 ## 12. Variables de Entorno
 
-Todas las variables se gestionan desde un **único archivo `.env` en la raíz del proyecto**.  
-El script `scripts/generate_env.sh` genera secretos criptográficamente seguros automáticamente.
+Todas las variables se gestionan desde un **único archivo `.env` en la raíz del proyecto**.
 
 ```bash
-# Genera .env con valores aleatorios seguros
+# Genera .env con valores aleatorios seguros (Linux/macOS/WSL)
 bash scripts/generate_env.sh
 
 # O copia el ejemplo y completa manualmente
@@ -413,12 +480,41 @@ cp .env.example .env
 | `JWT_EXPIRES_IN` | TTL del access token | `15m` |
 | `MINIO_ROOT_PASSWORD` | Contraseña root de MinIO | `openssl rand -base64 24` |
 | `REDIS_PASSWORD` | Contraseña de Redis (requirepass) | `openssl rand -base64 24` |
+| `REDIS_PASSWORD_ENCODED` | Igual que REDIS_PASSWORD pero percent-encoded (`+`→`%2B`, `/`→`%2F`) — usado por Flower | Ver nota abajo |
 | `INTERNAL_TOKEN` | Token de autenticación interna entre servicios | `openssl rand -base64 32` |
-| `SMTP_*` | Configuración SMTP para OTPs por email | Ver `.env.example` |
-| `DUMMY_MODE` | `false` = modelo real; `true` = respuesta simulada sin `.pt` | `false` |
-| `EXPOSE_DEV_PORTS` | `true` = publica puertos de MinIO, Redis y Flower | `` (vacío) |
+| `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
+| `SMTP_PORT` | Puerto SMTP | `587` |
+| `SMTP_USER` | Email remitente | `tu@gmail.com` |
+| `SMTP_PASS` | Contraseña SMTP (Gmail: App Password de 16 chars) | Ver nota abajo |
+| `EMAIL_FROM` | Dirección From de los correos | `tu@gmail.com` |
+| `DUMMY_MODE` | `false` = modelo real RT-DETR; `true` = respuesta simulada (sin `.pt`) | `false` |
+| `EXPOSE_DEV_PORTS` | (legacy) `true` en `.env`; preferir `docker-compose.dev.yml` | `` (vacío) |
 | `CORS_ORIGINS` | Orígenes CORS permitidos (coma-separados) | `http://localhost:5173` |
-| `S3_PUBLIC_URL` | URL pública de MinIO (usar IP de red, no localhost, para móvil) | `http://192.168.1.x:9000` |
+| `S3_PUBLIC_URL` | URL pública de MinIO — usar IP de red, no `localhost`, para acceso desde el móvil | `http://192.168.1.x:9000` |
+| `FLOWER_USER` / `FLOWER_PASSWORD` | Credenciales de acceso al dashboard Flower | Secreto aleatorio |
+
+### Gmail App Password (para SMTP)
+
+Gmail requiere una contraseña de aplicación (no la contraseña de la cuenta):
+
+1. Habilitar Verificación en 2 pasos en [myaccount.google.com](https://myaccount.google.com) → Seguridad
+2. Ir a **Contraseñas de aplicaciones** → Generar → nombre: `EMASEO`
+3. Copiar la clave de 16 caracteres generada en `SMTP_PASS` del `.env` (sin espacios)
+
+### REDIS_PASSWORD_ENCODED (generación)
+
+Si la contraseña de Redis contiene `+` o `/` (frecuente con `openssl rand -base64`), generar la versión encoded:
+
+```powershell
+# PowerShell
+$pwd = "tu_redis_password_aqui"
+[Uri]::EscapeDataString($pwd)
+```
+
+```bash
+# Bash
+python3 -c "import urllib.parse; print(urllib.parse.quote('tu_redis_password_aqui', safe=''))"
+```
 
 Ver [`env.example`](.env.example) para la lista completa con comentarios.
 
@@ -426,7 +522,7 @@ Ver [`env.example`](.env.example) para la lista completa con comentarios.
 
 ## 13. Flujos Principales
 
-### Reporte de incidente (pipeline asíncrono)
+### Reporte de incidente (pipeline asíncrono con cancelación)
 
 ```
 App móvil
@@ -447,8 +543,13 @@ App móvil
 
   ← App sondea GET /api/image/status/:task_id  (backoff 500 ms → 8 s)
       → 202 PROCESANDO
-      → 200 FALLIDO
+      → 200 FALLIDO   (sin imagen, mensaje descriptivo)
       → 200 PENDIENTE (nivel, volumen, tipo_residuo, url_imagen)
+
+  [Si el usuario cancela]
+      → task_id guardado en AsyncStorage
+      → HistorialScreen auto-polling cada 5 s mientras haya PROCESANDO
+      → resultado aparece automáticamente cuando el ML termina
 ```
 
 ### Autenticación y sesiones
@@ -466,6 +567,16 @@ POST /api/auth/refresh
   ← { access_token, refresh_token }
 ```
 
+### Recuperación de contraseña (3 pasos)
+
+```
+1. POST /api/auth/forgot-password  → OTP 6 dígitos (bcrypt en DB, TTL 15 min) → email al usuario
+2. POST /api/auth/verify-reset-otp → valida OTP
+3. POST /api/auth/reset-password   → actualiza contraseña (transacción atómica)
+                                   ← { token: JWT }  ← login automático en la app
+   App: login(token) → AuthContext actualiza → AppNavigator → grupo privado (Home)
+```
+
 ### Registro ciudadano (3 pasos)
 
 ```
@@ -477,25 +588,44 @@ POST /api/auth/refresh
 
 ---
 
-## 14. Estructura del Proyecto
+## 14. Usuarios de Prueba
+
+Los siguientes usuarios están disponibles en el entorno de desarrollo (cargados por `Backend/database/02_seed_data.sql`).  
+**Contraseña de todos:** `Test1234!`
+
+| Email | Rol | Nombre |
+|-------|-----|--------|
+| `admin@emaseo.gob.ec` | ADMIN | Administrador Sistema |
+| `maria.lopez@emaseo.gob.ec` | SUPERVISOR | María López |
+| `pedro.garcia@emaseo.gob.ec` | OPERARIO | Pedro García |
+| `luis.martinez@emaseo.gob.ec` | OPERARIO | Luis Martínez |
+| `ana.ciudadana@gmail.com` | CIUDADANO | Ana Ciudadana |
+| `jorge.ramirez@gmail.com` | CIUDADANO | Jorge Ramírez |
+
+---
+
+## 15. Estructura del Proyecto
 
 ```
 MIC-EMASEO-SISTEMA/
+├── .env                      ← Variables de entorno (NO commitear — en .gitignore)
 ├── .env.example              ← Plantilla de variables (sin secretos)
-├── docker-compose.yml        ← Orquestación de los 11 contenedores
-├── start.sh                  ← Script de arranque único (Linux/macOS/WSL)
-├── start.ps1                 ← Script de arranque único (Windows PowerShell)
+├── docker-compose.yml        ← Orquestación de los 11 contenedores (name: emaseo)
+├── docker-compose.dev.yml    ← Overlay: expone puertos de MinIO, Redis y Flower
+├── start.ps1                 ← Script de arranque Windows (-Tunnel, -Expo, -Dev, -Build, -NoBuild)
+├── start.sh                  ← Script de arranque Linux/macOS/WSL
 ├── scripts/
 │   └── generate_env.sh       ← Genera .env con secretos aleatorios seguros
 ├── Backend/
 │   ├── api-gateway/          ← Express + JWT + Rate Limit + RBAC + Swagger
-│   ├── auth-service/         ← Identidad, sesiones, OTP, refresh tokens
+│   ├── auth-service/         ← Identidad, sesiones, OTP, refresh tokens, anti-enumeration
 │   ├── users-service/        ← CRUD de perfiles
-│   ├── image-service/        ← Pipeline de reportes + Circuit Breaker
-│   ├── ml-service/           ← FastAPI + Celery + RT-DETR-L
-│   └── database/             ← Scripts SQL de inicialización (026 migraciones)
+│   ├── image-service/        ← Pipeline de reportes + Circuit Breaker + recovery 30 s
+│   ├── ml-service/           ← FastAPI + Celery + RT-DETR-L (celery_app.py con URL encoding)
+│   └── database/             ← Scripts SQL de inicialización (31 migraciones)
 ├── Frontend/
 │   ├── smart-waste-mobile/   ← Expo SDK 54 + TypeScript (ciudadano/operario)
+│   │   └── src/screens/      ← ScanScreen, HistorialScreen, ResetPasswordScreen, …
 │   └── supervisor-panel/     ← React + Vite (supervisor web)
 ├── ML/
 │   ├── modelos/              ← rtdetr_l_best.pt (63 MB, no en git)
@@ -505,7 +635,7 @@ MIC-EMASEO-SISTEMA/
 
 ---
 
-## 15. Licencia y Créditos
+## 16. Licencia y Créditos
 
 **Proyecto de Tesis — Maestría en Ingeniería de Software**  
 Universidad de las Fuerzas Armadas ESPE — 2026  
@@ -513,7 +643,7 @@ Universidad de las Fuerzas Armadas ESPE — 2026
 **Entidad beneficiaria:** EMASEO EP (Empresa Pública Metropolitana de Aseo, Quito)  
 
 **Equipo de desarrollo:**  
-- Bryan Ortiz — Arquitectura, Backend, ML, Seguridad
+- Bryan Ortiz — Arquitectura, Backend, ML, Seguridad, App Móvil
 
 **Dataset:** [Garbage Collector v8 — Roboflow Universe](https://universe.roboflow.com/garbage-epywh/garbage-collector-qcgu1)  
 **Modelo base:** RT-DETR-L — PaddlePaddle / Ultralytics  

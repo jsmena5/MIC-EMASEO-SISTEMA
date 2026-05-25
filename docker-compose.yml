@@ -1,8 +1,18 @@
+# Nombre fijo del proyecto — garantiza que los volúmenes siempre se llamen
+# emaseo_postgres_data, emaseo_minio_data, etc., sin importar desde qué
+# directorio se corra docker compose (workaround para paths con espacios).
+name: emaseo
+
 # ── Variables compartidas entre ml-api y ml-worker ───────────────────────────
 # Para inferencia real: DUMMY_MODE=false en el .env de la raíz del proyecto
 # y descomentar ML_MODEL_PATH.
 x-ml-env: &ml-env
-  REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+  # La URL se construye en celery_app.py con urllib.parse.quote para que
+  # contraseñas con '+', '/' y '=' (base64) no rompan el parser de URLs.
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   UPLOADS_DIR: /app/uploads
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
@@ -46,6 +56,11 @@ services:
       - ./Backend/database/024_pgcrypto_pii.sql:/docker-entrypoint-initdb.d/18_pgcrypto_pii.sql
       - ./Backend/database/025_rls_image_svc.sql:/docker-entrypoint-initdb.d/19_rls_image_svc.sql
       - ./Backend/database/026_retention_policy.sql:/docker-entrypoint-initdb.d/20_retention_policy.sql
+      - ./Backend/database/027_fix_chk_prioridad_requerida.sql:/docker-entrypoint-initdb.d/21_fix_chk_prioridad.sql
+      - ./Backend/database/028_add_ubicacion_aproximada.sql:/docker-entrypoint-initdb.d/22_ubicacion_aproximada.sql
+      - ./Backend/database/029_celery_task_id.sql:/docker-entrypoint-initdb.d/23_celery_task_id.sql
+      - ./Backend/database/030_analysis_feedback.sql:/docker-entrypoint-initdb.d/24_analysis_feedback.sql
+      - ./Backend/database/031_notifications_push_index.sql:/docker-entrypoint-initdb.d/25_notifications_push_index.sql
     networks:
       - emaseo_network
     healthcheck:
@@ -60,12 +75,7 @@ services:
     image: minio/minio:latest
     container_name: emaseo-minio
     restart: unless-stopped
-    ports:
-      # Se publican solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
-      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
-      # El image-service siempre accede a MinIO por la red interna (http://minio:9000).
-      - "${EXPOSE_DEV_PORTS:+127.0.0.1:9000:9000}"
-      - "${EXPOSE_DEV_PORTS:+127.0.0.1:9001:9001}"
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer MinIO al host.
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
@@ -107,13 +117,9 @@ services:
     image: redis:7-alpine
     container_name: emaseo-redis
     restart: unless-stopped
-    ports:
-      # Se publica solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
-      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
-      # Los microservicios siempre usan redis:6379 por la red interna.
-      - "${EXPOSE_DEV_PORTS:+127.0.0.1:6379:6379}"
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer Redis al host.
     environment:
-      # REDISCLI_AUTH permite que redis-cli (healthcheck) autentique automáticamente
+      # REDISCLI_AUTH permite que redis-cli (healthcheck) autentique automaticamente
       REDISCLI_AUTH: "${REDIS_PASSWORD}"
     volumes:
       - redis_data:/data
@@ -353,14 +359,14 @@ services:
     image: mher/flower:2.0
     container_name: emaseo-flower
     restart: unless-stopped
-    ports:
-      # Se publica solo cuando EXPOSE_DEV_PORTS es un valor no vacío (p. ej. EXPOSE_DEV_PORTS=true).
-      # Vacío o sin definir → sin puerto publicado (comportamiento de producción).
-      # Nunca exponer el puerto 5555 directamente a Internet — usar un proxy TLS si es necesario.
-      - "${EXPOSE_DEV_PORTS:+127.0.0.1:5555:5555}"
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer Flower al host.
     environment:
-      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
-      CELERY_RESULT_BACKEND: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      # REDIS_PASSWORD_ENCODED = REDIS_PASSWORD con '+' → %2B y '/' → %2F.
+      # Las contraseñas generadas con openssl base64 contienen esos caracteres:
+      # sin percent-encoding el parser de URLs corta el netloc en la primera '/'
+      # y trata el resto de la contraseña como puerto → ValueError.
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
       # Flower reconoce FLOWER_BASIC_AUTH automáticamente (usuario:contraseña).
       FLOWER_BASIC_AUTH: "${FLOWER_USER}:${FLOWER_PASSWORD}"
     depends_on:
@@ -368,11 +374,8 @@ services:
         condition: service_healthy
     networks:
       - emaseo_network
-    # --basic_auth usa vars del host (.env) porque Compose no interpola
-    # environment: dentro de command:. FLOWER_BASIC_AUTH queda en el
-    # contenedor como respaldo por si Flower lo detecta automáticamente.
     command: >
-      celery --broker=redis://:${REDIS_PASSWORD}@redis:6379/0
+      celery --broker=redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0
         flower --port=5555
           --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
 

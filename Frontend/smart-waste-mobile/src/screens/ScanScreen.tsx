@@ -68,10 +68,12 @@ export default function ScanScreen() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [isSlowMessage, setIsSlowMessage]   = useState(false)
 
-  const abortControllerRef  = useRef<AbortController | null>(null)
-  const pollingIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const pollingStartRef     = useRef<number>(0)
+  const abortControllerRef   = useRef<AbortController | null>(null)
+  const pollingIntervalRef   = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingStartRef      = useRef<number>(0)
   const pollingInProgressRef = useRef(false)
+  // Guarda el task_id activo para que handleCancelAnalysis pueda persistirlo
+  const currentTaskIdRef     = useRef<string | null>(null)
 
   // Request camera first, then location (two overlapping dialogs break on iOS/Android)
   useEffect(() => {
@@ -191,6 +193,7 @@ export default function ScanScreen() {
   const retake = () => {
     stopPolling()
     abortControllerRef.current?.abort()
+    currentTaskIdRef.current = null
     setCapturedUri(null)
     setCapturedB64(null)
     setLocation(null)
@@ -200,11 +203,33 @@ export default function ScanScreen() {
     setUploadProgress(0)
   }
 
-  const handleCancelAnalysis = () => {
+  // Cancela el overlay de análisis pero deja la tarea corriendo en el servidor.
+  // Guarda el task_id en AsyncStorage para que el historial pueda rastrearlo
+  // y muestra una alerta informando al usuario que puede ver el resultado allí.
+  const handleCancelAnalysis = async () => {
     stopPolling()
     abortControllerRef.current?.abort()
     setPhase("idle")
     setIsSlowMessage(false)
+
+    const taskId = currentTaskIdRef.current
+    if (taskId) {
+      try {
+        const raw   = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
+        const tasks: string[] = raw ? JSON.parse(raw) : []
+        if (!tasks.includes(taskId)) tasks.push(taskId)
+        await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
+      } catch {}
+
+      Alert.alert(
+        "Análisis en progreso",
+        "Tu reporte continúa procesándose en segundo plano. Podrás ver el resultado en tu historial cuando esté listo.",
+        [
+          { text: "Ver historial", onPress: () => navigation.navigate("Historial") },
+          { text: "Quedarme aquí", style: "cancel" },
+        ],
+      )
+    }
   }
 
   const handleAnalyze = async () => {
@@ -279,6 +304,9 @@ export default function ScanScreen() {
         ubicacion_aproximada: ubicacionAproximada,
       })
       taskId = accepted.task_id
+      // Persistir task_id en ref para que handleCancelAnalysis pueda guardarlo
+      // en AsyncStorage si el usuario decide salir antes de que termine.
+      currentTaskIdRef.current = taskId
     } catch (e: any) {
       setPhase("idle")
       if (e?.code === "ERR_CANCELED") return
@@ -364,6 +392,7 @@ export default function ScanScreen() {
 
         // Success — show "saving" briefly before navigating
         setPhase("saving")
+        currentTaskIdRef.current = null   // tarea completada, ya no hace falta rastrearla
         const result = status as AnalysisResult
         setTimeout(() => {
           setPhase("done")

@@ -1,8 +1,27 @@
 import os
+from urllib.parse import quote
 from celery import Celery
 from kombu import Queue
 
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+# ── Construir la URL de Redis con password correctamente percent-encoded ──────
+# Las contraseñas generadas con openssl base64 contienen '+', '/' y '=' que
+# son caracteres especiales en URLs. Si se insertan sin escapar en
+# redis://:PASSWORD@host:port/db, el parser de urllib corta el netloc en la
+# primera '/' y trata el resto de la contraseña como path → ValueError: Port
+# could not be cast to integer.
+#
+# Solución: pasar REDIS_PASSWORD por separado y construir la URL aquí con
+# quote(password, safe=''), que convierte '/' → '%2F', '+' → '%2B', etc.
+_password = os.environ.get("REDIS_PASSWORD", "")
+_host     = os.environ.get("REDIS_HOST",     "redis")
+_port     = os.environ.get("REDIS_PORT",     "6379")
+_db       = os.environ.get("REDIS_DB",       "0")
+
+if _password:
+    REDIS_URL = f"redis://:{quote(_password, safe='')}@{_host}:{_port}/{_db}"
+else:
+    # Sin contraseña (entornos de prueba locales sin auth)
+    REDIS_URL = f"redis://{_host}:{_port}/{_db}"
 
 celery = Celery(
     "ml_worker",
