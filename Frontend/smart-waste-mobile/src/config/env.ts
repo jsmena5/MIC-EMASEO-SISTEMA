@@ -10,12 +10,21 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Reemplaza esta IP con la de tu máquina de desarrollo en la red local
-const DEV_API_URL  = 'http://192.168.1.151:4000/api'
-const PROD_API_URL = 'https://api.emaseo.gob.ec/api'
+const DEV_API_URL = 'http://192.168.1.151:4000/api'
 
-export const API_URL: string =
-  process.env.EXPO_PUBLIC_API_URL ??
-  (__DEV__ ? DEV_API_URL : PROD_API_URL)
+const normalizeApiUrl = (value: string) => value.replace(/\/+$/, '')
+
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim()
+
+if (!configuredApiUrl && !__DEV__) {
+  throw new Error(
+    'Falta EXPO_PUBLIC_API_URL en producción. Configura una URL pública válida del API Gateway.'
+  )
+}
+
+export const API_URL: string = normalizeApiUrl(
+  configuredApiUrl || DEV_API_URL
+)
 
 export const ENV = {
   API_URL,

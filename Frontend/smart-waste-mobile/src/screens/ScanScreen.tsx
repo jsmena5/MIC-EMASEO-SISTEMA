@@ -21,7 +21,9 @@ import Animated, { SlideInUp } from "react-native-reanimated"
 
 import AnalyzingOverlay from "../components/AnalyzingOverlay"
 import CameraCapture from "../components/CameraCapture"
+import CapturedFrameOverlay from "../components/CapturedFrameOverlay"
 import { useNetwork } from "../contexts/NetworkContext"
+import { useAlwaysAllowScreenCapture } from "../hooks/useAlwaysAllowScreenCapture"
 import type { RootStackParamList } from "../navigation/AppNavigator"
 import {
   analyzeImage,
@@ -30,6 +32,7 @@ import {
 } from "../services/image.service"
 import { enqueuePendingReport } from "../services/offlineQueue.service"
 import { colors } from "../theme/colors"
+import { cropToScanFrame } from "../utils/cropToScanFrame"
 
 type ScanNavProp = NativeStackNavigationProp<RootStackParamList, "Scan">
 
@@ -39,6 +42,8 @@ const POLL_INTERVAL_MS = 2000
 const SLOW_THRESHOLD_MS = 10000
 const POLL_TIMEOUT_MS = 120_000
 const LOCATION_RETRY_DELAY_MS = 3000
+// Maximum number of consecutive upload/polling retries before showing the final error dialog
+const MAX_RETRIES = 3
 // AsyncStorage key for task IDs whose analysis is still in progress on the server
 const PROCESSING_TASKS_KEY = "processing_task_ids"
 
@@ -55,17 +60,28 @@ export default function ScanScreen() {
   const navigation = useNavigation<ScanNavProp>()
   const { isConnected, pendingCount, refreshPendingCount } = useNetwork()
 
+  // Limpia FLAG_SECURE que expo-camera activa en Android cada vez que la
+  // pantalla entra en foco (incluye vueltas después de "Tomar otra foto").
+  useAlwaysAllowScreenCapture()
+
   const [camGranted, setCamGranted]   = useState<boolean | null>(null)
   const [locDenied, setLocDenied]     = useState(false)
   const [locError, setLocError]       = useState<string | null>(null) // Nuevo: error de GPS
   const [isRetryingLocation, setIsRetryingLocation] = useState(false)
 
-  const [capturedUri, setCapturedUri] = useState<string | null>(null)
+  const [capturedUri,     setCapturedUri]     = useState<string | null>(null)
+  // URI del recorte (región del recuadro). null mientras el recorte está en curso.
+  const [capturedCropUri, setCapturedCropUri] = useState<string | null>(null)
+  // true mientras cropToScanFrame procesa la imagen
+  const [isCropping,      setIsCropping]      = useState(false)
   const [capturedB64, setCapturedB64] = useState<string | null>(null)
   const [location, setLocation]       = useState<{ latitude: number; longitude: number } | null>(null)
 
   const [phase, setPhase]               = useState<AnalysisPhase>("idle")
   const [uploadProgress, setUploadProgress] = useState(0)
+  // Progress shown in the AnalyzingOverlay during the ML polling phase (0–100).
+  // Advances based on elapsed time vs. POLL_TIMEOUT_MS; jumps to 100 on success.
+  const [pollProgress, setPollProgress]     = useState(0)
   const [isSlowMessage, setIsSlowMessage]   = useState(false)
 
   const abortControllerRef   = useRef<AbortController | null>(null)
@@ -74,6 +90,9 @@ export default function ScanScreen() {
   const pollingInProgressRef = useRef(false)
   // Guarda el task_id activo para que handleCancelAnalysis pueda persistirlo
   const currentTaskIdRef     = useRef<string | null>(null)
+  // Cuenta los reintentos consecutivos (upload o polling). Se resetea al retomar,
+  // cancelar o completar exitosamente. Nunca supera MAX_RETRIES.
+  const retryCountRef        = useRef(0)
 
   // Request camera first, then location (two overlapping dialogs break on iOS/Android)
   useEffect(() => {
@@ -170,37 +189,68 @@ export default function ScanScreen() {
     }
   }
 
-  // Called by CameraCapture once the shutter fires
-  const handlePictureTaken = async (base64: string, uri: string) => {
+  // Called by CameraCapture once the shutter fires.
+  // Ejecuta en paralelo el recorte de la imagen y la obtención de ubicación
+  // para minimizar el tiempo hasta que el botón "Analizar" quede habilitado.
+  const handlePictureTaken = async (
+    base64: string,
+    uri: string,
+    photoWidth: number,
+    photoHeight: number,
+  ) => {
+    // Mostrar la UI de revisión inmediatamente con la imagen completa como fondo
     setCapturedUri(uri)
-    setCapturedB64(base64)
+    setCapturedB64(base64)   // fallback: imagen completa (se reemplaza tras el crop)
+    setCapturedCropUri(null)
+    setIsCropping(true)
     setLocError(null)
     setIsRetryingLocation(true)
-    
-    try {
-      const loc = await getCurrentLocation(true) // Mostrar alerta si falla
-      if (loc) {
-        setLocation(loc)
-        setLocError(null)
-      } else {
-        setLocation(null)
-      }
-    } finally {
-      setIsRetryingLocation(false)
+
+    // Recorte y GPS en paralelo para no serializar latencias
+    const [cropOutcome, locOutcome] = await Promise.allSettled([
+      cropToScanFrame(uri, photoWidth, photoHeight),
+      getCurrentLocation(true),
+    ])
+
+    // ── Resultado del recorte ──────────────────────────────────────────────
+    if (cropOutcome.status === "fulfilled") {
+      setCapturedCropUri(cropOutcome.value.uri)
+      // Reemplazar el B64 completo con el del recorte: es lo que se enviará al ML
+      setCapturedB64(cropOutcome.value.base64)
+    } else {
+      // Si el recorte falla (error de ImageManipulator), se conserva el B64
+      // completo como fallback; el usuario no ve un error, simplemente se envía
+      // la imagen entera. El overlay de la cámara deja de ser el canal de verdad.
+      console.warn("[ScanScreen] cropToScanFrame falló, se usará imagen completa:", cropOutcome.reason)
+      setCapturedCropUri(null)
     }
+    setIsCropping(false)
+
+    // ── Resultado de la ubicación ─────────────────────────────────────────
+    if (locOutcome.status === "fulfilled" && locOutcome.value) {
+      setLocation(locOutcome.value)
+      setLocError(null)
+    } else {
+      setLocation(null)
+    }
+    setIsRetryingLocation(false)
   }
 
   const retake = () => {
     stopPolling()
     abortControllerRef.current?.abort()
     currentTaskIdRef.current = null
+    retryCountRef.current = 0
     setCapturedUri(null)
+    setCapturedCropUri(null)
+    setIsCropping(false)
     setCapturedB64(null)
     setLocation(null)
     setLocError(null)
     setPhase("idle")
     setIsSlowMessage(false)
     setUploadProgress(0)
+    setPollProgress(0)
   }
 
   // Cancela el overlay de análisis pero deja la tarea corriendo en el servidor.
@@ -209,8 +259,10 @@ export default function ScanScreen() {
   const handleCancelAnalysis = async () => {
     stopPolling()
     abortControllerRef.current?.abort()
+    retryCountRef.current = 0
     setPhase("idle")
     setIsSlowMessage(false)
+    setPollProgress(0)
 
     const taskId = currentTaskIdRef.current
     if (taskId) {
@@ -311,11 +363,43 @@ export default function ScanScreen() {
       setPhase("idle")
       if (e?.code === "ERR_CANCELED") return
       const isNetworkError = !e?.response
+      retryCountRef.current += 1
+      const canRetry = retryCountRef.current < MAX_RETRIES
+
+      if (!canRetry) {
+        // ── Límite de reintentos alcanzado ───────────────────────────────────
+        Alert.alert(
+          "No se pudo completar el análisis",
+          `Después de ${MAX_RETRIES} intentos no fue posible enviar la imagen.\nPuedes cancelar o guardar el reporte para enviarlo más tarde.`,
+          [
+            {
+              text: "Cancelar",
+              style: "cancel",
+              onPress: () => {
+                retake()
+                navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+              },
+            },
+            {
+              text: "Guardar para después",
+              onPress: async () => {
+                await enqueuePendingReport(b64, lat, lng)
+                await refreshPendingCount()
+                retake()
+                navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+                Alert.alert("Guardado", "El reporte se enviará automáticamente cuando recuperes conexión.")
+              },
+            },
+          ],
+        )
+        return
+      }
+
       Alert.alert(
         "Error de conexión",
         isNetworkError
-          ? "No hay conexión a internet. ¿Quieres guardar el reporte para enviarlo cuando vuelva la red?"
-          : "No se pudo enviar la imagen. Por favor inténtalo de nuevo.",
+          ? `Sin conexión (intento ${retryCountRef.current} de ${MAX_RETRIES}). ¿Qué deseas hacer?`
+          : `No se pudo enviar la imagen (intento ${retryCountRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
         isNetworkError
           ? [
               { text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng, ubicacionAproximada) },
@@ -325,6 +409,7 @@ export default function ScanScreen() {
                   await enqueuePendingReport(b64, lat, lng)
                   await refreshPendingCount()
                   retake()
+                  navigation.reset({ index: 0, routes: [{ name: "Home" }] })
                   Alert.alert("Guardado", "El reporte se enviará automáticamente cuando recuperes conexión.")
                 },
               },
@@ -335,7 +420,9 @@ export default function ScanScreen() {
     }
 
     // ── Step 2: poll every 2 s until success or failure ─────────────────────
+    // Progreso por fases: queued = 30 %, analyzing = 50 %, success = 100 %.
     setPhase("queued")
+    setPollProgress(30)
     pollingStartRef.current = Date.now()
 
     // Kick off first tick right away, then repeat
@@ -367,13 +454,14 @@ export default function ScanScreen() {
 
       if (elapsed >= SLOW_THRESHOLD_MS) setIsSlowMessage(true)
 
-      // Switch from "queued" to "analyzing" after first tick arrives
-      setPhase((prev) => (prev === "queued" ? "analyzing" : prev))
-
       try {
         const status = await getTaskStatus(taskId)
 
         if (status.estado === "PROCESANDO") {
+          // Progreso basado en estado real del servidor: analyzing = 50 % fijo.
+          // No se usa el tiempo transcurrido para evitar valores inconsistentes.
+          setPhase("analyzing")
+          setPollProgress(50)
           pollingInProgressRef.current = false
           return // keep polling
         }
@@ -381,6 +469,7 @@ export default function ScanScreen() {
         stopPolling()
 
         if (status.estado === "FALLIDO") {
+          setPollProgress(0)
           setPhase("idle")
           Alert.alert(
             "Sin residuos detectados",
@@ -390,23 +479,70 @@ export default function ScanScreen() {
           return
         }
 
-        // Success — show "saving" briefly before navigating
+        // Success — snap progress to 100 % and show "saving" briefly before navigating
+        setPollProgress(100)
         setPhase("saving")
         currentTaskIdRef.current = null   // tarea completada, ya no hace falta rastrearla
         const result = status as AnalysisResult
         setTimeout(() => {
           setPhase("done")
-          navigation.navigate("ScanResult", { result, latitude: lat, longitude: lng })
+          navigation.navigate("ScanResult", {
+            result,
+            latitude:  lat,
+            longitude: lng,
+            // Preferimos mostrar el recorte (lo que analizó el ML);
+            // si el recorte falló, se muestra la imagen completa como respaldo.
+            imageUri: capturedCropUri ?? capturedUri ?? undefined,
+          })
         }, 600)
 
       } catch {
         stopPolling()
         setPhase("idle")
-        Alert.alert(
-          "Error de conexión",
-          "No se pudo obtener el estado del análisis. Inténtalo de nuevo.",
-          [{ text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) }],
-        )
+        retryCountRef.current += 1
+        const canRetry = retryCountRef.current < MAX_RETRIES
+
+        if (!canRetry) {
+          // ── Límite de reintentos alcanzado ─────────────────────────────────
+          const savedTaskId = currentTaskIdRef.current
+          Alert.alert(
+            "No se pudo completar el análisis",
+            `Después de ${MAX_RETRIES} intentos no fue posible obtener el resultado.\nPuedes cancelar o revisarlo en tu historial más tarde.`,
+            [
+              {
+                text: "Cancelar",
+                style: "cancel",
+                onPress: () => {
+                  retake()
+                  navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+                },
+              },
+              {
+                text: "Guardar para después",
+                onPress: async () => {
+                  // Persistir el task_id en AsyncStorage para que el historial pueda rastrearlo
+                  if (savedTaskId) {
+                    try {
+                      const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
+                      const tasks: string[] = raw ? JSON.parse(raw) : []
+                      if (!tasks.includes(savedTaskId)) tasks.push(savedTaskId)
+                      await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
+                    } catch {}
+                  }
+                  retake()
+                  navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+                  Alert.alert("Guardado", "El resultado aparecerá en tu historial cuando el análisis termine.")
+                },
+              },
+            ],
+          )
+        } else {
+          Alert.alert(
+            "Error de conexión",
+            `No se pudo obtener el estado del análisis (intento ${retryCountRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
+            [{ text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) }],
+          )
+        }
       } finally {
         pollingInProgressRef.current = false
       }
@@ -473,16 +609,26 @@ export default function ScanScreen() {
   // ── Photo review ───────────────────────────────────────────────────────────
 
   if (capturedUri) {
-    const isActive = phase !== "idle"
-    const showOverlay = phase === "queued" || phase === "analyzing" || phase === "saving"
-    const canCancel = phase === "queued" || phase === "analyzing"
-    const hasLocation = location !== null
+    const isActive        = phase !== "idle"
+    const showOverlay     = phase === "queued" || phase === "analyzing" || phase === "saving"
+    const canCancel       = phase === "queued" || phase === "analyzing"
+    const hasLocation     = location !== null
     const isLocationLoading = isRetryingLocation
+    // El botón se bloquea mientras el recorte esté en curso para garantizar que
+    // siempre se envíe la imagen recortada y no el fallback completo.
+    const isAnalyzeBlocked = isActive || isCropping || (!hasLocation && !isLocationLoading)
 
     return (
       <View style={styles.reviewContainer}>
         <StatusBar barStyle="light-content" backgroundColor="#000" />
+
+        {/* Imagen completa como fondo contextual */}
         <Image source={{ uri: capturedUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+
+        {/* ── Overlay del recuadro de captura (solo durante la revisión) ───────
+            Muestra exactamente la misma región que cropToScanFrame recortará,
+            confirmando visualmente al usuario qué área se enviará al ML.     */}
+        {!showOverlay && <CapturedFrameOverlay />}
 
         <View style={styles.reviewGradient} />
 
@@ -493,9 +639,13 @@ export default function ScanScreen() {
             <View style={styles.reviewIconWrap}>
               <Ionicons name="checkmark" size={22} color="#fff" />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={styles.reviewTitle}>Foto capturada</Text>
-              <Text style={styles.reviewSub}>Revisa la imagen antes de enviar</Text>
+              <Text style={styles.reviewSub}>
+                {isCropping
+                  ? "Calculando región de análisis..."
+                  : "La región encuadrada se enviará al análisis IA"}
+              </Text>
             </View>
           </View>
 
@@ -525,26 +675,33 @@ export default function ScanScreen() {
 
           <TouchableOpacity
             style={[
-              styles.analyzeBtn, 
-              isActive && styles.analyzeBtnLoading,
-              (!hasLocation && !isLocationLoading) && styles.analyzeBtnDisabled
+              styles.analyzeBtn,
+              isActive   && styles.analyzeBtnLoading,
+              isAnalyzeBlocked && !isActive && !isCropping && styles.analyzeBtnDisabled,
             ]}
             onPress={handleAnalyze}
-            disabled={isActive || (!hasLocation && !isLocationLoading)}
+            disabled={isAnalyzeBlocked}
             activeOpacity={0.85}
           >
             {phase === "uploading" ? (
               <>
                 <ActivityIndicator size="small" color="#fff" />
                 <Text style={styles.analyzeBtnText}>
-                  {`Enviando imagen… ${uploadProgress}%`}
+                  {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
                 </Text>
+              </>
+            ) : isCropping ? (
+              <>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
               </>
             ) : (
               <>
                 <Ionicons name="analytics-outline" size={20} color="#fff" />
                 <Text style={styles.analyzeBtnText}>
-                  {(!hasLocation && !isLocationLoading) ? "Esperando ubicación..." : "Analizar y Reportar"}
+                  {(!hasLocation && !isLocationLoading)
+                    ? "Esperando ubicación..."
+                    : "Analizar y Reportar"}
                 </Text>
               </>
             )}
@@ -564,6 +721,7 @@ export default function ScanScreen() {
         <AnalyzingOverlay
           isAnalyzing={showOverlay}
           label={overlayLabel(phase, isSlowMessage)}
+          progress={pollProgress}
           onCancel={canCancel ? handleCancelAnalysis : undefined}
         />
       </View>
@@ -581,7 +739,7 @@ export default function ScanScreen() {
       />
       <CameraCapture
         key={phase === "idle" ? "active" : "locked"}
-        onPictureTaken={handlePictureTaken}
+        onPictureTaken={handlePictureTaken}   // ahora recibe (b64, uri, width, height)
         onBack={() => navigation.goBack()}
       />
       {pendingCount > 0 && (

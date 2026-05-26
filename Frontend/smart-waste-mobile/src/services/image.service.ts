@@ -33,7 +33,7 @@ export interface AnalysisResult {
 // Discriminated union for GET /image/status/:taskId responses
 export type TaskStatusResponse =
   | { task_id: string; estado: "PROCESANDO"; message: string }
-  | { task_id: string; estado: "FALLIDO"; message: string }
+  | { task_id: string; estado: "FALLIDO"; message: string; nota_fallo: string | null }
   | (AnalysisResult & { task_id: string })
 
 // Immediate 202 response from POST /image/analyze
@@ -114,7 +114,11 @@ export const analyzeImage = async (
       signal: options?.signal,
       onUploadProgress: options?.onUploadProgress
         ? (e) => {
-            const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0
+            // e.loaded can exceed e.total in React Native (HTTP headers are counted
+            // in loaded but not in total). Clamp to 100 to avoid > 100% display.
+            const pct = e.total
+              ? Math.min(100, Math.round((e.loaded / e.total) * 100))
+              : 0
             options.onUploadProgress!(pct)
           }
         : undefined,

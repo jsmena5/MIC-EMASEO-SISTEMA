@@ -5,7 +5,6 @@ import React, { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Platform,
   StyleSheet,
   Text,
@@ -16,18 +15,23 @@ import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
 
 import { colors } from "../theme/colors"
 import ScanOverlay from "./ScanOverlay"
+// Constantes compartidas con ScanOverlay, CapturedFrameOverlay y cropToScanFrame
+import { SCAN_FRAME_SIZE, SCAN_OVERLAY_V } from "../utils/cropToScanFrame"
 
 type ScanPhase = "scanning" | "ready"
 
 export interface CameraCaptureProps {
-  /** Called once the shutter fires and the picture is ready. */
-  onPictureTaken: (base64: string, uri: string) => void
+  /**
+   * Called once the shutter fires and the picture is ready.
+   * `width` and `height` are the sensor dimensions of the captured photo —
+   * needed by cropToScanFrame to calculate the exact crop region.
+   */
+  onPictureTaken: (base64: string, uri: string, width: number, height: number) => void
   /** Optional: called when the user taps the back arrow. */
   onBack?: () => void
 }
 
-const { width: SW } = Dimensions.get("window")
-const FRAME = Math.min(SW * 0.78, 300)
+// SCAN_FRAME_SIZE / SCAN_OVERLAY_V provienen de cropToScanFrame (fuente de verdad única)
 
 // ─── Public component ────────────────────────────────────────────────────────
 
@@ -50,7 +54,9 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.82 })
-      onPictureTaken(photo.base64 ?? "", photo.uri)
+      // Pasar también las dimensiones reales del sensor para que ScanScreen
+      // pueda calcular el recorte preciso en cropToScanFrame.
+      onPictureTaken(photo.base64 ?? "", photo.uri, photo.width, photo.height)
     } catch {
       Alert.alert("Error", "No se pudo capturar la imagen. Intenta de nuevo.")
     } finally {
@@ -196,8 +202,8 @@ const styles = StyleSheet.create({
   bottomControls: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
-    // aligns with the bottom of the frame window (OVERLAY_V + FRAME from top)
-    top: (Dimensions.get("window").height - FRAME) / 2 - 60 + FRAME,
+    // Arranca justo debajo del recuadro: OVERLAY_V (tope del frame) + FRAME_SIZE (alto)
+    top: SCAN_OVERLAY_V + SCAN_FRAME_SIZE,
     backgroundColor: "rgba(0,0,0,0.62)",
     paddingTop: 20, alignItems: "center",
   },

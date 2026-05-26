@@ -159,7 +159,16 @@ export default function MapaZonas() {
 
   // ── Vista principal ───────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100%', position: 'relative', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      minHeight: 720,
+      height: 'calc(100vh - 240px)',
+      position: 'relative',
+      overflow: 'hidden',
+      borderRadius: 28,
+      background: '#ffffff',
+      border: '1px solid #e2e8f0',
+    }}>
 
       {/* Barra de filtros flotante */}
       <div style={{
@@ -196,7 +205,7 @@ export default function MapaZonas() {
       <MapContainer
         center={[-0.1807, -78.4678]}
         zoom={11}
-        style={{ flex: 1, height: '100%' }}
+        style={{ flex: 1, height: '100%', width: '100%' }}
         zoomControl
       >
         <TileLayer

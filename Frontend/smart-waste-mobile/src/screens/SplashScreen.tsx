@@ -3,23 +3,34 @@
  *
  * Pantalla de arranque personalizada de EMASEO EP.
  *
- * Flujo:
- *  1. App.tsx llama SplashScreen.preventAutoHideAsync() → el splash nativo
- *     (fondo #001828, imagen splash-icon.png) permanece visible mientras
- *     descarga el bundle JS.
- *  2. AppNavigator muestra este componente cuando isLoading === true
- *     (AuthContext está verificando la sesión guardada).
- *  3. En el primer efecto llamamos SplashScreen.hideAsync() → el splash
- *     nativo desaparece y el usuario ve ESTE componente con el mismo fondo
- *     oscuro, por lo que la transición es invisible.
- *  4. Las animaciones de entrada se reproducen (logo, texto, dots pulsantes).
- *  5. Cuando AuthContext termina de verificar la sesión (isLoading → false),
- *     AppNavigator navega a Login o Home.  La prop onFinish (opcional) permite
- *     coordinar una salida animada antes de esa navegación.
+ * Flujo completo (desarrollo con Expo Go / builds de producción):
+ *
+ *  ① [NATIVO — antes de JS]
+ *     Expo Go lee la clave `"splash"` de app.json y muestra el splash nativo
+ *     (#001828 + splash-icon.png) MIENTRAS descarga el bundle JS.
+ *     Sin esa clave, Expo Go mostraría "Loading from IP:PORT..." en su lugar.
+ *
+ *  ② [JS — evaluación del bundle]
+ *     App.tsx ejecuta preventAutoHideAsync() como primera instrucción (via
+ *     require(), para evitar el hoisting de Babel). El splash nativo se
+ *     mantiene visible.
+ *
+ *  ③ [React — primer render]
+ *     AppNavigator renderiza este componente mientras isLoading === true.
+ *     useEffect() ejecuta InteractionManager.runAfterInteractions(() => hideAsync())
+ *     para esperar a que React haya pintado el frame ANTES de soltar el splash
+ *     nativo.  Ambas pantallas tienen fondo #001828 → transición imperceptible.
+ *
+ *  ④ [Animaciones]
+ *     Logo spring-in + FadeInDown de marca + dots pulsantes se reproducen
+ *     mientras AuthContext verifica la sesión (mínimo MIN_SPLASH_MS = 1 s).
+ *
+ *  ⑤ [Navegación]
+ *     Cuando isLoading → false, AppNavigator navega a Login o Home.
  */
 import * as ExpoSplashScreen from "expo-splash-screen"
 import React, { useEffect } from "react"
-import { Dimensions, StyleSheet, Text, View } from "react-native"
+import { Dimensions, InteractionManager, StyleSheet, Text, View } from "react-native"
 import Animated, {
   Easing,
   FadeIn,
@@ -54,10 +65,26 @@ export default function SplashScreen({ onFinish: _onFinish }: Props) {
   const r3Opacity = useSharedValue(0.2)
 
   useEffect(() => {
-    // ── Ocultar el splash nativo lo antes posible ──────────────────────────
-    // El fondo de ambos es #001828, así que la transición es imperceptible.
-    ExpoSplashScreen.hideAsync().catch(() => {
-      // Ignorar: puede que ya estuviera oculto (recargas en desarrollo)
+    /**
+     * ── Ocultar el splash nativo ──────────────────────────────────────────
+     * Usamos InteractionManager.runAfterInteractions en lugar de llamar
+     * hideAsync() directamente para asegurar que React haya pintado el
+     * primer frame ANTES de retirar el splash nativo.
+     *
+     * ¿Por qué importa?
+     *   – hideAsync() en useEffect() se dispara antes de que el frame de
+     *     React se haya "comprometido" al GPU.  En algunos dispositivos
+     *     esto produce un flash blanco/negro entre ambas superficies.
+     *   – runAfterInteractions() espera al final del batch de renders activo,
+     *     garantizando que el fondo #001828 de este componente esté pintado
+     *     antes de que el splash nativo sea retirado.
+     *
+     * Ambas superficies tienen el mismo fondo → la transición es invisible.
+     */
+    const hideTask = InteractionManager.runAfterInteractions(() => {
+      ExpoSplashScreen.hideAsync().catch(() => {
+        // Ignorar: puede que ya estuviera oculto (recargas con Fast Refresh)
+      })
     })
 
     // ── Animación del logo ─────────────────────────────────────────────────
@@ -96,6 +123,10 @@ export default function SplashScreen({ onFinish: _onFinish }: Props) {
     pulse(r1Scale, r1Opacity, 700, 0.55)
     pulse(r2Scale, r2Opacity, 1050, 0.35)
     pulse(r3Scale, r3Opacity, 1400, 0.2)
+
+    // Cancelar la tarea pendiente si el componente se desmonta antes de
+    // que InteractionManager dispare (p.ej. Fast Refresh en desarrollo).
+    return () => hideTask.cancel()
   }, [])
 
   const logoStyle = useAnimatedStyle(() => ({

@@ -8,12 +8,15 @@
 // Vite expone las vars con prefijo VITE_* a través de import.meta.env
 // ──────────────────────────────────────────────────────────────────────────────
 
-const DEV_API_URL  = 'http://localhost:4000/api'
-const PROD_API_URL = 'https://api.emaseo.gob.ec/api'
+const DEV_API_URL = 'http://localhost:4000/api'
+const PROD_API_URL = '/api'
 
-export const API_URL: string =
+const normalizeApiUrl = (value: string) => value.replace(/\/+$/, '')
+
+export const API_URL: string = normalizeApiUrl(
   import.meta.env.VITE_API_URL ??
   (import.meta.env.DEV ? DEV_API_URL : PROD_API_URL)
+)
 
 export const ENV = {
   API_URL,

@@ -100,7 +100,7 @@ export type RootStackParamList = {
   SetPassword: { email: string }
   Home: undefined
   Scan: undefined
-  ScanResult: { result: AnalysisResult; latitude: number; longitude: number }
+  ScanResult: { result: AnalysisResult; latitude: number; longitude: number; imageUri?: string }
   ForgotPassword: undefined
   ForgotPasswordOtp: { email: string }
   ResetPassword: { email: string; otp: string }

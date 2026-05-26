@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3"
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
 import { v4 as uuidv4 } from "uuid"
 import retry from "async-retry"
 import { pool } from "../db.js"
@@ -36,6 +36,12 @@ const ECUADOR_BBOX = {
 
 // Valor temporal para prioridad mientras el ML procesa
 const TEMP_PRIORIDAD = 'BAJA'
+
+// Umbral de confianza para rechazo automático confiable.
+// Si confianza del ML < umbral → EN_REVISION (caso ambiguo, requiere supervisor).
+// Si confianza del ML ≥ umbral → DESCARTADO (rechazo automático confiable).
+// Configurable vía variable de entorno; por defecto 0.70 (70%).
+const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE ?? "0.70")
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Cliente S3 (MinIO / AWS)
@@ -85,18 +91,30 @@ function createHttpError(message, httpStatus, cause = null) {
   return error
 }
 
-// Marca el incidente como FALLIDO y limpia columnas temporales de async-ML.
-async function markIncidentAsFailed(incidentId, reason, logError) {
+// ──────────────────────────────────────────────────────────────────────────────
+// markIncidentAsFailed
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Marca el incidente como FALLIDO (error técnico real).
+// Opciones:
+//   s3Key             — Si ya había imagen en S3, la conserva como evidencia de auditoría.
+//                       NOTA: ya no se borra S3; la imagen queda como imagen_auditoria_url.
+//   decisionAutomatica — Código estructurado de la razón de fallo (siempre ERROR_TECNICO aquí).
+
+async function markIncidentAsFailed(incidentId, reason, logError, { s3Key = null, decisionAutomatica = "ERROR_TECNICO" } = {}) {
+  const imageUrl = s3Key ? `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}` : null
   try {
     await pool.query(
       `UPDATE incidents.incidents
-       SET estado         = 'FALLIDO',
-           nota_fallo     = $2,
-           celery_task_id = NULL,
-           pending_s3_key = NULL,
-           updated_at     = NOW()
+       SET estado                = 'FALLIDO',
+           nota_fallo            = $2,
+           decision_automatica   = $3,
+           imagen_auditoria_url  = COALESCE($4, imagen_auditoria_url),
+           celery_task_id        = NULL,
+           pending_s3_key        = NULL,
+           updated_at            = NOW()
        WHERE id = $1`,
-      [incidentId, reason]
+      [incidentId, reason, decisionAutomatica, imageUrl]
     )
   } catch (dbErr) {
     logError(`No se pudo marcar como FALLIDO: ${dbErr.message}`)
@@ -120,18 +138,8 @@ async function uploadPendingImage(incidentId, buffer, logError) {
   return s3Key
 }
 
-// Elimina la imagen pendiente de S3 y borra pending_s3_key en BD.
-// Llamar en cualquier rama de fallo que ocurra después de uploadPendingImage.
-async function cleanupPendingS3(incidentId, s3Key) {
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: s3Key })).catch(() => {})
-  await pool.query(
-    `UPDATE incidents.incidents SET pending_s3_key = NULL WHERE id = $1`,
-    [incidentId]
-  ).catch(() => {})
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
-// finalizeIncident — transacción atómica de cierre
+// finalizeIncident — transacción atómica de cierre para incidentes válidos
 // ──────────────────────────────────────────────────────────────────────────────
 //
 // Transiciona el incidente de PROCESANDO → PENDIENTE, registra la imagen en
@@ -152,11 +160,12 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
 
         const { rows: updRows, rowCount: updCount } = await client.query(
           `UPDATE incidents.incidents
-           SET estado         = 'PENDIENTE',
-               prioridad      = $2,
-               celery_task_id = NULL,
-               pending_s3_key = NULL,
-               updated_at     = NOW()
+           SET estado               = 'PENDIENTE',
+               prioridad            = $2,
+               decision_automatica  = 'INCIDENTE_VALIDO',
+               celery_task_id       = NULL,
+               pending_s3_key       = NULL,
+               updated_at           = NOW()
            WHERE id = $1 AND estado = 'PROCESANDO'
            RETURNING created_at`,
           [incidentId, mlResult.prioridad]
@@ -213,6 +222,104 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// finalizeNegativeCase — cierre para casos where has_waste=false
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Lógica de ramificación según confianza del ML:
+//   confianza ≥ AUTO_REJECT_CONFIDENCE → DESCARTADO + RECHAZO_CONFIABLE
+//   confianza < AUTO_REJECT_CONFIDENCE → EN_REVISION + REVISION_REQUERIDA
+//   confianza == null                  → EN_REVISION + REVISION_REQUERIDA (conservador)
+//
+// La imagen SIEMPRE se conserva en S3 (ya no se elimina).
+// Los metadatos ML se guardan en ai.analysis_results para trazabilidad completa.
+// Permite que el supervisor vea la imagen y los datos aunque la decisión sea negativa.
+
+async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
+  const confianza   = mlResult.confianza ?? null
+  const isAmbiguous = confianza === null || confianza < AUTO_REJECT_CONFIDENCE
+  const nuevoEstado = isAmbiguous ? "EN_REVISION" : "DESCARTADO"
+  const decision    = isAmbiguous ? "REVISION_REQUERIDA" : "RECHAZO_CONFIABLE"
+  const imageUrl    = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
+  const notaFallo   = `ML no detectó residuos${
+    confianza !== null
+      ? ` (confianza: ${(confianza * 100).toFixed(1)} %)`
+      : " (confianza no disponible)"
+  }`
+
+  await retry(
+    async () => {
+      const client = await pool.connect()
+      try {
+        await client.query("BEGIN")
+
+        // Transición PROCESANDO → EN_REVISION | DESCARTADO
+        const { rowCount } = await client.query(
+          `UPDATE incidents.incidents
+           SET estado                = $2,
+               decision_automatica   = $3,
+               confianza_decision    = $4,
+               imagen_auditoria_url  = $5,
+               nota_fallo            = $6,
+               celery_task_id        = NULL,
+               pending_s3_key        = NULL,
+               updated_at            = NOW()
+           WHERE id = $1 AND estado = 'PROCESANDO'`,
+          [incidentId, nuevoEstado, decision, confianza, imageUrl, notaFallo]
+        )
+
+        if (rowCount === 0) {
+          await client.query("ROLLBACK")
+          logError("Incidente ya no está en PROCESANDO — descartando resultado ML negativo (race condition)")
+          return
+        }
+
+        // Guardar resultado ML parcial en ai.analysis_results para trazabilidad.
+        // tipo_residuo y nivel_acumulacion son nullable desde la migración 032,
+        // por lo que los resultados negativos son igualmente válidos para auditoría.
+        if (mlResult.modelo_nombre) {
+          await client.query(
+            `INSERT INTO ai.analysis_results
+               (incident_id, incident_created_at, modelo_nombre,
+                tipo_residuo, nivel_acumulacion,
+                volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms)
+             SELECT $1, i.created_at, $2,
+                    CASE WHEN $3::text IS NOT NULL THEN $3::ai.waste_type      END,
+                    CASE WHEN $4::text IS NOT NULL THEN $4::ai.accumulation_level END,
+                    $5, $6, $7::jsonb, $8
+             FROM incidents.incidents i
+             WHERE i.id = $1
+             ON CONFLICT (incident_id) DO NOTHING`,
+            [
+              incidentId,
+              mlResult.modelo_nombre,
+              mlResult.tipo_residuo       ?? null,
+              mlResult.nivel_acumulacion  ?? null,
+              mlResult.volumen_estimado_m3 ?? null,
+              confianza,
+              JSON.stringify(mlResult.detecciones ?? []),
+              mlResult.tiempo_inferencia_ms ?? null,
+            ]
+          )
+        }
+
+        await client.query("COMMIT")
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {})
+        throw err
+      } finally {
+        client.release()
+      }
+    },
+    {
+      ...DB_RETRY_OPTS,
+      onRetry: (err, attempt) => logError(`DB finalizeNegativeCase retry ${attempt}: ${err.message}`),
+    }
+  )
+
+  return { nuevoEstado, imageUrl }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // runMlAnalysis — Pipeline principal en background
 // ──────────────────────────────────────────────────────────────────────────────
 //
@@ -222,9 +329,14 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
 //   3. Submit de la tarea al ML vía CB → guarda celery_task_id en BD
 //   4. Polling del resultado (fuera del CB, presupuesto 120 s)
 //      • Timeout → deja PROCESANDO para recoverCeleryTasks()
-//      • Fallo duro → limpia S3 y marca FALLIDO
-//   5. has_waste=false → limpia S3 y marca FALLIDO
-//   6. Éxito → finalizeIncident (transacción atómica)
+//      • Fallo duro → imagen se conserva en S3 como auditoría, marca FALLIDO (ERROR_TECNICO)
+//   5. has_waste=false → finalizeNegativeCase:
+//      • confianza ≥ umbral → DESCARTADO (imagen conservada en S3)
+//      • confianza < umbral → EN_REVISION (imagen conservada en S3)
+//   6. has_waste=true → finalizeIncident (transacción atómica, PENDIENTE)
+//
+// IMPORTANTE: Las imágenes ya subidas a S3 NUNCA se eliminan.
+// Se conservan siempre como imagen_auditoria_url para auditoría de decisiones.
 
 async function runMlAnalysis(incidentId, { buffer, image }) {
   const log      = (msg) => console.log(`[image-service] [incident=${incidentId}] ${msg}`)
@@ -276,11 +388,11 @@ async function runMlAnalysis(incidentId, { buffer, image }) {
       )
       log(`✓ Tarea enviada — celery_task_id=${celeryTaskId}`)
     } catch (err) {
-      await cleanupPendingS3(incidentId, pendingS3Key)
+      // Imagen ya en S3 → se conserva como auditoría (no se elimina)
       const reason = err.code === ML_DEGRADED_CODE
         ? `circuit breaker abierto: ${err.message}`
         : `ML submit: ${err.message}`
-      await markIncidentAsFailed(incidentId, reason, logError)
+      await markIncidentAsFailed(incidentId, reason, logError, { s3Key: pendingS3Key })
       logError(`✗ FALLIDO — ${reason}`)
       return
     }
@@ -301,28 +413,41 @@ async function runMlAnalysis(incidentId, { buffer, image }) {
         log(`⏳ Polling timeout — celery_task_id=${celeryTaskId} queda en PROCESANDO para recovery automático`)
         return
       }
-      // Fallo duro del ML (status "failed") — limpiar y marcar FALLIDO
-      await cleanupPendingS3(incidentId, pendingS3Key)
-      await markIncidentAsFailed(incidentId, `ML polling: ${err.message}`, logError)
+      // Fallo duro del ML (status "failed") — imagen ya en S3, se conserva como auditoría
+      await markIncidentAsFailed(incidentId, `ML polling: ${err.message}`, logError, { s3Key: pendingS3Key })
       logError(`✗ FALLIDO — ${err.message}`)
       return
     }
 
     // 5. Validar detección de residuos
+    //    has_waste=false → NO siempre es FALLIDO. Según la confianza del ML:
+    //      • confianza ≥ AUTO_REJECT_CONFIDENCE → DESCARTADO (rechazo confiable)
+    //      • confianza < AUTO_REJECT_CONFIDENCE → EN_REVISION (caso ambiguo, supervisor decide)
+    //    La imagen SIEMPRE se conserva en S3 para auditoría.
     if (!mlResult.has_waste) {
-      await cleanupPendingS3(incidentId, pendingS3Key)
-      await markIncidentAsFailed(incidentId, "ML no detectó residuos en la imagen", logError)
-      logError("✗ FALLIDO — No se detectaron residuos")
+      try {
+        const { nuevoEstado } = await finalizeNegativeCase(incidentId, pendingS3Key, mlResult, logError)
+        log(`⚠ Sin residuos detectados — estado=${nuevoEstado} confianza=${mlResult.confianza ?? "N/A"}`)
+      } catch (dbErr) {
+        // Si el guardado del caso negativo falla, caer a FALLIDO técnico como último recurso
+        await markIncidentAsFailed(
+          incidentId,
+          `error al registrar resultado negativo: ${dbErr.message}`,
+          logError,
+          { s3Key: pendingS3Key }
+        )
+        logError(`✗ FALLIDO (fallback) — Error en finalizeNegativeCase: ${dbErr.message}`)
+      }
       return
     }
 
-    // 6. Transacción atómica de cierre
+    // 6. Transacción atómica de cierre (incidente válido → PENDIENTE)
     try {
       await finalizeIncident(incidentId, pendingS3Key, mlResult, logError)
       log(`✓ Incidente finalizado — PENDIENTE prioridad=${mlResult.prioridad}`)
     } catch (dbErr) {
-      await cleanupPendingS3(incidentId, pendingS3Key)
-      await markIncidentAsFailed(incidentId, `DB transaction: ${dbErr.message}`, logError)
+      // Imagen ya en S3, se conserva como auditoría
+      await markIncidentAsFailed(incidentId, `DB transaction: ${dbErr.message}`, logError, { s3Key: pendingS3Key })
       logError(`✗ FALLIDO — Error en transacción DB: ${dbErr.message}`)
     }
   } catch (err) {
@@ -413,7 +538,9 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
 export async function getTaskStatus(taskId, userId) {
   const { rows } = await pool.query(
     `SELECT
-       i.id, i.estado, i.prioridad, i.descripcion, i.created_at, i.updated_at,
+       i.id, i.estado, i.prioridad, i.descripcion, i.nota_fallo,
+       i.decision_automatica, i.confianza_decision, i.imagen_auditoria_url,
+       i.created_at, i.updated_at,
        ST_Y(i.ubicacion::geometry) AS latitud,
        ST_X(i.ubicacion::geometry) AS longitud,
        ii.image_url,
@@ -433,6 +560,7 @@ export async function getTaskStatus(taskId, userId) {
 
   const row = rows[0]
 
+  // ── Estado: en proceso ────────────────────────────────────────────────────
   if (row.estado === "PROCESANDO") {
     return {
       httpStatus: 202,
@@ -442,15 +570,51 @@ export async function getTaskStatus(taskId, userId) {
     }
   }
 
+  // ── Estado: error técnico ──────────────────────────────────────────────────
   if (row.estado === "FALLIDO") {
     return {
-      httpStatus: 200,
-      task_id: row.id,
-      estado:  "FALLIDO",
-      message: "No se detectaron residuos en la imagen o el análisis falló. Intenta con otra foto.",
+      httpStatus:           200,
+      task_id:              row.id,
+      estado:               "FALLIDO",
+      decision_automatica:  row.decision_automatica ?? null,
+      nota_fallo:           row.nota_fallo          ?? null,
+      imagen_auditoria_url: row.imagen_auditoria_url ?? null,
+      message: "El análisis falló por un error técnico. Intenta de nuevo más tarde.",
     }
   }
 
+  // ── Estado: en revisión por supervisor ────────────────────────────────────
+  if (row.estado === "EN_REVISION") {
+    return {
+      httpStatus:           200,
+      task_id:              row.id,
+      estado:               "EN_REVISION",
+      decision_automatica:  row.decision_automatica  ?? null,
+      confianza_decision:   row.confianza_decision   ?? null,
+      imagen_auditoria_url: row.imagen_auditoria_url ?? null,
+      created_at:           row.created_at,
+      updated_at:           row.updated_at,
+      message: "Tu reporte está siendo revisado por un supervisor. Recibirás una notificación cuando se tome una decisión.",
+    }
+  }
+
+  // ── Estado: descartado automáticamente ────────────────────────────────────
+  if (row.estado === "DESCARTADO") {
+    return {
+      httpStatus:           200,
+      task_id:              row.id,
+      estado:               "DESCARTADO",
+      decision_automatica:  row.decision_automatica  ?? null,
+      confianza_decision:   row.confianza_decision   ?? null,
+      nota_fallo:           row.nota_fallo           ?? null,
+      imagen_auditoria_url: row.imagen_auditoria_url ?? null,
+      created_at:           row.created_at,
+      updated_at:           row.updated_at,
+      message: "El análisis automático no detectó acumulación de residuos en tu imagen. Si crees que es incorrecto, envía un nuevo reporte con una foto más clara.",
+    }
+  }
+
+  // ── Estado: incidente válido (PENDIENTE / EN_ATENCION / RESUELTA / RECHAZADA)
   return {
     httpStatus:          200,
     task_id:             row.id,
@@ -460,6 +624,7 @@ export async function getTaskStatus(taskId, userId) {
     descripcion:         row.descripcion,
     latitud:             row.latitud,
     longitud:            row.longitud,
+    decision_automatica: row.decision_automatica ?? null,
     image_url:           row.image_url,
     nivel_acumulacion:   row.nivel_acumulacion,
     volumen_estimado_m3: row.volumen_estimado_m3,
@@ -484,9 +649,10 @@ export async function recoverStaleIncidents() {
   try {
     const { rowCount } = await pool.query(
       `UPDATE incidents.incidents
-       SET estado     = 'FALLIDO',
-           nota_fallo = 'Proceso interrumpido — recuperación en arranque',
-           updated_at = NOW()
+       SET estado              = 'FALLIDO',
+           nota_fallo          = 'Proceso interrumpido — recuperación en arranque',
+           decision_automatica = 'ERROR_TECNICO',
+           updated_at          = NOW()
        WHERE estado          = 'PROCESANDO'
          AND celery_task_id  IS NULL
          AND updated_at      < NOW() - INTERVAL '10 minutes'`
@@ -506,14 +672,13 @@ export async function recoverStaleIncidents() {
 // Consulta incidentes PROCESANDO que tienen celery_task_id y pending_s3_key
 // (imagen ya en S3 esperando resultado ML). Para cada uno hace una comprobación
 // puntual del estado Celery:
-//   • completed  → finalizeIncident (transición PENDIENTE)
-//   • failed     → cleanupPendingS3 + markIncidentAsFailed
-//   • pending/processing → no hacer nada (próxima iteración)
+//   • completed + has_waste=true  → finalizeIncident (transición PENDIENTE)
+//   • completed + has_waste=false → finalizeNegativeCase (EN_REVISION o DESCARTADO)
+//   • failed                      → markIncidentAsFailed (imagen conservada en S3)
+//   • pending/processing          → no hacer nada (próxima iteración)
 //
-// Solo aplica a incidentes con más de 2 minutos de antigüedad (updated_at)
-// para evitar colisiones con runMlAnalysis en curso.
-//
-// Llamar en startup y cada 30 s desde index.js.
+// NOTA: la imagen ya está en S3 (pending_s3_key). En todos los casos de fallo
+// la imagen se conserva como imagen_auditoria_url — NO se elimina.
 
 export async function recoverCeleryTasks() {
   let rows
@@ -550,20 +715,30 @@ export async function recoverCeleryTasks() {
 
       if (status === "failed") {
         logError(`Tarea Celery FALLIDA: ${error ?? "unknown"}`)
-        await cleanupPendingS3(incidentId, pending_s3_key)
+        // Imagen ya en S3 → se conserva como auditoría
         await markIncidentAsFailed(
           incidentId,
           `recovery: ML inference failed: ${error ?? "unknown"}`,
-          logError
+          logError,
+          { s3Key: pending_s3_key }
         )
         continue
       }
 
       if (status === "completed") {
         if (!result.has_waste) {
-          log("ML recuperado — sin residuos detectados")
-          await cleanupPendingS3(incidentId, pending_s3_key)
-          await markIncidentAsFailed(incidentId, "recovery: ML no detectó residuos en la imagen", logError)
+          log(`ML recuperado — sin residuos detectados (confianza: ${result.confianza ?? "N/A"})`)
+          try {
+            const { nuevoEstado } = await finalizeNegativeCase(incidentId, pending_s3_key, result, logError)
+            log(`✓ Caso negativo recuperado — estado=${nuevoEstado}`)
+          } catch (dbErr) {
+            await markIncidentAsFailed(
+              incidentId,
+              `recovery: error en caso negativo: ${dbErr.message}`,
+              logError,
+              { s3Key: pending_s3_key }
+            )
+          }
           continue
         }
         await finalizeIncident(incidentId, pending_s3_key, result, logError)
@@ -600,6 +775,7 @@ export const getMyIncidents = async (req, res) => {
       pool.query(
         `SELECT
            i.id, i.estado, i.prioridad, i.descripcion, i.created_at,
+           i.decision_automatica, i.confianza_decision, i.imagen_auditoria_url,
            ST_Y(i.ubicacion::geometry) AS latitud,
            ST_X(i.ubicacion::geometry) AS longitud,
            ii.image_url,

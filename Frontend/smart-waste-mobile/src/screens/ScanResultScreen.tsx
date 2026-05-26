@@ -1,5 +1,5 @@
 import React from "react"
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import MapView, { Marker } from "react-native-maps"
 import { useNavigation, useRoute } from "@react-navigation/native"
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack"
@@ -25,7 +25,7 @@ const NIVEL_LABELS: Record<string, string> = {
 export default function ScanResultScreen() {
   const navigation = useNavigation<NavProp>()
   const route = useRoute<Props["route"]>()
-  const { result, latitude, longitude } = route.params
+  const { result, latitude, longitude, imageUri } = route.params
 
   const color = NIVEL_COLORS[result.nivel_acumulacion] ?? "#6B7280"
   const label = NIVEL_LABELS[result.nivel_acumulacion] ?? result.nivel_acumulacion
@@ -46,6 +46,21 @@ export default function ScanResultScreen() {
         <Text style={styles.headerTitle}>{label}</Text>
         <Text style={styles.headerSub}>Reporte #{shortId}</Text>
       </View>
+
+      {/* Imagen analizada — muestra exactamente la región enviada al ML */}
+      {imageUri && (
+        <View style={styles.capturedImageCard}>
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.capturedImage}
+            resizeMode="contain"
+            accessibilityLabel="Región analizada por la IA"
+          />
+          <View style={styles.imageLabel}>
+            <Text style={styles.imageLabelText}>📐 Imagen enviada al análisis IA</Text>
+          </View>
+        </View>
+      )}
 
       {/* Aviso de penalización por foto muy cercana */}
       {result.scale_penalty_applied && (
@@ -261,5 +276,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "500",
+  },
+  capturedImageCard: {
+    marginHorizontal: 12,
+    marginTop: 16,
+    marginBottom: 4,
+    borderRadius: 12,
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    backgroundColor: "#000",
+  },
+  capturedImage: {
+    width: "100%",
+    height: 220,
+  },
+  imageLabel: {
+    backgroundColor: "rgba(0,0,0,0.65)",
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  imageLabelText: {
+    color: "#A7F3D0",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
   },
 })

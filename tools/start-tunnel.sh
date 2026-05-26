@@ -46,8 +46,12 @@ else
 fi
 
 echo ""
-echo "Recarga Expo presionando 'r' en su terminal para que tome la nueva URL."
-echo "Presiona Ctrl+C para detener el túnel."
+echo "Ahora inicia (o reinicia) Expo en otra terminal con:"
+echo "  cd Frontend/smart-waste-mobile"
+echo "  npx expo start --tunnel -c"
+echo ""
+echo "El flag -c limpia la cache para que use la nueva URL."
+echo "Presiona Ctrl+C aqui para detener el tunel cuando termines."
 echo ""
 
 # Mantener el proceso activo

@@ -1,5 +1,5 @@
 import React, { useEffect } from "react"
-import { Dimensions, StyleSheet, View } from "react-native"
+import { StyleSheet, View } from "react-native"
 import Animated, {
   Easing,
   FadeIn,
@@ -12,12 +12,12 @@ import Animated, {
 } from "react-native-reanimated"
 
 import { colors } from "../theme/colors"
+// Importamos las constantes del recuadro desde la fuente de verdad única.
+// CapturedFrameOverlay y cropToScanFrame.ts comparten estas mismas constantes.
+import { SCAN_FRAME_SIZE as FRAME, SCAN_OVERLAY_V as OVERLAY_V } from "../utils/cropToScanFrame"
 
-const { width: SW, height: SH } = Dimensions.get("window")
-const FRAME = Math.min(SW * 0.78, 300)
 const BRACKET = 30
 const THICKNESS = 4
-const OVERLAY_V = (SH - FRAME) / 2 - 60
 const CORNER_COLOR = "#00E676"
 
 interface ScanOverlayProps {

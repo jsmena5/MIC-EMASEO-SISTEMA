@@ -1,9 +1,29 @@
 import { pool } from "../db.js"
 
 // ─── Transiciones de estado permitidas ────────────────────────────────────────
+//
+// Máquina de estados completa (migración 032):
+//
+//  Pipeline ML (automático):
+//    PROCESANDO → PENDIENTE    (has_waste=true, INCIDENTE_VALIDO)
+//    PROCESANDO → EN_REVISION  (has_waste=false, confianza < umbral, REVISION_REQUERIDA)
+//    PROCESANDO → DESCARTADO   (has_waste=false, confianza ≥ umbral, RECHAZO_CONFIABLE)
+//    PROCESANDO → FALLIDO      (error técnico, ERROR_TECNICO)
+//
+//  Supervisor (manual):
+//    PENDIENTE    → EN_ATENCION | RECHAZADA
+//    EN_ATENCION  → RESUELTA | RECHAZADA | PENDIENTE
+//    EN_REVISION  → PENDIENTE (supervisor valida) | RECHAZADA (supervisor rechaza)
+//    DESCARTADO   → PENDIENTE (supervisor anula el rechazo automático)
+//    RESUELTA     → (terminal)
+//    RECHAZADA    → (terminal)
+//    FALLIDO      → (terminal)
+
 const TRANSICIONES_VALIDAS = {
   PENDIENTE:   ["EN_ATENCION", "RECHAZADA"],
   EN_ATENCION: ["RESUELTA", "RECHAZADA", "PENDIENTE"],
+  EN_REVISION: ["PENDIENTE", "RECHAZADA"],   // supervisor valida o descarta
+  DESCARTADO:  ["PENDIENTE"],                // supervisor puede anular rechazo automático
   RESUELTA:    [],
   RECHAZADA:   [],
   PROCESANDO:  [],
@@ -12,10 +32,23 @@ const TRANSICIONES_VALIDAS = {
 
 // ─── GET /api/supervisor/incidents ───────────────────────────────────────────
 // Lista paginada de incidentes con filtros opcionales.
-// Query params: estado, prioridad, zona_id, page (default 1), limit (default 20)
+// Query params:
+//   estado, prioridad, zona_id             — filtros estándar
+//   decision_automatica                    — filtro por tipo de decisión ML
+//   fecha_desde, fecha_hasta               — rango de fechas (ISO date, ej. 2026-01-15)
+//   ia_incorrecta=true                     — solo incidentes donde supervisor marcó IA incorrecta
+//   sin_supervisar=true                    — solo incidentes con análisis ML no revisados aún
+//   page (default 1), limit (default 20)
 
 export const listIncidents = async (req, res) => {
-  const { estado, prioridad, zona_id, page = 1, limit = 20 } = req.query
+  const {
+    estado, prioridad, zona_id,
+    decision_automatica,
+    fecha_desde, fecha_hasta,
+    ia_incorrecta, sin_supervisar,
+    page = 1, limit = 20,
+  } = req.query
+
   const pageNum  = Math.max(1, Number(page))
   const pageSize = Math.min(50, Math.max(1, Number(limit)))
   const offset   = (pageNum - 1) * pageSize
@@ -23,9 +56,25 @@ export const listIncidents = async (req, res) => {
   const conditions = []
   const params     = []
 
-  if (estado)    { params.push(estado);    conditions.push(`i.estado = $${params.length}`) }
-  if (prioridad) { params.push(prioridad); conditions.push(`i.prioridad = $${params.length}`) }
-  if (zona_id)   { params.push(zona_id);   conditions.push(`i.zona_id = $${params.length}`) }
+  if (estado)              { params.push(estado);              conditions.push(`i.estado = $${params.length}`) }
+  if (prioridad)           { params.push(prioridad);           conditions.push(`i.prioridad = $${params.length}`) }
+  if (zona_id)             { params.push(zona_id);             conditions.push(`i.zona_id = $${params.length}`) }
+  if (decision_automatica) { params.push(decision_automatica); conditions.push(`i.decision_automatica = $${params.length}`) }
+
+  if (fecha_desde) {
+    params.push(fecha_desde)
+    conditions.push(`i.created_at >= $${params.length}::date`)
+  }
+  if (fecha_hasta) {
+    params.push(fecha_hasta)
+    conditions.push(`i.created_at < ($${params.length}::date + INTERVAL '1 day')`)
+  }
+  if (ia_incorrecta === 'true') {
+    conditions.push(`ar.ia_fue_correcta = FALSE`)
+  }
+  if (sin_supervisar === 'true') {
+    conditions.push(`ar.id IS NOT NULL AND ar.supervisado_por IS NULL`)
+  }
 
   const where = conditions.length ? "WHERE " + conditions.join(" AND ") : ""
 
@@ -37,6 +86,7 @@ export const listIncidents = async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          i.id, i.estado, i.prioridad, i.nota_fallo, i.descripcion, i.direccion,
+         i.decision_automatica, i.confianza_decision, i.imagen_auditoria_url,
          i.created_at, i.updated_at, i.resuelto_at,
          ST_Y(i.ubicacion::geometry) AS latitud,
          ST_X(i.ubicacion::geometry) AS longitud,
@@ -47,6 +97,9 @@ export const listIncidents = async (req, res) => {
          ii.image_url,
          ar.nivel_acumulacion, ar.tipo_residuo,
          ar.volumen_estimado_m3, ar.confianza,
+         ar.ia_fue_correcta,
+         ar.supervisado_at,
+         jsonb_array_length(ar.detecciones) AS num_detecciones,
          (SELECT COUNT(*) FROM incidents.assignments a
           WHERE a.incident_id = i.id AND a.completada = FALSE) AS asignaciones_activas,
          COUNT(*) OVER() AS total_count
@@ -94,6 +147,7 @@ export const getIncidentDetail = async (req, res) => {
     const { rows } = await pool.query(
       `SELECT
          i.id, i.estado, i.prioridad, i.nota_fallo, i.descripcion, i.direccion,
+         i.decision_automatica, i.confianza_decision, i.imagen_auditoria_url,
          i.created_at, i.updated_at, i.resuelto_at,
          ST_Y(i.ubicacion::geometry) AS latitud,
          ST_X(i.ubicacion::geometry) AS longitud,
@@ -104,13 +158,19 @@ export const getIncidentDetail = async (req, res) => {
          ii.image_url,
          ar.modelo_nombre, ar.tipo_residuo, ar.nivel_acumulacion,
          ar.volumen_estimado_m3, ar.confianza, ar.detecciones,
-         ar.tiempo_inferencia_ms, ar.created_at AS analizado_at
+         ar.tiempo_inferencia_ms, ar.created_at AS analizado_at,
+         ar.nivel_acumulacion_supervisor, ar.tipo_residuo_supervisor,
+         ar.ia_fue_correcta, ar.nota_supervision,
+         ar.supervisado_por, ar.supervisado_at,
+         su.username AS supervisado_por_username,
+         jsonb_array_length(ar.detecciones) AS num_detecciones
        FROM incidents.incidents i
        LEFT JOIN operations.zones z       ON z.id = i.zona_id
        LEFT JOIN public.ciudadanos c      ON c.user_id = i.reportado_por
        LEFT JOIN auth.users u             ON u.id = i.reportado_por
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar   ON ar.incident_id = i.id
+       LEFT JOIN auth.users su            ON su.id = ar.supervisado_por
        WHERE i.id = $1`,
       [id],
     )
@@ -144,7 +204,36 @@ export const getIncidentDetail = async (req, res) => {
       [id],
     )
 
-    return res.json({ ...rows[0], historial, asignaciones })
+    // Feedback de IA: consenso y lista de respuestas de operarios/supervisores
+    // Permite al supervisor ver si el personal de campo validó la decisión automática.
+    const { rows: feedbackRows } = await pool.query(
+      `SELECT
+         af.id,
+         af.es_correcta,
+         af.comentario,
+         af.created_at,
+         af.updated_at,
+         u.username AS reportado_por_username,
+         u.rol      AS reportado_por_rol
+       FROM ai.analysis_feedback af
+       JOIN ai.analysis_results ar ON ar.id  = af.analysis_result_id
+       JOIN auth.users u            ON u.id  = af.reportado_por
+       WHERE ar.incident_id = $1
+       ORDER BY af.created_at DESC`,
+      [id],
+    )
+
+    const totalFeedback    = feedbackRows.length
+    const correctos        = feedbackRows.filter((r) => r.es_correcta).length
+    const feedbackResumen  = {
+      total:             totalFeedback,
+      correctos,
+      incorrectos:       totalFeedback - correctos,
+      consenso_correcto: totalFeedback > 0 ? correctos / totalFeedback >= 0.5 : null,
+      detalle:           feedbackRows,
+    }
+
+    return res.json({ ...rows[0], historial, asignaciones, feedback_ia: feedbackResumen })
   } catch (err) {
     console.error("[supervisor] getIncidentDetail:", err.message)
     return res.status(500).json({ error: "Error al obtener el detalle del incidente." })
@@ -153,7 +242,12 @@ export const getIncidentDetail = async (req, res) => {
 
 // ─── PUT /api/supervisor/incidents/:id/estado ─────────────────────────────────
 // Cambia el estado del incidente con validación de transición y trazabilidad.
-// Body: { estado: "EN_ATENCION" | "RESUELTA" | "RECHAZADA" | "PENDIENTE", observaciones? }
+// Body: { estado: string, observaciones? }
+//
+// Transiciones disponibles (migración 032):
+//   EN_REVISION → PENDIENTE  (supervisor valida el reporte dudoso)
+//   EN_REVISION → RECHAZADA  (supervisor rechaza el reporte dudoso)
+//   DESCARTADO  → PENDIENTE  (supervisor anula rechazo automático)
 
 export const cambiarEstado = async (req, res) => {
   const { id }          = req.params
@@ -280,24 +374,162 @@ export const asignarIncidente = async (req, res) => {
   }
 }
 
+// ─── PUT /api/supervisor/incidents/:id/revision-ia ───────────────────────────
+//
+// Registra el veredicto supervisado del análisis IA de un incidente.
+// Operación idempotente: puede llamarse varias veces para actualizar la revisión.
+//
+// Body:
+//   es_correcta_ia               boolean  — ¿la decisión automática fue correcta?
+//   comentario                   string?  — nota libre de auditoría
+//   nivel_acumulacion_supervisor string?  — severidad real (BAJO|MEDIO|ALTO|CRITICO)
+//   tipo_residuo_supervisor      string?  — tipo real (DOMESTICO|ORGANICO|...|OTRO)
+//
+// Efectos:
+//   1. Upsert en ai.analysis_feedback (pipeline de drift + consenso de campo)
+//   2. UPDATE en ai.analysis_results: columnas de corrección supervisora (migración 033)
+//      Los valores ML originales NO se modifican — las correcciones son aditivas.
+//
+// Auditoría: supervisado_por + supervisado_at quedan registrados en analysis_results.
+// El historial completo de feedback se consulta vía GET /supervisor/incidents/:id.
+
+const VALID_NIVELES = new Set(['BAJO', 'MEDIO', 'ALTO', 'CRITICO'])
+const VALID_TIPOS   = new Set(['DOMESTICO', 'ORGANICO', 'RECICLABLE', 'ESCOMBROS', 'PELIGROSO', 'MIXTO', 'OTRO'])
+
+export const revisionIA = async (req, res) => {
+  const { id } = req.params
+  const {
+    es_correcta_ia,
+    comentario = null,
+    nivel_acumulacion_supervisor = null,
+    tipo_residuo_supervisor      = null,
+  } = req.body
+  const userId = req.headers["x-user-id"]
+
+  if (!userId) return res.status(401).json({ error: "No se pudo identificar al usuario." })
+
+  if (es_correcta_ia === undefined || es_correcta_ia === null) {
+    return res.status(400).json({ error: "El campo 'es_correcta_ia' (boolean) es requerido." })
+  }
+  if (typeof es_correcta_ia !== "boolean") {
+    return res.status(400).json({ error: "El campo 'es_correcta_ia' debe ser true o false." })
+  }
+  if (nivel_acumulacion_supervisor && !VALID_NIVELES.has(nivel_acumulacion_supervisor)) {
+    return res.status(400).json({
+      error: `nivel_acumulacion_supervisor inválido: '${nivel_acumulacion_supervisor}'. Valores permitidos: ${[...VALID_NIVELES].join(', ')}.`,
+    })
+  }
+  if (tipo_residuo_supervisor && !VALID_TIPOS.has(tipo_residuo_supervisor)) {
+    return res.status(400).json({
+      error: `tipo_residuo_supervisor inválido: '${tipo_residuo_supervisor}'. Valores permitidos: ${[...VALID_TIPOS].join(', ')}.`,
+    })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+
+    // Verificar que el incidente exista
+    const { rows: incRows } = await client.query(
+      `SELECT id FROM incidents.incidents WHERE id = $1`,
+      [id],
+    )
+    if (!incRows.length) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Incidente no encontrado." })
+    }
+
+    // Obtener el analysis_result del incidente (puede no existir en casos FALLIDO sin ML)
+    const { rows: arRows } = await client.query(
+      `SELECT id FROM ai.analysis_results WHERE incident_id = $1`,
+      [id],
+    )
+
+    let analysisResultId = null
+
+    if (arRows.length) {
+      analysisResultId = arRows[0].id
+
+      // 1. Upsert en ai.analysis_feedback (pipeline de drift y consenso de campo)
+      await client.query(
+        `INSERT INTO ai.analysis_feedback
+           (analysis_result_id, es_correcta, comentario, reportado_por)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT ON CONSTRAINT uq_feedback_per_user
+         DO UPDATE SET
+           es_correcta = EXCLUDED.es_correcta,
+           comentario  = EXCLUDED.comentario,
+           updated_at  = NOW()`,
+        [analysisResultId, es_correcta_ia, comentario, userId],
+      )
+
+      // 2. Actualizar correcciones estructuradas en analysis_results (migración 033)
+      //    CASE WHEN ... IS NOT NULL THEN ... permite pasar NULL sin romper el cast a enum.
+      await client.query(
+        `UPDATE ai.analysis_results
+         SET ia_fue_correcta              = $1,
+             nota_supervision             = $2,
+             nivel_acumulacion_supervisor = CASE WHEN $3::text IS NOT NULL
+                                                 THEN $3::ai.accumulation_level END,
+             tipo_residuo_supervisor      = CASE WHEN $4::text IS NOT NULL
+                                                 THEN $4::ai.waste_type END,
+             supervisado_por              = $5,
+             supervisado_at               = NOW()
+         WHERE id = $6`,
+        [
+          es_correcta_ia,
+          comentario,
+          nivel_acumulacion_supervisor,
+          tipo_residuo_supervisor,
+          userId,
+          analysisResultId,
+        ],
+      )
+    }
+    // Si no hay analysis_result (FALLIDO sin ML), la revisión queda registrada
+    // en ai.analysis_feedback si se crea ese registro más adelante, o solo queda
+    // como nota en los logs. La operación es igualmente exitosa.
+
+    await client.query("COMMIT")
+
+    return res.json({
+      message:                      "Revisión IA registrada correctamente.",
+      incident_id:                  id,
+      analysis_result_id:           analysisResultId,
+      es_correcta_ia,
+      nivel_acumulacion_supervisor: nivel_acumulacion_supervisor ?? null,
+      tipo_residuo_supervisor:      tipo_residuo_supervisor      ?? null,
+    })
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    console.error("[supervisor] revisionIA:", err.message)
+    return res.status(500).json({ error: "Error al registrar la revisión IA." })
+  } finally {
+    client.release()
+  }
+}
+
 // ─── GET /api/supervisor/zonas/estadisticas ───────────────────────────────────
 // Estadísticas por zona para los últimos 30 días.
+// Incluye conteos para todos los estados del ciclo de vida (migración 032).
 
 export const estadisticasZonas = async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
          z.id, z.codigo, z.nombre,
-         COUNT(i.id)                                          AS total,
-         COUNT(*) FILTER (WHERE i.estado = 'PENDIENTE')      AS pendientes,
-         COUNT(*) FILTER (WHERE i.estado = 'EN_ATENCION')    AS en_atencion,
-         COUNT(*) FILTER (WHERE i.estado = 'RESUELTA')       AS resueltas,
-         COUNT(*) FILTER (WHERE i.estado = 'RECHAZADA')      AS rechazadas,
-         COUNT(*) FILTER (WHERE i.estado = 'FALLIDO')        AS fallidas,
-         COUNT(*) FILTER (WHERE i.prioridad = 'CRITICA')     AS criticas,
-         ROUND(AVG(ar.volumen_estimado_m3)::numeric, 2)      AS volumen_promedio_m3,
-         ROUND(AVG(ar.confianza)::numeric, 3)                AS confianza_promedio,
-         op.nombre || ' ' || op.apellido                     AS supervisor_nombre
+         COUNT(i.id)                                              AS total,
+         COUNT(*) FILTER (WHERE i.estado = 'PENDIENTE')          AS pendientes,
+         COUNT(*) FILTER (WHERE i.estado = 'EN_ATENCION')        AS en_atencion,
+         COUNT(*) FILTER (WHERE i.estado = 'RESUELTA')           AS resueltas,
+         COUNT(*) FILTER (WHERE i.estado = 'RECHAZADA')          AS rechazadas,
+         COUNT(*) FILTER (WHERE i.estado = 'FALLIDO')            AS fallidas,
+         COUNT(*) FILTER (WHERE i.estado = 'EN_REVISION')        AS en_revision,
+         COUNT(*) FILTER (WHERE i.estado = 'DESCARTADO')         AS descartadas,
+         COUNT(*) FILTER (WHERE i.prioridad = 'CRITICA')         AS criticas,
+         ROUND(AVG(ar.volumen_estimado_m3)::numeric, 2)          AS volumen_promedio_m3,
+         ROUND(AVG(ar.confianza)::numeric, 3)                    AS confianza_promedio,
+         op.nombre || ' ' || op.apellido                         AS supervisor_nombre
        FROM operations.zones z
        LEFT JOIN incidents.incidents i
          ON i.zona_id = z.id AND i.created_at >= NOW() - INTERVAL '30 days'
@@ -349,6 +581,10 @@ export const listOperarios = async (req, res) => {
 //   sw_lat, sw_lon, ne_lat, ne_lon  — rectángulo geográfico del viewport del mapa
 //     Si se proporcionan los 4 valores se filtra con ST_MakeEnvelope y solo se
 //     devuelven incidentes dentro del viewport, reduciendo el payload al mínimo útil.
+//
+// Estados "activos" en el mapa: PENDIENTE, EN_ATENCION, EN_REVISION.
+// FALLIDO, DESCARTADO, RESUELTA, RECHAZADA no aparecen como markers activos
+// (no requieren atención operativa inmediata).
 
 export const mapaZonas = async (req, res) => {
   const pageNum  = Math.max(1, Number(req.query.page  ?? 1))
@@ -371,7 +607,7 @@ export const mapaZonas = async (req, res) => {
           u.username                 AS supervisor_nombre,
           ST_AsGeoJSON(z.geom)::json AS geometry,
           COUNT(i.id) FILTER (
-            WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+            WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
           ) AS incidentes_activos,
           COUNT(i.id) FILTER (
             WHERE i.estado = 'PENDIENTE'
@@ -380,8 +616,11 @@ export const mapaZonas = async (req, res) => {
             WHERE i.estado = 'EN_ATENCION'
           ) AS en_atencion,
           COUNT(i.id) FILTER (
+            WHERE i.estado = 'EN_REVISION'
+          ) AS en_revision,
+          COUNT(i.id) FILTER (
             WHERE i.prioridad = 'CRITICA'
-              AND i.estado NOT IN ('RESUELTA','RECHAZADA')
+              AND i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
           ) AS criticas,
           COUNT(i.id) FILTER (
             WHERE i.created_at >= NOW() - INTERVAL '24 hours'
@@ -394,7 +633,8 @@ export const mapaZonas = async (req, res) => {
         ORDER BY z.nombre
       `)
 
-      // B. Incidentes activos para markers, con filtro de viewport si se proporcionan bounds
+      // B. Incidentes activos para markers (excluye terminales y en-proceso-interno)
+      //    EN_REVISION se incluye porque requiere atención del supervisor.
       let incidentesQuery
       let incidentesParams
 
@@ -414,7 +654,7 @@ export const mapaZonas = async (req, res) => {
             COUNT(*) OVER() AS total_count
           FROM incidents.incidents i
           LEFT JOIN operations.zones z ON z.id = i.zona_id
-          WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+          WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
             AND ST_Within(
               i.ubicacion::geometry,
               ST_MakeEnvelope($1::float, $2::float, $3::float, $4::float, 4326)
@@ -438,7 +678,7 @@ export const mapaZonas = async (req, res) => {
             COUNT(*) OVER() AS total_count
           FROM incidents.incidents i
           LEFT JOIN operations.zones z ON z.id = i.zona_id
-          WHERE i.estado NOT IN ('RESUELTA','RECHAZADA')
+          WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
           ORDER BY i.created_at DESC
           LIMIT $1 OFFSET $2`
         incidentesParams = [pageSize, offset]
@@ -472,6 +712,7 @@ export const mapaZonas = async (req, res) => {
               incidentes_activos: Number(z.incidentes_activos),
               pendientes:         Number(z.pendientes),
               en_atencion:        Number(z.en_atencion),
+              en_revision:        Number(z.en_revision),
               criticas:           Number(z.criticas),
               ultimas_24h:        Number(z.ultimas_24h),
               nivel:              calcNivel(z),

@@ -149,9 +149,9 @@ app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMi
   pathRewrite: (path) => "/api/image" + path,
   proxyTimeout: 120_000,
   timeout: 120_000,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
   on: {
     proxyReq: (proxyReq, req) => {
-      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -172,9 +172,9 @@ app.use("/api/incidents", verifyToken, requireCiudadano, createProxyMiddleware({
   target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/incidents" + path,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
   on: {
     proxyReq: (proxyReq, req) => {
-      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -195,9 +195,9 @@ app.use("/api/supervisor", verifyToken, requireSupervisor, createProxyMiddleware
   target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/supervisor" + path,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
   on: {
     proxyReq: (proxyReq, req) => {
-      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)
@@ -217,9 +217,9 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
   target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/operario" + path,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
   on: {
     proxyReq: (proxyReq, req) => {
-      proxyReq.setHeader("x-internal-token", INTERNAL_TOKEN)
       if (req.user) {
         proxyReq.setHeader("x-user-id",  req.user.id)
         proxyReq.setHeader("x-user-rol", req.user.rol)

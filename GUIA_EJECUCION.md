@@ -377,22 +377,83 @@ EXPO_PUBLIC_API_URL=http://192.168.1.X:4000/api
 Iniciar Expo:
 
 ```bash
-# Opción A — Red local (recomendado para desarrollo)
+# Opción A — Red local (misma WiFi, más rápido)
 npx expo start
-# Escanea el QR con Expo Go desde el celular
+# Escanea el QR con Expo Go desde el celular (requiere misma red WiFi)
 
 # Opción B — Limpiar caché (cuando el bundle parece obsoleto)
 npx expo start -c
 
-# Opción C — Túnel público (para demo remota o evaluación sin LAN compartida)
-# Paso 1: exponer el Gateway
-cloudflared tunnel --url http://localhost:4000
-# Paso 2: actualizar EXPO_PUBLIC_API_URL con la URL del túnel
-# Paso 3:
-npx expo start --tunnel
+# Opción C — Túnel público (datos móviles, red diferente, demo remota)
+# Ver sección completa más abajo ↓
 ```
 
-> **Nota:** Cada vez que `cloudflared` reinicia, genera una URL nueva. Actualiza `.env.development` y reinicia Expo.
+---
+
+### Modo remoto — Expo Go desde cualquier red (datos móviles, WiFi distinta)
+
+> **Por qué es necesario:** `npx expo start` sin `--tunnel` solo expone el Metro
+> bundler en la red local. Expo Go en otra red (datos móviles, WiFi diferente) nunca
+> puede alcanzar `192.168.x.x:8081` → mensaje "tiempo de carga agotado".
+>
+> Además, el API Gateway también debe ser accesible desde internet.
+> **Se necesitan dos túneles activos al mismo tiempo.**
+
+#### Opción automática (recomendada) — Script `start-remote.ps1`
+
+```powershell
+# En la raíz del proyecto (Windows PowerShell):
+.\start-remote.ps1
+```
+
+El script:
+1. Verifica que Docker esté corriendo.
+2. Inicia `cloudflared tunnel --url http://localhost:4000`.
+3. Captura la URL nueva y actualiza `.env.development` automáticamente.
+4. Muestra el comando para iniciar Expo.
+
+Cuando el script te indique que el túnel está listo, abre **otra terminal** y ejecuta:
+
+```bash
+cd Frontend/smart-waste-mobile
+npx expo start --tunnel -c
+```
+
+- `--tunnel` → Metro bundler accesible desde cualquier red.
+- `-c` → limpia caché para que use la URL nueva del `.env`.
+
+Escanea el QR con Expo Go. Funciona desde datos móviles o cualquier WiFi.
+
+#### Opción manual (paso a paso)
+
+```bash
+# Terminal 1 — Túnel para el API Gateway
+cloudflared tunnel --url http://localhost:4000
+# Espera ~15 s hasta ver:
+# "Your quick Tunnel has been created! Visit it at:
+#  https://palabras-aleatorias.trycloudflare.com"
+```
+
+Edita `Frontend/smart-waste-mobile/.env.development`:
+
+```env
+# Comenta la URL anterior:
+# EXPO_PUBLIC_API_URL=https://url-anterior.trycloudflare.com/api
+
+# Agrega la URL nueva:
+EXPO_PUBLIC_API_URL=https://palabras-aleatorias.trycloudflare.com/api
+```
+
+```bash
+# Terminal 2 — Expo con túnel
+cd Frontend/smart-waste-mobile
+npx expo start --tunnel -c
+```
+
+> **⚠️ Importante:**
+> - Cada vez que `cloudflared` se reinicia genera una URL **diferente**. Siempre actualiza `.env.development`.
+> - La terminal con `cloudflared` debe permanecer abierta mientras uses la app.
+> - Si `npx expo start --tunnel` pide instalar `@expo/ngrok`, acepta con `y`.
 
 ---
 

@@ -8,6 +8,11 @@
     "scheme": "smartwastemobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#001828"
+    },
     "ios": {
       "supportsTablet": true
     },
