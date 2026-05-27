@@ -143,8 +143,9 @@ MINIO_ROOT_USER=emaseo_admin
 MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
 S3_BUCKET=emaseo-incidents
 S3_REGION=us-east-1
-# ⚠ Cambia localhost por tu IP de red si el celular necesita ver imágenes:
-S3_PUBLIC_URL=http://localhost:9000
+# Las imágenes se sirven a través del api-gateway (proxy interno a MinIO).
+# Para celular/LAN: cambiar localhost por la IP de red de la máquina (ej. 192.168.1.X).
+S3_PUBLIC_URL=http://localhost:4000/api/media
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
 REDIS_PASSWORD=${REDIS_PASSWORD}

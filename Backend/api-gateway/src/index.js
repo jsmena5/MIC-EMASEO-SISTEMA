@@ -24,20 +24,38 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+// Fail-fast: variables obligatorias para arrancar. En cloud, un default a localhost
+// silenciaría errores de configuración y el gateway terminaría apuntando a sí mismo.
+const REQUIRED_ENV = [
+  "AUTH_SERVICE_URL",
+  "USERS_SERVICE_URL",
+  "IMAGE_SERVICE_URL",
+  "ML_SERVICE_URL",
+  "MINIO_INTERNAL_URL",
+  "JWT_SECRET",
+  "INTERNAL_TOKEN",
+  "CORS_ORIGINS",
+]
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k])
+if (missingEnv.length) {
+  logger.error({ missing: missingEnv }, "Variables de entorno obligatorias ausentes")
+  process.exit(1)
+}
+
 const app = express()
 
-const AUTH_SERVICE_URL  = process.env.AUTH_SERVICE_URL  ?? "http://localhost:3002"
-const USERS_SERVICE_URL = process.env.USERS_SERVICE_URL ?? "http://localhost:3000"
-const IMAGE_SERVICE_URL = process.env.IMAGE_SERVICE_URL ?? "http://localhost:5000"
+const AUTH_SERVICE_URL    = process.env.AUTH_SERVICE_URL
+const USERS_SERVICE_URL   = process.env.USERS_SERVICE_URL
+const IMAGE_SERVICE_URL   = process.env.IMAGE_SERVICE_URL
+const ML_SERVICE_URL      = process.env.ML_SERVICE_URL
+const MINIO_INTERNAL_URL  = process.env.MINIO_INTERNAL_URL
 
 // Cloudflare Tunnel actúa como proxy inverso — confiar en 1 nivel de proxy
 // elimina ERR_ERL_UNEXPECTED_X_FORWARDED_FOR de express-rate-limit y permite
 // que req.ip refleje la IP real del cliente (no la del túnel).
 app.set("trust proxy", 1)
 
-const allowedOrigins = process.env.CORS_ORIGINS
-  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
-  : ["http://localhost:5173", "http://localhost:4000"]
+const allowedOrigins = process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
 
 app.use(helmet())
 app.use(cors({
@@ -54,6 +72,63 @@ app.use(globalLimiter)
 
 // Health — responde antes de cualquier middleware de autenticación
 app.get("/health", (_req, res) => res.json({ status: "ok" }))
+
+// ── Proxy de medios — público (sin autenticación) ─────────────────────────────
+// Evita que el navegador/móvil necesite acceso directo al puerto de MinIO.
+// GET /api/media/<bucket>/<key>  →  internamente: http://minio:9000/<bucket>/<key>
+//
+// El bucket "emaseo-incidents" ya tiene lectura anónima (mc anonymous set download),
+// por eso esta ruta no exige token. Las imágenes son inmutables (UUID), por eso
+// enviamos Cache-Control: immutable.
+//
+// Para acceso desde la LAN / app móvil: basta con que el celular llegue al gateway
+// en el puerto 4000 (siempre expuesto). No se necesita exponer MinIO (9000).
+app.use("/api/media", async (req, res) => {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return res.status(405).json({ error: "Método no permitido." })
+  }
+
+  // req.path ya viene sin el prefijo /api/media gracias a app.use
+  // Ej.: req.path = "/emaseo-incidents/incidents/uuid.jpg"
+  const mediaPath = req.path.replace(/^\/+/, "") // quitar "/" inicial(es)
+  if (!mediaPath) return res.status(400).json({ error: "Path de media requerido." })
+
+  const url = `${MINIO_INTERNAL_URL}/${mediaPath}`
+
+  try {
+    const upstream = await fetch(url, {
+      method: req.method,
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: "Media no encontrado." })
+    }
+
+    const contentType   = upstream.headers.get("content-type")   ?? "application/octet-stream"
+    const contentLength = upstream.headers.get("content-length")
+    const etag          = upstream.headers.get("etag")
+    res.setHeader("Content-Type",  contentType)
+    res.setHeader("Cache-Control", "public, max-age=3600, immutable")
+    res.setHeader("Access-Control-Allow-Origin", "*")
+    // Helmet fija CORP: same-origin en todas las rutas; sobrescribimos aquí para
+    // que navegadores (React/Expo) puedan cargar imágenes cross-origin (distinto puerto).
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin")
+    if (contentLength) res.setHeader("Content-Length", contentLength)
+    if (etag)          res.setHeader("ETag",           etag)
+
+    if (req.method === "HEAD") return res.end()
+
+    const body = await upstream.arrayBuffer()
+    res.send(Buffer.from(body))
+  } catch (err) {
+    if (err.name === "AbortError" || err.name === "TimeoutError") {
+      return res.status(504).json({ error: "Timeout al obtener media." })
+    }
+    logger.error({ url, err: err.message }, "Media proxy error")
+    if (!res.headersSent) res.status(502).json({ error: "Error al obtener media." })
+  }
+})
 
 // ── Documentación API ─────────────────────────────────────────────────────────
 // /docs  — Swagger UI estático (archivos legacy)
@@ -138,6 +213,18 @@ app.post("/api/users/verify-email", otpLimiter,          ...forwardPost(`${USERS
 app.post("/api/users/set-password", otpLimiter,          ...forwardPost(`${USERS_SERVICE_URL}/api/users/set-password`))
 
 // ── Rutas PROTEGIDAS ──────────────────────────────────────────────────────────
+
+// Pre-check ML — ciudadanos autenticados. Respuesta síncrona (<200 ms), sin Celery.
+// Recibe thumbnail (~15 KB) y devuelve {garbage_score, is_garbage, threshold}.
+// Usa forwardPost (fetch nativo, timeout 10 s) igual que las otras rutas POST simples.
+// imageLimiter comparte cuota con /api/image para evitar abuso del endpoint.
+app.post(
+  "/api/ml/pre-check",
+  imageLimiter,
+  verifyToken,
+  requireCiudadano,
+  ...forwardPost(`${ML_SERVICE_URL}/pre-check`),
+)
 
 // Análisis de imagen: solo ciudadanos pueden reportar incidencias
 // on.proxyReq inyecta el user del JWT como headers HTTP al image-service.

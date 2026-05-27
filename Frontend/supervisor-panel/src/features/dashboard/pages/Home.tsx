@@ -1,139 +1,213 @@
-import { Link } from "react-router-dom";
-import { getStoredUser } from "../../auth/authSession";
+import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
+import { getStoredUser } from "../../auth/authSession"
+import { getIncidents, type IncidentListItem } from "../../../services/incident.service"
 
-const responsibilities = [
-  {
-    step: "1",
-    title: "Validar la incidencia",
-    description:
-      "Revisar la evidencia que envio el ciudadano y confirmar si el caso es real antes de moverlo en el flujo.",
-  },
-  {
-    step: "2",
-    title: "Corregir o confirmar la IA",
-    description:
-      "Decidir si la clasificacion automatica es correcta y dejar trazabilidad si hubo que ajustar tipo o severidad.",
-  },
-  {
-    step: "3",
-    title: "Dar seguimiento en campo",
-    description:
-      "Cuando sea necesario, acudir al lugar, actualizar el estado y registrar el cierre con foto y coordenadas.",
-  },
-];
+const todayIso = () => new Date().toISOString().slice(0, 10)
 
-const shortcuts = [
-  {
-    to: "/dashboard/incidencias",
-    label: "Ir a incidencias",
-    description: "Abrir la bandeja donde llegan los casos para revision y seguimiento.",
-  },
-  {
-    to: "/dashboard/mapa",
-    label: "Abrir mapa operativo",
-    description: "Ver en mapa las incidencias registradas y su distribucion territorial.",
-  },
-];
+const PRIORITY_COLOR: Record<string, string> = {
+  CRITICA: "#DC2626",
+  ALTA: "#EA580C",
+  MEDIA: "#CA8A04",
+  BAJA: "#16A34A",
+}
+
+function fmtTime(value: string) {
+  const d = new Date(value)
+  const diff = Date.now() - d.getTime()
+  const minutes = Math.floor(diff / 60000)
+  if (minutes < 1) return "hace instantes"
+  if (minutes < 60) return `hace ${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `hace ${hours} h`
+  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short" })
+}
+
+interface Kpi {
+  label: string
+  value: number
+  hint: string
+  href: string
+  accent: string
+}
+
+interface State {
+  loading: boolean
+  pendientes: number
+  enRevision: number
+  asignadosHoy: number
+  resueltosHoy: number
+  criticos: IncidentListItem[]
+  error: string | null
+}
+
+const initial: State = {
+  loading: true,
+  pendientes: 0,
+  enRevision: 0,
+  asignadosHoy: 0,
+  resueltosHoy: 0,
+  criticos: [],
+  error: null,
+}
 
 export default function Home() {
-  const user = getStoredUser();
+  const user = getStoredUser()
+  const [state, setState] = useState<State>(initial)
+
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? "Buenos días" : hour < 18 ? "Buenas tardes" : "Buenas noches"
+  const dateLabel = new Date().toLocaleDateString("es-EC", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+  })
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const today = todayIso()
+        const [pend, rev, asig, res, crit] = await Promise.all([
+          getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
+          getIncidents({ estado: "EN_REVISION", limit: 1, page: 1 }),
+          getIncidents({ estado: "EN_ATENCION", limit: 1, page: 1, fecha_desde: today }),
+          getIncidents({ estado: "RESUELTA",    limit: 1, page: 1, fecha_desde: today }),
+          getIncidents({ prioridad: "CRITICA",  limit: 5, page: 1, sort: "priority" }),
+        ])
+        if (!alive) return
+        setState({
+          loading: false,
+          pendientes:   pend.pagination.total,
+          enRevision:   rev.pagination.total,
+          asignadosHoy: asig.pagination.total,
+          resueltosHoy: res.pagination.total,
+          criticos:     crit.incidents,
+          error: null,
+        })
+      } catch (err) {
+        if (!alive) return
+        setState((s) => ({ ...s, loading: false, error: err instanceof Error ? err.message : "Error" }))
+      }
+    }
+    load()
+    const id = setInterval(load, 45_000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  const kpis: Kpi[] = [
+    { label: "Pendientes",      value: state.pendientes,   hint: "Casos por revisar",         href: "/dashboard/incidencias?estado=PENDIENTE",   accent: "#005BAC" },
+    { label: "En revisión IA",  value: state.enRevision,   hint: "Esperan tu validación",     href: "/dashboard/incidencias?estado=EN_REVISION", accent: "#C2410C" },
+    { label: "Asignados hoy",   value: state.asignadosHoy, hint: "Despachados al campo",      href: "/dashboard/incidencias?estado=EN_ATENCION", accent: "#6D28D9" },
+    { label: "Resueltos hoy",   value: state.resueltosHoy, hint: "Cerrados en este turno",    href: "/dashboard/incidencias?estado=RESUELTA",    accent: "#16A34A" },
+  ]
 
   return (
-    <div className="grid gap-6">
-      <section className="rounded-[32px] bg-gradient-to-br from-[#005BAC] via-[#0B5EA8] to-[#003F7A] p-8 text-white shadow-[0_28px_70px_rgba(0,91,172,0.28)]">
-        <div className="max-w-4xl">
-          <div className="text-[11px] font-bold uppercase tracking-[0.3em] text-sky-100/80">
-            Rol operativo
-          </div>
-          <h2 className="mt-3 text-4xl font-black leading-tight">
-            El supervisor no administra usuarios. Gestiona incidencias.
-          </h2>
-          <p className="mt-4 text-base leading-7 text-sky-50/90">
-            Tu trabajo empieza cuando llega una incidencia. Debes revisar si es real, validar o corregir la clasificacion de IA, dar seguimiento en campo cuando haga falta y mantener el estado sincronizado para que el ciudadano siempre vea el avance.
-          </p>
+    <div className="flex flex-col gap-6">
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-400">{greeting}</p>
+        <h2 className="mt-1 text-2xl font-extrabold text-slate-900">{user?.nombre ?? "Supervisor"}</h2>
+        <p className="mt-1 text-sm capitalize text-slate-500">{dateLabel}</p>
+      </div>
 
-          <div className="mt-6 inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white/92">
-            {user ? `${user.nombre} · ${user.rol}` : "Supervisor autenticado"}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        {responsibilities.map((item) => (
-          <article
-            key={item.step}
-            className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.05)]"
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {kpis.map((k) => (
+          <Link
+            key={k.label}
+            to={k.href}
+            className="group rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm"
           >
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-2xl bg-[#EBF4FF] text-lg font-black text-[#005BAC]">
-              {item.step}
+            <div className="flex items-center justify-between">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: k.accent }}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 group-hover:text-slate-500">
+                Ver
+              </span>
             </div>
-            <h3 className="text-lg font-black text-slate-900">
-              {item.title}
-            </h3>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              {item.description}
-            </p>
-          </article>
+            <div className="mt-3 text-3xl font-black text-slate-900 tabular-nums">
+              {state.loading ? "—" : k.value}
+            </div>
+            <div className="mt-1 text-xs font-semibold text-slate-700">{k.label}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">{k.hint}</div>
+          </Link>
         ))}
-      </section>
+      </div>
 
-      <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-        <article className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
-          <div className="text-[11px] font-bold uppercase tracking-[0.26em] text-slate-400">
-            Flujo esperado
+      {/* Accesos rápidos */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Link
+          to="/dashboard/incidencias"
+          className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-slate-300"
+        >
+          <div>
+            <div className="text-sm font-bold text-slate-900">Bandeja completa</div>
+            <div className="text-xs text-slate-500">Filtra, prioriza y resuelve cada caso.</div>
           </div>
-          <h3 className="mt-3 text-2xl font-black text-slate-900">
-            Como debe moverse una incidencia
-          </h3>
-
-          <div className="mt-6 grid gap-4">
-            {[
-              "Llega la incidencia con foto, ubicacion y clasificacion automatica.",
-              "El supervisor valida si el caso existe y si la IA clasifico bien el residuo o la gravedad.",
-              "Si el caso necesita atencion, actualiza el estado y coordina la atencion de campo.",
-              "Cuando el requerimiento se resuelve, se registra una nueva foto y coordenadas para dejar evidencia del cierre.",
-              "Todos los cambios quedan sincronizados con la app para informar al ciudadano.",
-            ].map((step, index) => (
-              <div key={step} className="flex gap-4 rounded-2xl bg-slate-50 p-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-sm font-black text-[#005BAC] ring-1 ring-slate-200">
-                  {index + 1}
-                </div>
-                <p className="text-sm leading-6 text-slate-700">{step}</p>
-              </div>
-            ))}
+          <span className="text-slate-400">→</span>
+        </Link>
+        <Link
+          to="/dashboard/mapa"
+          className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-slate-300"
+        >
+          <div>
+            <div className="text-sm font-bold text-slate-900">Mapa operativo</div>
+            <div className="text-xs text-slate-500">Distribución territorial de incidencias.</div>
           </div>
-        </article>
+          <span className="text-slate-400">→</span>
+        </Link>
+      </div>
 
-        <article className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_40px_rgba(15,23,42,0.05)]">
-          <div className="text-[11px] font-bold uppercase tracking-[0.26em] text-slate-400">
-            Accesos directos
+      {/* Top críticos */}
+      <div className="rounded-2xl border border-slate-200 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <div>
+            <div className="text-sm font-extrabold text-slate-900">Casos críticos</div>
+            <div className="text-xs text-slate-500">Top 5 por prioridad — toca para abrir.</div>
           </div>
-          <h3 className="mt-3 text-2xl font-black text-slate-900">
-            Lo que mas usaras en el turno
-          </h3>
-
-          <div className="mt-6 space-y-3">
-            {shortcuts.map((shortcut) => (
+          <Link to="/dashboard/incidencias?prioridad=CRITICA" className="text-xs font-bold text-[#005BAC] hover:underline">
+            Ver todos
+          </Link>
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {state.loading && (
+            <li className="px-5 py-4 text-xs text-slate-500">Cargando casos…</li>
+          )}
+          {!state.loading && state.criticos.length === 0 && (
+            <li className="px-5 py-4 text-xs text-slate-500">Sin casos críticos en este momento.</li>
+          )}
+          {state.criticos.map((c) => (
+            <li key={c.id}>
               <Link
-                key={shortcut.to}
-                to={shortcut.to}
-                className="block rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-4 transition hover:border-[#005BAC]/20 hover:bg-[#EBF4FF]"
+                to={`/dashboard/incidencias?id=${c.id}`}
+                className="flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50"
               >
-                <div className="text-sm font-black text-slate-900">
-                  {shortcut.label}
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ background: PRIORITY_COLOR[c.prioridad ?? "BAJA"] }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold text-slate-900">
+                    {c.zona_nombre ?? "Zona sin definir"}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {c.ciudadano_nombre ?? "Ciudadano no disponible"} · {fmtTime(c.created_at)}
+                  </div>
                 </div>
-                <div className="mt-1 text-sm leading-6 text-slate-600">
-                  {shortcut.description}
-                </div>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {c.estado.replace("_", " ")}
+                </span>
               </Link>
-            ))}
-          </div>
+            </li>
+          ))}
+        </ul>
+      </div>
 
-          <div className="mt-6 rounded-[22px] bg-[#F8FAFC] p-5 text-sm leading-6 text-slate-600 ring-1 ring-slate-200">
-            El mapa debe servir para ver el territorio y las incidencias registradas. La bandeja de incidencias es donde tomas decisiones, corriges la IA y cambias estados.
-          </div>
-        </article>
-      </section>
+      {state.error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
+          No se pudo cargar el dashboard: {state.error}
+        </div>
+      )}
     </div>
-  );
+  )
 }

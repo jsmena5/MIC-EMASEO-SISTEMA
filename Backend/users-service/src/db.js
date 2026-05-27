@@ -3,6 +3,13 @@ import pkg from "pg"
 import { logger } from "./utils/logger.js"
 const { Pool } = pkg
 
+// node-postgres deserializa NUMERIC/DECIMAL como string para no perder precisión.
+// Convertimos a float en el driver para que el frontend reciba números JS directamente.
+// OID 1700 = NUMERIC/DECIMAL  (columnas numéricas de operaciones/zonas)
+// OID 701  = FLOAT8/DOUBLE PRECISION  (resultado de ST_X / ST_Y → latitud, longitud)
+pkg.types.setTypeParser(1700, parseFloat)
+pkg.types.setTypeParser(701,  parseFloat)
+
 export const pool = new Pool({
   user:                    process.env.DB_USER_USERS,
   host:                    process.env.DB_HOST,
@@ -12,6 +19,7 @@ export const pool = new Pool({
   max:                     20,
   connectionTimeoutMillis: 5_000,
   idleTimeoutMillis:       30_000,
+  ssl:                     process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
 })
 
 pool.on("error", (err) => {

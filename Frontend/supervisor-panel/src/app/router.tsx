@@ -3,7 +3,7 @@ import LoginPage from "../features/auth/LoginPage";
 import ProtectedRoute from "../features/auth/ProtectedRoute";
 import DashboardLayout from "../features/dashboard/DashboardLayout";
 import Home from "../features/dashboard/pages/Home";
-import Reports from "../features/dashboard/pages/Reports";
+import IncidentsPage from "../features/incidents/IncidentsPage";
 import MapaZonas from "../features/dashboard/pages/MapaZonas";
 
 export const router = createBrowserRouter([
@@ -17,10 +17,7 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="incidencias" replace /> },
           { path: "home", element: <Home /> },
-          { path: "users", element: <Navigate to="/dashboard/home" replace /> },
-          { path: "reports", element: <Navigate to="/dashboard/incidencias" replace /> },
-          { path: "settings", element: <Navigate to="/dashboard/home" replace /> },
-          { path: "incidencias", element: <Reports /> },
+          { path: "incidencias", element: <IncidentsPage /> },
           { path: "mapa", element: <MapaZonas /> },
           { path: "*", element: <Navigate to="/dashboard/incidencias" replace /> }
         ]

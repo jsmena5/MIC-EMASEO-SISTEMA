@@ -3,12 +3,10 @@
   "compilerOptions": {
     "strict": true,
     "jsx": "react-native",
-    "baseUrl": "./src",
-    "ignoreDeprecations": "6.0",
     "paths": {
-      "@components/*": ["components/*"],
-      "@screens/*": ["screens/*"],
-      "@services/*": ["services/*"]
+      "@components/*": ["./src/components/*"],
+      "@screens/*": ["./src/screens/*"],
+      "@services/*": ["./src/services/*"]
     }
   },
   "include": [

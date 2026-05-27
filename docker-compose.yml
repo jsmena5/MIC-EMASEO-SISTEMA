@@ -16,6 +16,11 @@ x-ml-env: &ml-env
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   UPLOADS_DIR: /app/uploads
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+  # Umbral de garbage_score para el endpoint /pre-check.
+  # Por debajo → imagen bloqueada en cliente (fail-closed desde incidente F2998975).
+  # 0.35 = más estricto que el valor anterior (0.25) para rechazar objetos personales
+  # lisos (mochila, funda) antes de gastar YOLO. El cliente ya no permite ignorarlo.
+  PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
 
 services:
 
@@ -61,6 +66,7 @@ services:
       - ./Backend/database/029_celery_task_id.sql:/docker-entrypoint-initdb.d/23_celery_task_id.sql
       - ./Backend/database/030_analysis_feedback.sql:/docker-entrypoint-initdb.d/24_analysis_feedback.sql
       - ./Backend/database/031_notifications_push_index.sql:/docker-entrypoint-initdb.d/25_notifications_push_index.sql
+      - ./Backend/database/034_fix_image_urls.sql:/docker-entrypoint-initdb.d/26_fix_image_urls.sql
     networks:
       - emaseo_network
     healthcheck:
@@ -224,7 +230,7 @@ services:
       S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
       S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
       S3_REGION: "${S3_REGION:-us-east-1}"
-      S3_PUBLIC_URL: "${S3_PUBLIC_URL:-http://localhost:9000}"
+      S3_PUBLIC_URL: "${S3_PUBLIC_URL}"
       ML_SERVICE_URL: "http://ml-api:8000/predict"
       INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
     depends_on:
@@ -256,13 +262,24 @@ services:
       AUTH_SERVICE_URL: "http://auth-service:3002"
       USERS_SERVICE_URL: "http://users-service:3000"
       IMAGE_SERVICE_URL: "http://image-service:5000"
+      ML_SERVICE_URL: "http://ml-api:8000"
+      # URL interna de MinIO para el proxy de medios — solo accesible dentro de emaseo_network.
+      MINIO_INTERNAL_URL: "http://minio:9000"
       INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      # CORS y URL pública (sobreescribibles desde .env para distintos entornos)
+      CORS_ORIGINS: "${CORS_ORIGINS}"
+      PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:4000}"
+      NODE_ENV: "${NODE_ENV:-development}"
+      # Rate limit distribuido — usa Redis para coherencia entre réplicas del gateway
+      REDIS_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/1"
     depends_on:
       auth-service:
         condition: service_healthy
       users-service:
         condition: service_healthy
       image-service:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - emaseo_network
@@ -325,6 +342,14 @@ services:
     # Sin ports        → sin colisiones al hacer scale-out
     environment:
       <<: *ml-env
+      # Volumen monocular con MiDaS DESACTIVADO por defecto.
+      # Razón: la calibración (GROUND_DEPTH_M=3.5m, DEPTH_PILE_RATIO=0.28) está
+      # diseñada para fotos exteriores con suelo visible. En interiores o
+      # cuando MiDaS estima mal la profundidad, infla volúmenes a valores
+      # incoherentes con la banda (p.ej. nivel=MEDIO con volumen=10.49 m³).
+      # Cuando esté activo se usa estimación por banda interpolada (0.1–15 m³)
+      # que es coherente con nivel/prioridad.
+      USE_MIDAS_VOLUME: "false"
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
@@ -338,6 +363,14 @@ services:
         -Q ml_queue,dead_letter
         --loglevel=info
         --hostname=worker@%h
+    # El Dockerfile hereda el HEALTHCHECK de ml-api (curl :8000/health).
+    # El worker no expone HTTP → override: verificar que el proceso Celery responde a "ping".
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping", "--timeout=5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - emaseo_network
     deploy:

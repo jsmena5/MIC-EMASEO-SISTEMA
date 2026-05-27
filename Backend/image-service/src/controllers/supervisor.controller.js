@@ -46,6 +46,7 @@ export const listIncidents = async (req, res) => {
     decision_automatica,
     fecha_desde, fecha_hasta,
     ia_incorrecta, sin_supervisar,
+    sort = 'priority',
     page = 1, limit = 20,
   } = req.query
 
@@ -110,11 +111,14 @@ export const listIncidents = async (req, res) => {
        LEFT JOIN ai.analysis_results ar  ON ar.incident_id = i.id
        ${where}
        ORDER BY
-         CASE i.prioridad
-           WHEN 'CRITICA' THEN 1 WHEN 'ALTA' THEN 2
-           WHEN 'MEDIA'   THEN 3 WHEN 'BAJA' THEN 4
-           ELSE 5 END,
-         i.created_at DESC
+         ${sort === 'newest'
+           ? 'i.created_at DESC'
+           : `CASE i.prioridad
+                WHEN 'CRITICA' THEN 1 WHEN 'ALTA' THEN 2
+                WHEN 'MEDIA'   THEN 3 WHEN 'BAJA' THEN 4
+                ELSE 5 END,
+              i.created_at DESC`
+         }
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params,
     )

@@ -33,7 +33,7 @@ function formatDateTime(iso: string) {
 export default function ReportDetailScreen({ route, navigation }: Props) {
   const { incident } = route.params
 
-  console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
+  if (__DEV__) console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
 
   const lat = incident.latitud ?? null
   const lon = incident.longitud ?? null

@@ -11,6 +11,8 @@ const generateOtp = () => String(crypto.randomInt(100000, 999999))
 const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex")
 const generateOpaqueToken = () => crypto.randomBytes(64).toString("hex")
 
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+
 // ============================================================================
 // POST /api/users/register  — Paso 1: datos básicos + envío de OTP
 // Body: { nombre, apellido, cedula, email }
@@ -198,9 +200,9 @@ export const setPassword = async (req, res) => {
       `INSERT INTO auth.users
          (username, email, password_hash, estado, is_verified)
        VALUES
-         ($1, $2, crypt($3, gen_salt('bf', 10)), 'ACTIVO', TRUE)
+         ($1, $2, crypt($3, gen_salt('bf', $4)), 'ACTIVO', TRUE)
        RETURNING id, username, email, rol`,
-      [username, email, password]
+      [username, email, password, BCRYPT_ROUNDS]
     )
     const user = userResult.rows[0]
 

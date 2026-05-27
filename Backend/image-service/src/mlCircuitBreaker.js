@@ -1,9 +1,11 @@
 import CircuitBreaker from "opossum"
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
-const ML_ORIGIN = (() => {
-  try { return new URL(ML_SERVICE_URL).origin } catch { return "http://localhost:8000" }
-})()
+if (!process.env.ML_SERVICE_URL) {
+  console.error("[image-service] ML_SERVICE_URL es obligatorio")
+  process.exit(1)
+}
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL
+const ML_ORIGIN = new URL(ML_SERVICE_URL).origin
 
 export const ML_DEGRADED_CODE = "ML_SERVICE_DEGRADED"
 const DEGRADED_MESSAGE =

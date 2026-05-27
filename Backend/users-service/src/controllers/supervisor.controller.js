@@ -1,6 +1,8 @@
 import { pool } from "../db.js"
 import crypto from "crypto"
 
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+
 // ===============================
 // GET ALL
 // ===============================
@@ -69,9 +71,9 @@ export const createSupervisor = async (req, res) => {
     // USER
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt($3, gen_salt('bf')), 'SUPERVISOR')
+      VALUES ($1, $2, crypt($3, gen_salt('bf', $4)), 'SUPERVISOR')
       RETURNING id
-    `, [cedula, email, initialPassword])
+    `, [cedula, email, initialPassword, BCRYPT_ROUNDS])
 
     const userId = userResult.rows[0].id
 

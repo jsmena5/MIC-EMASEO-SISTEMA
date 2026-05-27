@@ -1,6 +1,8 @@
 import { pool } from "../db.js"
 import crypto from "crypto"
 
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+
 // ===============================
 // GET /api/users/operarios
 // ===============================
@@ -75,9 +77,9 @@ export const createOperario = async (req, res) => {
     // 1. Crear user — rol forzado en backend; no se acepta del payload
     const userResult = await client.query(`
       INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt($3, gen_salt('bf', 10)), 'OPERARIO')
+      VALUES ($1, $2, crypt($3, gen_salt('bf', $4)), 'OPERARIO')
       RETURNING id
-    `, [cedula, email, initialPassword])
+    `, [cedula, email, initialPassword, BCRYPT_ROUNDS])
 
     const userId = userResult.rows[0].id
 

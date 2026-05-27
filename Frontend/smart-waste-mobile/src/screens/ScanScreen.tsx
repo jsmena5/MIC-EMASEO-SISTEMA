@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons"
 import { useNavigation } from "@react-navigation/native"
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
 import { Camera } from "expo-camera"
+import * as ImageManipulator from "expo-image-manipulator"
 import * as Location from "expo-location"
 import React, { useEffect, useRef, useState } from "react"
 import {
@@ -28,6 +29,7 @@ import type { RootStackParamList } from "../navigation/AppNavigator"
 import {
   analyzeImage,
   getTaskStatus,
+  preCheckImage,
   type AnalysisResult,
 } from "../services/image.service"
 import { enqueuePendingReport } from "../services/offlineQueue.service"
@@ -165,7 +167,7 @@ export default function ScanScreen() {
       }
       return coords
     } catch (error: any) {
-      console.log("[ScanScreen] Error obteniendo ubicación:", error.message)
+      if (__DEV__) console.warn("[ScanScreen] Error obteniendo ubicación:", error.message)
       
       let userMessage = "No se pudo obtener tu ubicación. "
       
@@ -221,7 +223,7 @@ export default function ScanScreen() {
       // Si el recorte falla (error de ImageManipulator), se conserva el B64
       // completo como fallback; el usuario no ve un error, simplemente se envía
       // la imagen entera. El overlay de la cámara deja de ser el canal de verdad.
-      console.warn("[ScanScreen] cropToScanFrame falló, se usará imagen completa:", cropOutcome.reason)
+      if (__DEV__) console.warn("[ScanScreen] cropToScanFrame falló, se usará imagen completa:", cropOutcome.reason)
       setCapturedCropUri(null)
     }
     setIsCropping(false)
@@ -271,7 +273,9 @@ export default function ScanScreen() {
         const tasks: string[] = raw ? JSON.parse(raw) : []
         if (!tasks.includes(taskId)) tasks.push(taskId)
         await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
-      } catch {}
+      } catch (err) {
+        if (__DEV__) console.warn("[ScanScreen] guardar taskId pendiente falló:", err)
+      }
 
       Alert.alert(
         "Análisis en progreso",
@@ -286,6 +290,55 @@ export default function ScanScreen() {
 
   const handleAnalyze = async () => {
     if (!capturedB64) return
+
+    // ── Pre-check de basura (antes de gastar recursos en YOLO) ──────────────
+    // Genera un thumbnail 320 px de ancho (~15 KB) y lo envía al endpoint
+    // /ml/pre-check que corre compute_garbage_score() en <200 ms sin YOLO.
+    // Fail-closed: si el pre-check rechaza la imagen o si la red falla, se
+    // BLOQUEA el envío. Evita que falsos positivos como mochila/objetos
+    // personales lleguen al supervisor sólo porque la red estaba inestable.
+    const sourceUri = capturedCropUri ?? capturedUri
+    if (sourceUri) {
+      let thumbB64: string | null = null
+      try {
+        const thumb = await ImageManipulator.manipulateAsync(
+          sourceUri,
+          [{ resize: { width: 320 } }],
+          { compress: 0.70, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+        )
+        thumbB64 = thumb.base64 ?? null
+      } catch {
+        // Fallo al redimensionar (problema local de PIL/expo) → continuar sin pre-check
+        // para no bloquear por un bug del cliente. La validación del backend igual aplica.
+        thumbB64 = null
+      }
+
+      if (thumbB64) {
+        let check: Awaited<ReturnType<typeof preCheckImage>> | null = null
+        try {
+          check = await preCheckImage(thumbB64)
+        } catch {
+          // Red inestable o servidor caído: pedir reintentar en lugar de enviar a ciegas.
+          Alert.alert(
+            "Sin conexión al validador",
+            "No pudimos verificar la imagen antes de enviarla. Reintenta cuando tengas mejor señal.",
+            [{ text: "Entendido" }],
+          )
+          return
+        }
+
+        if (!check.is_garbage) {
+          // Bloqueo duro: no hay opción "reportar de todas formas".
+          // El usuario debe re-encuadrar para que la cámara capte residuos reales.
+          Alert.alert(
+            "No detectamos basura",
+            "La imagen no parece mostrar acumulación de residuos. Acerca la cámara al lugar correcto e inténtalo de nuevo.",
+            [{ text: "Entendido" }],
+          )
+          return
+        }
+      }
+    }
 
     // ── Validar que tengamos ubicación antes de enviar ──────────────────────
     let currentLat = location?.latitude ?? null
@@ -442,7 +495,9 @@ export default function ScanScreen() {
           const tasks: string[] = raw ? JSON.parse(raw) : []
           if (!tasks.includes(taskId)) tasks.push(taskId)
           await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
-        } catch {}
+        } catch (err) {
+          if (__DEV__) console.warn("[ScanScreen] persist slow-poll task falló:", err)
+        }
         Alert.alert(
           "Análisis en progreso",
           "El análisis está tardando más de lo esperado. Podrás ver el resultado en tu historial cuando esté listo.",
@@ -527,7 +582,9 @@ export default function ScanScreen() {
                       const tasks: string[] = raw ? JSON.parse(raw) : []
                       if (!tasks.includes(savedTaskId)) tasks.push(savedTaskId)
                       await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
-                    } catch {}
+                    } catch (err) {
+                      if (__DEV__) console.warn("[ScanScreen] persist task en cancelación falló:", err)
+                    }
                   }
                   retake()
                   navigation.reset({ index: 0, routes: [{ name: "Home" }] })

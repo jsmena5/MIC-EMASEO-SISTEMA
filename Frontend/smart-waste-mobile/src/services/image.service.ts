@@ -1,25 +1,29 @@
 import api from "../utils/api"
+import type {
+  AnalysisIncidentEstado,
+  IncidentEstado,
+  NivelAcum,
+  Prioridad,
+} from "../../../shared-types/incident"
+
+export type { AnalysisIncidentEstado, IncidentEstado }
 
 export const validateImage = async (imageBase64: string) => {
   try {
     const res = await api.post("/image/validate-image", { image: imageBase64 })
     return res.data
   } catch (error) {
-    console.error("Error validando imagen", error)
+    if (__DEV__) console.warn("[image.service] Error validando imagen:", error)
     throw error
   }
 }
-
-// Returned by GET /image/status/:taskId when the analysis succeeded
-export type AnalysisIncidentEstado = "PENDIENTE" | "EN_ATENCION" | "RESUELTA" | "RECHAZADA"
-export type IncidentEstado = AnalysisIncidentEstado | "PROCESANDO" | "FALLIDO"
 
 export interface AnalysisResult {
   incident_id: string
   task_id?: string
   estado: AnalysisIncidentEstado
-  prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA"
-  nivel_acumulacion: "BAJO" | "MEDIO" | "ALTO" | "CRITICO"
+  prioridad: Prioridad
+  nivel_acumulacion: NivelAcum
   volumen_estimado_m3: number
   tipo_residuo: string
   confianza: number
@@ -68,19 +72,14 @@ export class TaskAnalysisTimeoutError extends Error {
   }
 }
 
-export interface Incident {
-  id: string
-  estado: IncidentEstado
-  prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA"
-  descripcion: string | null
-  created_at: string
-  image_url: string | null
-  nivel_acumulacion: "BAJO" | "MEDIO" | "ALTO" | "CRITICO" | null
+// El mobile siempre recibe `prioridad` con valor (la API la garantiza para incidentes
+// del ciudadano). `tipo_residuo` queda como string libre por compat con la API.
+export type Incident = Omit<
+  import("../../../shared-types/incident").IncidentBase,
+  "tipo_residuo" | "prioridad"
+> & {
   tipo_residuo: string | null
-  confianza: number | null
-  num_detecciones: number | null
-  latitud?: number | null
-  longitud?: number | null
+  prioridad: Prioridad
 }
 
 export const getMyIncidents = async (): Promise<Incident[]> => {
@@ -136,6 +135,31 @@ export const getTaskStatus = async (
 ): Promise<TaskStatusResponse> => {
   const res = await api.get(`/image/status/${taskId}`, { signal: options?.signal })
   return res.data as TaskStatusResponse
+}
+
+// ─── Pre-check de basura ──────────────────────────────────────────────────────
+
+export interface PreCheckResult {
+  garbage_score: number
+  is_garbage:    boolean
+  threshold:     number
+}
+
+/**
+ * Envía un thumbnail pequeño (~15 KB, 320 px de ancho) al endpoint /ml/pre-check
+ * para detectar si la imagen tiene aspecto de basura ANTES de correr YOLO.
+ *
+ * Fail-closed: si el pre-check falla (red, timeout, server error) propaga el
+ * error y el caller decide. NO devuelve un resultado optimista que dejaría
+ * pasar reportes inválidos cuando la red es inestable.
+ */
+export async function preCheckImage(thumbnailBase64: string): Promise<PreCheckResult> {
+  const { data } = await api.post<PreCheckResult>(
+    "/ml/pre-check",
+    { image_base64: thumbnailBase64 },
+    { timeout: 12_000 },
+  )
+  return data
 }
 
 const createCanceledError = () =>

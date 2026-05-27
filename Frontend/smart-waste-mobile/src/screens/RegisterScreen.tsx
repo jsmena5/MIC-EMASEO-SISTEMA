@@ -225,7 +225,7 @@ export default function RegisterScreen({ navigation }: Props) {
       const res = await registerUser(form)
       const { email, emailSent } = res.data
 
-      if (!emailSent) {
+      if (!emailSent && __DEV__) {
         console.warn("[Register] Email no enviado — revisar servidor SMTP")
       }
 

@@ -1,22 +1,24 @@
 // ──────────────────────────────────────────────────────────────────────────────
 // Fuente de verdad para URLs de entorno en el panel web.
 //
-// Cadena de prioridad:
-//   1. VITE_API_URL  →  valor del archivo .env (dev) / .env.production
-//   2. Fallback automático  →  localhost si dev, dominio de producción si no
+// VITE_API_URL es obligatoria en TODOS los entornos:
+//   • .env.development → http://localhost:4000/api (o túnel)
+//   • .env.production  → URL pública (https://api.emaseo.ec/api)
 //
-// Vite expone las vars con prefijo VITE_* a través de import.meta.env
+// Sin fallbacks: si falta, vite build falla.
 // ──────────────────────────────────────────────────────────────────────────────
-
-const DEV_API_URL = 'http://localhost:4000/api'
-const PROD_API_URL = '/api'
 
 const normalizeApiUrl = (value: string) => value.replace(/\/+$/, '')
 
-export const API_URL: string = normalizeApiUrl(
-  import.meta.env.VITE_API_URL ??
-  (import.meta.env.DEV ? DEV_API_URL : PROD_API_URL)
-)
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+
+if (!configuredApiUrl) {
+  throw new Error(
+    'Falta VITE_API_URL. Crea .env.development o .env.production con la URL del API Gateway.'
+  )
+}
+
+export const API_URL: string = normalizeApiUrl(configuredApiUrl)
 
 export const ENV = {
   API_URL,

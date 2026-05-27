@@ -12,7 +12,10 @@ const options = {
       contact: { name: 'EMASEO EP', email: 'sistemas@emaseo.gob.ec' },
     },
     servers: [
-      { url: 'http://localhost:4000', description: 'Desarrollo local' },
+      {
+        url: process.env.PUBLIC_API_URL ?? 'http://localhost:4000',
+        description: process.env.NODE_ENV === 'production' ? 'Producción' : 'Desarrollo local',
+      },
     ],
     components: {
       securitySchemes: {

@@ -1,8 +1,10 @@
+import { logger } from "../utils/logger.js"
+
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN
 
 export function internalAuth(req, res, next) {
   if (!INTERNAL_TOKEN) {
-    console.error("[auth-service] INTERNAL_TOKEN no configurado — rechazando petición interna")
+    logger.error("INTERNAL_TOKEN no configurado — rechazando petición interna")
     return res.status(503).json({ error: "Servicio mal configurado" })
   }
   const token = req.headers["x-internal-token"]

@@ -36,12 +36,14 @@ export const ESTADO_CONFIG: Record<
   Incident["estado"],
   { label: string; color: string; bg: string; icon: React.ComponentProps<typeof Ionicons>["name"] }
 > = {
-  PENDIENTE:   { label: "Pendiente",  color: "#D97706", bg: "#FEF3C7", icon: "time-outline" },
-  EN_ATENCION: { label: "En proceso", color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline" },
-  RESUELTA:    { label: "Atendido",   color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
-  RECHAZADA:   { label: "Rechazado",  color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
-  PROCESANDO:  { label: "Procesando", color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline" },
-  FALLIDO:     { label: "Fallido",    color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle-outline" },
+  PENDIENTE:   { label: "Pendiente",   color: "#D97706", bg: "#FEF3C7", icon: "time-outline" },
+  EN_ATENCION: { label: "En proceso",  color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline" },
+  RESUELTA:    { label: "Atendido",    color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
+  RECHAZADA:   { label: "Rechazado",   color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
+  PROCESANDO:  { label: "Procesando",  color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline" },
+  FALLIDO:     { label: "Fallido",     color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle-outline" },
+  EN_REVISION: { label: "En revisión", color: "#C2410C", bg: "#FFF7ED", icon: "eye-outline" },
+  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F1F5F9", icon: "trash-outline" },
 }
 
 export const NIVEL_COLOR: Record<string, string> = {

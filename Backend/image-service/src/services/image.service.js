@@ -16,16 +16,17 @@ const DB_RETRY_OPTS = {
   minTimeout: 500
 }
 
-const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://localhost:8000/predict"
-const ML_HEALTH_URL = (() => {
-  try {
-    return `${new URL(ML_SERVICE_URL).origin}/health`
-  } catch {
-    return "http://localhost:8000/health"
-  }
-})()
+const REQUIRED_ENV = ["ML_SERVICE_URL", "S3_ENDPOINT", "S3_BUCKET", "S3_PUBLIC_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]
+const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k])
+if (missingEnv.length) {
+  console.error("[image-service] Variables de entorno obligatorias ausentes:", missingEnv)
+  process.exit(1)
+}
 
-const BUCKET        = process.env.S3_BUCKET      ?? "emaseo-incidents"
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL
+const ML_HEALTH_URL = `${new URL(ML_SERVICE_URL).origin}/health`
+
+const BUCKET        = process.env.S3_BUCKET
 const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL
 
 // Límites geográficos de Ecuador (WGS84)
@@ -42,6 +43,13 @@ const TEMP_PRIORIDAD = 'BAJA'
 // Si confianza del ML ≥ umbral → DESCARTADO (rechazo automático confiable).
 // Configurable vía variable de entorno; por defecto 0.70 (70%).
 const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE ?? "0.70")
+
+// Techos de volumen por nivel (en m³) — deben estar en sync con _BANDS de
+// Backend/ml-service/tasks.py. Sirven para detectar inconsistencias volumen/nivel
+// (p.ej. MiDaS infla el volumen pero la banda dice MEDIO). Si volumen > techo×tolerancia
+// el incidente se marca EN_REVISION en lugar de PENDIENTE para que el supervisor lo valide.
+const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.5, MEDIO: 2.0, ALTO: 5.0, CRITICO: 15.0 }
+const VOLUME_COHERENCE_TOLERANCE = 1.10  // +10% sobre el techo
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Cliente S3 (MinIO / AWS)
@@ -295,7 +303,7 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
               mlResult.tipo_residuo       ?? null,
               mlResult.nivel_acumulacion  ?? null,
               mlResult.volumen_estimado_m3 ?? null,
-              confianza,
+              confianza ?? 0,
               JSON.stringify(mlResult.detecciones ?? []),
               mlResult.tiempo_inferencia_ms ?? null,
             ]
@@ -441,7 +449,37 @@ async function runMlAnalysis(incidentId, { buffer, image }) {
       return
     }
 
-    // 6. Transacción atómica de cierre (incidente válido → PENDIENTE)
+    // 6. Sanity-check de coherencia volumen/nivel
+    //    Si el ML dice BAJO/MEDIO pero el volumen excede el techo de su banda,
+    //    es señal de inconsistencia (típicamente MiDaS inflando vol en interiores).
+    //    Se trata como caso ambiguo (EN_REVISION) para que el supervisor lo valide,
+    //    no se acepta directo como PENDIENTE.
+    const ceiling = VOLUME_CEILING_BY_NIVEL[mlResult.nivel_acumulacion]
+    const volume  = mlResult.volumen_estimado_m3 ?? 0
+    if (ceiling != null && volume > ceiling * VOLUME_COHERENCE_TOLERANCE) {
+      log(`⚠ Incoherencia vol/nivel: ${volume}m³ excede techo de ${mlResult.nivel_acumulacion} (${ceiling}m³) → EN_REVISION`)
+      try {
+        // Fuerza EN_REVISION (no DESCARTADO) bajando la confianza al límite del auto-reject.
+        // Reusa finalizeNegativeCase para mantener un solo punto de cierre negativo.
+        await finalizeNegativeCase(incidentId, pendingS3Key, {
+          ...mlResult,
+          has_waste: false,
+          confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
+          rechazo_motivo: "volume_nivel_incoherence",
+        }, logError)
+      } catch (dbErr) {
+        await markIncidentAsFailed(
+          incidentId,
+          `coherence-check: ${dbErr.message}`,
+          logError,
+          { s3Key: pendingS3Key }
+        )
+        logError(`✗ FALLIDO — Error registrando incoherencia: ${dbErr.message}`)
+      }
+      return
+    }
+
+    // 7. Transacción atómica de cierre (incidente válido → PENDIENTE)
     try {
       await finalizeIncident(incidentId, pendingS3Key, mlResult, logError)
       log(`✓ Incidente finalizado — PENDIENTE prioridad=${mlResult.prioridad}`)

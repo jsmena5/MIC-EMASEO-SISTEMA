@@ -8,10 +8,13 @@ Este proceso solo persiste la imagen en disco y despacha la ruta al worker.
 
 import asyncio
 import base64
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from celery.result import AsyncResult
 from fastapi import FastAPI
@@ -38,6 +41,12 @@ class PredictRequest(BaseModel):
     image_base64: str
     image_width: int = 1280
     image_height: int = 960
+
+
+class PreCheckRequest(BaseModel):
+    image_base64: str
+    image_width:  int = 320
+    image_height: int = 240
 
 
 # ── Helpers síncronos — se ejecutan en el thread pool de asyncio ──────────────
@@ -82,6 +91,52 @@ async def health():
         "broker": broker_status,
         "dummy_mode": DUMMY_MODE,
         "uploads_dir": str(UPLOADS_DIR),
+    }
+
+
+@app.post("/pre-check")
+async def pre_check(req: PreCheckRequest):
+    """Pre-screening liviano — sin Celery, sin YOLO. Responde en <200 ms.
+
+    Calcula compute_garbage_score() sobre el frame completo (pseudo-detección
+    que cubre toda la imagen) y devuelve si la imagen parece basura real o no.
+
+    Threshold por defecto 0.35 (subido de 0.25): más estricto para reducir
+    falsos positivos de objetos personales lisos (mochila, funda, laptop) que
+    el modelo YOLO tiende a confundir con basura. El cliente hace fail-closed
+    sobre este endpoint, así que un 5xx aquí bloquea el envío en lugar de
+    dejarlo pasar (fail-open ya no es viable).
+    """
+    threshold = float(os.environ.get("PRE_CHECK_THRESHOLD", "0.35"))
+
+    # En DUMMY_MODE simular resultado positivo — no altera el flujo de desarrollo
+    if DUMMY_MODE == "true":
+        return {"garbage_score": 0.72, "is_garbage": True, "threshold": threshold}
+
+    def _run(b64: str) -> float:
+        import io
+        import base64 as _b64
+        from PIL import Image as PILImage
+        from ml_utils import compute_garbage_score
+        img = PILImage.open(io.BytesIO(_b64.b64decode(b64))).convert("RGB")
+        w, h = img.size
+        # Pseudo-detección que cubre todo el frame → analiza la imagen completa
+        return compute_garbage_score(img, [{"bbox": [0, 0, w, h]}], w, h)
+
+    try:
+        score = await asyncio.to_thread(_run, req.image_base64)
+    except Exception as exc:
+        logger.warning("[pre-check] error computing garbage_score: %s", exc)
+        # 5xx → cliente lanza Alert "Sin conexión al validador" → bloquea envío
+        return JSONResponse(
+            status_code=500,
+            content={"error": "pre_check_failed", "detail": str(exc)},
+        )
+
+    return {
+        "garbage_score": round(score, 4),
+        "is_garbage":    score >= threshold,
+        "threshold":     threshold,
     }
 
 

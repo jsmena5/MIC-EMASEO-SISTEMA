@@ -22,42 +22,23 @@ import { authenticatedFetch } from '../shared/api/authenticatedFetch'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-/**
- * Todos los estados posibles de un incidente.
- *
- * Ciclo de vida (migración 032):
- *   PROCESANDO → PENDIENTE    (ML detectó residuos)
- *   PROCESANDO → EN_REVISION  (ML dudoso, confianza < umbral → supervisor decide)
- *   PROCESANDO → DESCARTADO   (ML confiable: sin residuos, confianza ≥ umbral)
- *   PROCESANDO → FALLIDO      (error técnico)
- *   EN_REVISION → PENDIENTE | RECHAZADA  (supervisor decide)
- *   DESCARTADO  → PENDIENTE              (supervisor anula rechazo automático)
- *   PENDIENTE   → EN_ATENCION | RECHAZADA
- *   EN_ATENCION → RESUELTA | RECHAZADA | PENDIENTE
- */
-export type IncidentEstado =
-  | 'PROCESANDO'
-  | 'PENDIENTE'
-  | 'EN_ATENCION'
-  | 'RESUELTA'
-  | 'RECHAZADA'
-  | 'FALLIDO'
-  | 'EN_REVISION'  // 032: caso ambiguo → revisión supervisor
-  | 'DESCARTADO'   // 032: rechazo automático confiable
+// Tipos comunes consolidados en shared-types/incident.ts.
+// Se reexportan para que los componentes existentes sigan importando desde aquí.
+export type {
+  DecisionAutomatica,
+  IncidentEstado,
+  NivelAcum,
+  Prioridad,
+  TipoResiduo,
+} from '../../../shared-types/incident'
 
-/**
- * Tipo de decisión automática tomada por el pipeline ML.
- * Permite distinguir la causa de un estado sin depender de nota_fallo (texto libre).
- */
-export type DecisionAutomatica =
-  | 'ERROR_TECNICO'       // Fallo técnico (ML caído, S3, timeout)
-  | 'RECHAZO_CONFIABLE'   // ML descartó con confianza ≥ umbral
-  | 'REVISION_REQUERIDA'  // ML no fue concluyente → revisar
-  | 'INCIDENTE_VALIDO'    // ML detectó residuos
-
-export type Prioridad = 'BAJA' | 'MEDIA' | 'ALTA' | 'CRITICA'
-export type NivelAcum = 'BAJO' | 'MEDIO' | 'ALTO' | 'CRITICO'
-export type TipoResiduo = 'DOMESTICO' | 'ORGANICO' | 'RECICLABLE' | 'ESCOMBROS' | 'PELIGROSO' | 'MIXTO' | 'OTRO'
+import type {
+  DecisionAutomatica,
+  IncidentEstado,
+  NivelAcum,
+  Prioridad,
+  TipoResiduo,
+} from '../../../shared-types/incident'
 
 export interface IncidentListItem {
   id: string
@@ -193,6 +174,8 @@ export interface IncidentListResponse {
 
 // ─── Filtros para listado (migración 033: fecha, decision_automatica, ia_incorrecta) ──
 
+export type SortOrder = 'priority' | 'newest'
+
 export interface IncidentFilters {
   estado?: IncidentEstado | ''
   prioridad?: Prioridad | ''
@@ -202,6 +185,7 @@ export interface IncidentFilters {
   fecha_hasta?: string      // ISO date YYYY-MM-DD
   ia_incorrecta?: boolean   // solo incidentes donde supervisor marcó IA incorrecta
   sin_supervisar?: boolean  // solo incidentes con ML sin revisar aún
+  sort?: SortOrder          // 'priority' (default) | 'newest'
   page?: number
   limit?: number
 }
@@ -227,6 +211,7 @@ function buildQuery(filters: IncidentFilters): string {
   if (filters.fecha_hasta)         params.set('fecha_hasta',         filters.fecha_hasta)
   if (filters.ia_incorrecta)       params.set('ia_incorrecta',       'true')
   if (filters.sin_supervisar)      params.set('sin_supervisar',      'true')
+  if (filters.sort)                params.set('sort',                filters.sort)
   if (filters.page)                params.set('page',                String(filters.page))
   if (filters.limit)               params.set('limit',               String(filters.limit))
   const qs = params.toString()
@@ -239,7 +224,9 @@ async function handleResponse<T>(res: Response, context: string): Promise<T> {
     try {
       const body = await res.json()
       message = body?.error ?? message
-    } catch {}
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn(`[incident.service] no se pudo parsear el body de error (${context}):`, err)
+    }
     throw new Error(`[incident.service] ${context}: ${message}`)
   }
   return res.json() as Promise<T>

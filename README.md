@@ -315,8 +315,22 @@ El único puerto publicado al host por defecto es el **4000** del API Gateway.
 
 ### Panel de Supervisor — `Frontend/supervisor-panel/`
 
-**Stack:** React + Vite + TypeScript  
-Acceso en `http://localhost:5173` — listado y gestión de incidentes, asignación de operarios, estadísticas por zona.
+**Stack:** React 19 + Vite + TypeScript + Tailwind CSS 4 + React Leaflet  
+No corre en Docker — se levanta como proceso de desarrollo local.
+
+```bash
+cd Frontend/supervisor-panel
+npm install        # solo la primera vez
+npm run dev        # → http://localhost:5173
+```
+
+**Variable de entorno:** `Frontend/supervisor-panel/.env`
+```env
+VITE_API_URL=http://localhost:4000/api   # desarrollo local
+# VITE_API_URL=/api                      # producción (relativo)
+```
+
+**Funcionalidades:** listado y gestión de incidentes, cambio de estado, asignación de operarios, estadísticas por zona, revisión de decisiones IA (corrección de severidad/tipo), mapas interactivos con Leaflet.
 
 ---
 
@@ -396,67 +410,77 @@ CREATE INDEX ON ai.analysis_results USING GIN  (detecciones);
 
 ## 11. Inicio Rápido
 
-> **Requisitos:** Docker Desktop instalado y corriendo. No se necesita Node.js ni Python para ejecutar el sistema completo.
+> **Requisitos:** Docker Desktop instalado y corriendo. No se necesita Node.js ni Python para ejecutar el sistema completo.  
+> Para la guía completa con todos los escenarios, ver [GUIA_EJECUCION.md](GUIA_EJECUCION.md).
 
-### Windows (recomendado)
+### ① Backend completo (Docker — un solo comando)
 
-El script `start.ps1` automatiza todo el proceso:
-
+**Windows (PowerShell):**
 ```powershell
-# Levantar todos los servicios (backend completo)
-.\start.ps1
-
-# Con Cloudflare Quick Tunnel (expone :4000 a internet)
-.\start.ps1 -Tunnel
-
-# Con servidor Expo (para desarrollo de la app móvil)
-.\start.ps1 -Expo
-
-# Exponer puertos de administración (MinIO :9001, Redis :6379, Flower :5555)
-.\start.ps1 -Dev
-
-# Reconstruir imágenes Docker (tras cambios en el código)
-.\start.ps1 -Build
-
-# Sin reconstruir (inicio rápido)
-.\start.ps1 -NoBuild
+.\start.ps1           # genera .env + construye imágenes + levanta 11 contenedores
+.\start.ps1 -NoBuild  # inicio rápido (imágenes ya construidas)
+.\start.ps1 -Build    # forzar reconstrucción (tras cambios en el código)
+.\start.ps1 -Dev      # exponer MinIO :9001, Redis :6379, Flower :5555
 ```
 
-> **Nota para Windows:** si la ruta del repositorio tiene espacios (ej. `C:\REPOSITORIOS GITHUB\...`), Docker Compose puede fallar con `invalid proto:`. Solución: crear un junction sin espacios:
+**Linux / macOS / WSL:**
+```bash
+bash start.sh           # genera .env + construye + levanta
+bash start.sh --no-build
+bash start.sh --dev
+```
+
+**Manual:**
+```bash
+docker compose up -d --build   # primera vez
+docker compose up -d           # sesiones posteriores
+```
+
+> **Nota Windows con espacios en la ruta:** `start.ps1` lo soluciona automáticamente. Si usas comandos manuales, crea primero una junction sin espacios:
 > ```powershell
 > cmd /c mklink /J C:\MIC-EMASEO-WORK "C:\REPOSITORIOS GITHUB\MIC-EMASEO-SISTEMA"
 > cd C:\MIC-EMASEO-WORK
-> .\start.ps1
 > ```
 
-### Linux / macOS / WSL
+### ② Panel de Supervisor (React + Vite)
 
 ```bash
-# Generar secretos y levantar todo
-bash start.sh
+cd Frontend/supervisor-panel
+npm install        # solo la primera vez
+npm run dev
+# → Acceder en http://localhost:5173
+```
 
-# O manualmente:
-cp .env.example .env   # completar variables manualmente
-docker compose up -d --build
+Asegúrate de que `.env` del panel apunte al Gateway:
+```env
+# Frontend/supervisor-panel/.env
+VITE_API_URL=http://localhost:4000/api
+```
+
+### ③ Túnel Cloudflare (acceso remoto desde datos móviles)
+
+```powershell
+# Windows — modo remoto completo (2 túneles + Expo automático)
+.\start-remote.ps1
+
+# Windows — backend + túnel API integrado
+.\start.ps1 -Tunnel
+```
+
+```bash
+# Linux / WSL — solo túnel API (actualiza .env.development automáticamente)
+bash tools/start-tunnel.sh
 ```
 
 ### Acceder a los servicios
 
-```
-API Gateway:   http://localhost:4000
-Swagger UI:    http://localhost:4000/api-docs
-Panel Web:     http://localhost:5173  (con npm run dev en supervisor-panel)
-MinIO Console: http://localhost:9001  (solo con -Dev o docker-compose.dev.yml)
-Flower:        http://localhost:5555  (solo con -Dev o docker-compose.dev.yml)
-```
-
-### Puertos de desarrollo (opcional)
-
-Para exponer MinIO, Redis y Flower sin reiniciar todo el sistema:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-```
+| Servicio | URL | Cuándo está disponible |
+|---------|-----|----------------------|
+| **API Gateway** | `http://localhost:4000` | Siempre (con Docker activo) |
+| **Swagger UI** | `http://localhost:4000/api-docs` | Siempre (con Docker activo) |
+| **Panel Supervisor** | `http://localhost:5173` | Con `npm run dev` activo |
+| **MinIO Console** | `http://localhost:9001` | Con `-Dev` o `docker-compose.dev.yml` |
+| **Flower (Celery)** | `http://localhost:5555` | Con `-Dev` o `docker-compose.dev.yml` |
 
 ---
 

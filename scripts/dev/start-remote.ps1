@@ -7,13 +7,12 @@
 .DESCRIPTION
     1. Verifica Docker (emaseo-gateway healthy).
     2. Verifica cloudflared.
-    3. Inicia Quick Tunnel para API Gateway (puerto 4000).
-    4. Inicia Quick Tunnel para Metro Bundler (puerto 8081).
-    5. Actualiza .env.development con la URL del API.
-    6. Abre Expo en nueva ventana apuntando al tunnel de Metro.
-    7. Mantiene ambos tunneles activos hasta Ctrl+C.
-
-    Sin ngrok. Sin cuentas. Solo cloudflared.
+    3. Libera el puerto 8081 si un Metro anterior quedo colgado.
+    4. Inicia Quick Tunnel para API Gateway (puerto 4000).
+    5. Inicia Quick Tunnel para Metro Bundler (puerto 8081).
+    6. Actualiza .env.development con la URL del API.
+    7. Abre Expo en nueva ventana apuntando al tunnel de Metro.
+    8. Mantiene ambos tunneles activos hasta Ctrl+C.
 
 .EXAMPLE
     .\start-remote.ps1
@@ -63,7 +62,7 @@ $cfVer = (& cloudflared --version 2>&1 | Select-Object -First 1) -replace "`n", 
 Write-Host "  [OK] $cfVer" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Paso 3: Iniciar los dos Quick Tunnels en paralelo
+# Paso 3: Limpiar procesos anteriores e iniciar tunneles
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "[ 3/4 ] Iniciando Quick Tunnels (API:4000 y Metro:8081)..." -ForegroundColor Yellow
@@ -72,6 +71,18 @@ Write-Host "  Puede tardar hasta 30 segundos..." -ForegroundColor DarkGray
 # Matar cloudflared anterior para liberar logs
 Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 700
+
+# Liberar puerto 8081 si quedo ocupado por un Metro Bundler de sesion anterior.
+# Esto ocurre al cerrar la ventana de Expo con la X en vez de Ctrl+C.
+$conn8081 = Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($conn8081) {
+    $pid8081 = $conn8081.OwningProcess
+    $procName = (Get-Process -Id $pid8081 -ErrorAction SilentlyContinue).Name
+    Write-Host "  Puerto 8081 ocupado por '$procName' (PID $pid8081) - liberando..." -ForegroundColor DarkGray
+    Stop-Process -Id $pid8081 -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 500
+    Write-Host "  [OK] Puerto 8081 liberado" -ForegroundColor Green
+}
 
 Remove-Item $LOG_API   -Force -ErrorAction SilentlyContinue
 Remove-Item $LOG_METRO -Force -ErrorAction SilentlyContinue
@@ -129,9 +140,10 @@ $metroHost  = $metroUrl -replace "https://", ""
 
 if (Test-Path $ENV_FILE) {
     $envContent = Get-Content $ENV_FILE -Raw -Encoding UTF8
+    # Comenta CUALQUIER linea activa de EXPO_PUBLIC_API_URL (https://, http://, IP, etc.)
     $envContent = [regex]::Replace(
         $envContent,
-        '(?m)^(EXPO_PUBLIC_API_URL=https://[a-z0-9-]+\.trycloudflare\.com[^\r\n]*)',
+        '(?m)^(EXPO_PUBLIC_API_URL=.+)',
         '# $1  <- anterior (reemplazado por start-remote.ps1)'
     )
     $envContent = $envContent.TrimEnd() + "`nEXPO_PUBLIC_API_URL=$newApiUrl`n"
@@ -156,10 +168,10 @@ $expoScriptContent = @(
     "Set-Location '" + $EXPO_DIR.Replace("'", "''") + "'"
     "Write-Host ''"
     "Write-Host '  Metro Bundler via cloudflared (sin ngrok)'"
-    "Write-Host '  Host: $metroHost'"
+    "Write-Host '  Proxy URL: $metroUrl'"
     "Write-Host '  Escanea el QR con Expo Go cuando aparezca.'"
     "Write-Host ''"
-    "`$env:REACT_NATIVE_PACKAGER_HOSTNAME = '$metroHost'"
+    "`$env:EXPO_PACKAGER_PROXY_URL = '$metroUrl'"
     "npx expo start -c"
 ) -join "`r`n"
 Set-Content -LiteralPath $expoScript -Value $expoScriptContent -Encoding ASCII

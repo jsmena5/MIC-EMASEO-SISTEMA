@@ -1,35 +1,16 @@
-import { NavLink } from "react-router-dom";
+import { NavLink } from "react-router-dom"
+import { useEffect, useState, type ReactNode } from "react"
 
 const navigation = [
-  {
-    section: "Supervision",
-    items: [
-      {
-        to: "/dashboard/home",
-        label: "Resumen operativo",
-        description: "Ver prioridades y flujo del supervisor.",
-      },
-      {
-        to: "/dashboard/incidencias",
-        label: "Incidencias",
-        description: "Revisar, clasificar y mover el estado del caso.",
-      },
-    ],
-  },
-  {
-    section: "Territorio",
-    items: [
-      {
-        to: "/dashboard/mapa",
-        label: "Mapa operativo",
-        description: "Ver en mapa las incidencias de tu zona.",
-      },
-    ],
-  },
-];
+  { to: "/dashboard/home",        label: "Inicio",      iconKind: "home" as const },
+  { to: "/dashboard/incidencias", label: "Incidencias", iconKind: "incidencias" as const },
+  { to: "/dashboard/mapa",        label: "Mapa",        iconKind: "mapa" as const },
+]
 
-function SidebarIcon({ kind }: { kind: "home" | "incidencias" | "mapa" }) {
-  const icons = {
+type IconKind = "home" | "incidencias" | "mapa"
+
+function SidebarIcon({ kind }: { kind: IconKind }) {
+  const paths: Record<IconKind, ReactNode> = {
     home: (
       <>
         <path d="M3 10.5 12 3l9 7.5" />
@@ -52,93 +33,93 @@ function SidebarIcon({ kind }: { kind: "home" | "incidencias" | "mapa" }) {
         <path d="M15 6v14" />
       </>
     ),
-  };
-
+  }
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {icons[kind]}
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {paths[kind]}
     </svg>
-  );
+  )
 }
 
-function iconKindForPath(path: string): "home" | "incidencias" | "mapa" {
-  if (path.includes("mapa")) return "mapa";
-  if (path.includes("incidencias")) return "incidencias";
-  return "home";
-}
+const STORAGE_KEY = "sidebar-expanded"
 
 export default function Sidebar() {
+  // En tablet portrait (<1024px) colapsado por defecto, en landscape expandido.
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null
+    if (saved !== null) return saved === "true"
+    return typeof window !== "undefined" ? window.innerWidth >= 1024 : true
+  })
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, String(expanded))
+  }, [expanded])
+
   return (
-    <aside className="w-[320px] shrink-0 border-r border-slate-200 bg-white/90 px-5 py-6 backdrop-blur-xl">
-      <div className="mb-8 rounded-[28px] bg-gradient-to-br from-[#005BAC] via-[#0A4E90] to-[#003F7A] p-5 text-white shadow-[0_20px_50px_rgba(0,91,172,0.28)]">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/16 text-white">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <aside
+      className={[
+        "shrink-0 border-r border-slate-200 bg-white",
+        "transition-[width] duration-200",
+        expanded ? "w-56" : "w-20",
+      ].join(" ")}
+    >
+      <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#005BAC] text-white">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 3l7 3v5c0 4.5-3 7.5-7 10-4-2.5-7-5.5-7-10V6z" />
             <path d="M9.5 12.5l1.8 1.8L15 10.5" />
           </svg>
         </div>
-
-        <div className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-100/80">
-          EMASEO EP
-        </div>
-        <h2 className="mt-2 text-2xl font-black leading-tight">
-          Panel de supervision
-        </h2>
-        <p className="mt-3 text-sm leading-6 text-sky-50/88">
-          El supervisor recibe incidencias, valida si son reales, corrige la clasificacion de IA y da seguimiento hasta el cierre.
-        </p>
+        {expanded && (
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">EMASEO EP</div>
+            <div className="truncate text-sm font-extrabold text-slate-900">Supervisión</div>
+          </div>
+        )}
       </div>
 
-      <div className="space-y-6">
-        {navigation.map((group) => (
-          <div key={group.section}>
-            <div className="mb-3 px-2 text-[11px] font-bold uppercase tracking-[0.24em] text-slate-400">
-              {group.section}
-            </div>
-
-            <nav className="space-y-2">
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    [
-                      "group flex items-start gap-3 rounded-[22px] border px-4 py-4 transition",
-                      isActive
-                        ? "border-[#005BAC]/25 bg-[#EBF4FF] text-[#003F7A] shadow-[0_16px_35px_rgba(0,91,172,0.10)]"
-                        : "border-transparent bg-slate-50/80 text-slate-700 hover:border-slate-200 hover:bg-white",
-                    ].join(" ")
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <div
-                        className={[
-                          "mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl",
-                          isActive
-                            ? "bg-[#005BAC] text-white"
-                            : "bg-white text-slate-500 ring-1 ring-slate-200",
-                        ].join(" ")}
-                      >
-                        <SidebarIcon kind={iconKindForPath(item.to)} />
-                      </div>
-
-                      <div className="min-w-0">
-                        <div className="text-sm font-extrabold">
-                          {item.label}
-                        </div>
-                        <div className="mt-1 text-xs leading-5 text-slate-500 group-[.active]:text-slate-600">
-                          {item.description}
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
+      <nav className="space-y-1 px-2 py-3">
+        {navigation.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            title={!expanded ? item.label : undefined}
+            className={({ isActive }) =>
+              [
+                "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition",
+                "border-l-2",
+                isActive
+                  ? "border-[#005BAC] bg-[#EBF4FF] text-[#003F7A]"
+                  : "border-transparent text-slate-600 hover:bg-slate-50",
+              ].join(" ")
+            }
+          >
+            <span className="shrink-0">
+              <SidebarIcon kind={item.iconKind} />
+            </span>
+            {expanded && (
+              <span className="truncate text-sm font-semibold">{item.label}</span>
+            )}
+          </NavLink>
         ))}
+      </nav>
+
+      <div className="px-2 pb-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+          title={expanded ? "Colapsar" : "Expandir"}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+               style={{ transform: expanded ? "rotate(180deg)" : undefined }}>
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+          {expanded && <span>Colapsar</span>}
+        </button>
       </div>
     </aside>
-  );
+  )
 }

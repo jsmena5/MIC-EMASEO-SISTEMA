@@ -10,6 +10,10 @@ const PASSWORD_RESET_OTP_TTL_MIN = 15
 const ACCESS_TOKEN_TTL       = process.env.JWT_EXPIRES_IN || "15m"
 const REFRESH_TOKEN_TTL_DAYS = 7
 
+// Bcrypt cost: 12 es el mínimo recomendado en 2026.
+// Subir el valor encarece el cracking, pero también las verificaciones legítimas.
+const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+
 async function issueRefreshToken(userId) {
   const raw       = generateOpaqueToken()
   const hash      = hashToken(raw)
@@ -351,10 +355,10 @@ export const resetPassword = async (req, res) => {
 
       await client.query(
         `UPDATE auth.users
-         SET password_hash = crypt($1, gen_salt('bf', 10)),
+         SET password_hash = crypt($1, gen_salt('bf', $3)),
              updated_at    = NOW()
          WHERE id = $2`,
-        [newPassword, user.id]
+        [newPassword, user.id, BCRYPT_ROUNDS]
       )
 
       await client.query(
