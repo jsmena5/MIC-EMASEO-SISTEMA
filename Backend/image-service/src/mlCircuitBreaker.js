@@ -1,11 +1,9 @@
 import CircuitBreaker from "opossum"
 
-if (!process.env.ML_SERVICE_URL) {
-  console.error("[image-service] ML_SERVICE_URL es obligatorio")
-  process.exit(1)
-}
+// ML_SERVICE_URL se valida en index.js al arrancar. Aquí lo leemos de forma
+// tolerante para no romper la importación del módulo en los tests.
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL
-const ML_ORIGIN = new URL(ML_SERVICE_URL).origin
+const ML_ORIGIN = ML_SERVICE_URL ? new URL(ML_SERVICE_URL).origin : undefined
 
 export const ML_DEGRADED_CODE = "ML_SERVICE_DEGRADED"
 const DEGRADED_MESSAGE =

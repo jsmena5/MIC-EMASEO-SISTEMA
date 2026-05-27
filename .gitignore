@@ -44,3 +44,10 @@ web-build/
 Thumbs.db
 desktop.ini
 
+# ── Dumps de base de datos (nunca versionar — pueden contener datos) ───────────
+backups/
+
+# ── Artefactos generados de entrenamiento ML (logs/reportes, no código) ────────
+ML/logs/
+ML/reporte_labels.txt
+

@@ -15,7 +15,9 @@ import { logger } from "./utils/logger.js"
 const REQUIRED_ENV = [
   "INTERNAL_TOKEN",
   "DB_PASSWORD_IMAGE",
+  "ML_SERVICE_URL",
   "S3_PUBLIC_URL",
+  "S3_BUCKET",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
   "S3_ENDPOINT",

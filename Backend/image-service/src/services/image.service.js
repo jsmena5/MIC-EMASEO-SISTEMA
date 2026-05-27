@@ -16,15 +16,10 @@ const DB_RETRY_OPTS = {
   minTimeout: 500
 }
 
-const REQUIRED_ENV = ["ML_SERVICE_URL", "S3_ENDPOINT", "S3_BUCKET", "S3_PUBLIC_URL", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]
-const missingEnv = REQUIRED_ENV.filter((k) => !process.env[k])
-if (missingEnv.length) {
-  console.error("[image-service] Variables de entorno obligatorias ausentes:", missingEnv)
-  process.exit(1)
-}
-
+// La validación de variables obligatorias vive en index.js (entry point real),
+// no aquí, para que los tests puedan importar este módulo sin reventar el runner.
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL
-const ML_HEALTH_URL = `${new URL(ML_SERVICE_URL).origin}/health`
+const ML_HEALTH_URL  = ML_SERVICE_URL ? `${new URL(ML_SERVICE_URL).origin}/health` : undefined
 
 const BUCKET        = process.env.S3_BUCKET
 const S3_PUBLIC_URL = process.env.S3_PUBLIC_URL
