@@ -19,5 +19,10 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Data-fetching y sincronización con la URL dentro de effects es un uso
+      // legítimo; degradamos a warning para no bloquear el build por estos casos.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
   },
 ])

@@ -4,7 +4,7 @@ import type {
   IncidentEstado,
   NivelAcum,
   Prioridad,
-} from "../../../shared-types/incident"
+} from "../types/incident"
 
 export type { AnalysisIncidentEstado, IncidentEstado }
 
@@ -75,7 +75,7 @@ export class TaskAnalysisTimeoutError extends Error {
 // El mobile siempre recibe `prioridad` con valor (la API la garantiza para incidentes
 // del ciudadano). `tipo_residuo` queda como string libre por compat con la API.
 export type Incident = Omit<
-  import("../../../shared-types/incident").IncidentBase,
+  import("../types/incident").IncidentBase,
   "tipo_residuo" | "prioridad"
 > & {
   tipo_residuo: string | null

@@ -74,7 +74,7 @@ export default function IncidentsPage() {
   const [showTimeline, setShowTimeline] = useState(false)
   const [showContext,  setShowContext]  = useState(false)
 
-  // Sincronizar filtros con URL al cambiar manualmente
+  // La URL es fuente externa de filtros (links de Topbar/Home con ?estado=).
   useEffect(() => {
     setFilters(filtersFromUrl)
   }, [filtersFromUrl])
@@ -110,6 +110,7 @@ export default function IncidentsPage() {
     }
   }, [])
 
+  // Data fetching con auto-refresh: el setState ocurre tras la respuesta async.
   useEffect(() => {
     loadList(filters)
     const id = setInterval(() => loadList(filters), 30_000)

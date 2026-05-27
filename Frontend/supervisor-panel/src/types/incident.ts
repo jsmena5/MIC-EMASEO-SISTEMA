@@ -1,10 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Tipos compartidos entre smart-waste-mobile y supervisor-panel.
+// Tipos del dominio de incidencias (reflejan el esquema de las migraciones 032/033).
 //
-// Vive como carpeta plana (sin npm workspace) — cada frontend la importa con
-// path relativo: import { Incident } from '../../../shared-types/incident'
-//
-// Reflejan el esquema actualizado por las migraciones 032 y 033.
+// NOTA: este archivo está duplicado a propósito en smart-waste-mobile/src/types/.
+// Sin un monorepo, los builds aislados (Docker, Cloudflare Pages) no pueden importar
+// fuera del directorio del proyecto. Si cambias un tipo aquí, sincroniza el otro.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

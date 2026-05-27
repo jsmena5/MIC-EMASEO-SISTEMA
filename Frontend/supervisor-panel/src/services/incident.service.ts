@@ -22,7 +22,7 @@ import { authenticatedFetch } from '../shared/api/authenticatedFetch'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-// Tipos comunes consolidados en shared-types/incident.ts.
+// Tipos del dominio consolidados en src/types/incident.ts.
 // Se reexportan para que los componentes existentes sigan importando desde aquí.
 export type {
   DecisionAutomatica,
@@ -30,7 +30,7 @@ export type {
   NivelAcum,
   Prioridad,
   TipoResiduo,
-} from '../../../shared-types/incident'
+} from '../types/incident'
 
 import type {
   DecisionAutomatica,
@@ -38,7 +38,7 @@ import type {
   NivelAcum,
   Prioridad,
   TipoResiduo,
-} from '../../../shared-types/incident'
+} from '../types/incident'
 
 export interface IncidentListItem {
   id: string
