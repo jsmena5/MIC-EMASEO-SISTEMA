@@ -22,7 +22,7 @@ export const getSupervisores = async (req, res) => {
         u.rol,
         u.estado
       FROM operations.operarios s
-      JOIN auth.users u ON u.id = s.user_id
+      JOIN app_auth.users u ON u.id = s.user_id
       WHERE u.rol = 'SUPERVISOR' AND u.estado = 'ACTIVO'
       ORDER BY s.created_at DESC
     `)
@@ -41,7 +41,7 @@ export const getSupervisorById = async (req, res) => {
     const result = await pool.query(`
       SELECT s.*, u.email, u.username, u.rol, u.estado
       FROM operations.operarios s
-      JOIN auth.users u ON u.id = s.user_id
+      JOIN app_auth.users u ON u.id = s.user_id
       WHERE s.id = $1 AND u.rol = 'SUPERVISOR'
     `, [id])
 
@@ -70,7 +70,7 @@ export const createSupervisor = async (req, res) => {
 
     // USER
     const userResult = await client.query(`
-      INSERT INTO auth.users (username, email, password_hash, rol)
+      INSERT INTO app_auth.users (username, email, password_hash, rol)
       VALUES ($1, $2, crypt($3, gen_salt('bf', $4)), 'SUPERVISOR')
       RETURNING id
     `, [cedula, email, initialPassword, BCRYPT_ROUNDS])
@@ -112,7 +112,7 @@ export const updateSupervisor = async (req, res) => {
     const op = await client.query(
       `SELECT o.user_id
        FROM operations.operarios o
-       JOIN auth.users u ON u.id = o.user_id
+       JOIN app_auth.users u ON u.id = o.user_id
        WHERE o.id = $1 AND u.rol = 'SUPERVISOR'`,
       [id]
     )
@@ -131,7 +131,7 @@ export const updateSupervisor = async (req, res) => {
     `, [nombre, apellido, telefono, id])
 
     await client.query(`
-      UPDATE auth.users
+      UPDATE app_auth.users
       SET estado=$1
       WHERE id=$2
     `, [estado, userId])
@@ -157,12 +157,12 @@ export const deleteSupervisor = async (req, res) => {
     await client.query("BEGIN")
 
     const { rowCount } = await client.query(
-      `UPDATE auth.users
+      `UPDATE app_auth.users
        SET estado = 'INACTIVO', updated_at = NOW()
        WHERE id = (
          SELECT o.user_id
          FROM operations.operarios o
-         JOIN auth.users u ON u.id = o.user_id
+         JOIN app_auth.users u ON u.id = o.user_id
          WHERE o.id = $1 AND u.rol = 'SUPERVISOR'
        )
        RETURNING id`,

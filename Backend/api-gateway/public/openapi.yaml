@@ -821,7 +821,7 @@ paths:
       description: |
         Completa el flujo de recuperación en una **transacción atómica**:
         1. Verifica el OTP (hash SHA-256, expiración, `used = FALSE`)
-        2. Actualiza el `password_hash` en `auth.users` (bcrypt vía `pgcrypto`)
+        2. Actualiza el `password_hash` en `app_auth.users` (bcrypt vía `pgcrypto`)
         3. Marca el OTP como usado
         4. Revoca **todos** los refresh tokens existentes del usuario
         5. Emite un nuevo par de tokens listo para usar
@@ -873,7 +873,7 @@ paths:
       description: |
         Inicia el registro de un ciudadano nuevo. Flujo:
         1. Valida cédula ecuatoriana (algoritmo módulo 10)
-        2. Verifica que email y cédula no existan en `auth.users`
+        2. Verifica que email y cédula no existan en `app_auth.users`
         3. Guarda o sobreescribe un registro en `pending_registrations` (ON CONFLICT)
         4. Genera OTP de 6 dígitos (válido **10 minutos**) y lo envía por correo
 
@@ -985,7 +985,7 @@ paths:
       summary: "Paso 3 — Crear contraseña y completar registro"
       description: |
         Finaliza el registro en una **transacción atómica**:
-        1. Crea cuenta en `auth.users` (contraseña hasheada con bcrypt via `pgcrypto`)
+        1. Crea cuenta en `app_auth.users` (contraseña hasheada con bcrypt via `pgcrypto`)
         2. Crea perfil en `public.ciudadanos` con nombre, apellido y cédula
         3. Elimina el registro temporal de `pending_registrations`
 

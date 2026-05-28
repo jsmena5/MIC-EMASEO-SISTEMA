@@ -23,7 +23,7 @@ export const getOperarios = async (req, res) => {
         u.rol,
         u.estado
       FROM operations.operarios o
-      JOIN auth.users u ON u.id = o.user_id
+      JOIN app_auth.users u ON u.id = o.user_id
       WHERE u.estado = 'ACTIVO'
       ORDER BY o.created_at DESC
     `)
@@ -45,7 +45,7 @@ export const getOperarioById = async (req, res) => {
     const result = await pool.query(`
       SELECT o.*, u.email, u.username, u.rol, u.estado
       FROM operations.operarios o
-      JOIN auth.users u ON u.id = o.user_id
+      JOIN app_auth.users u ON u.id = o.user_id
       WHERE o.id = $1
     `, [id])
 
@@ -76,7 +76,7 @@ export const createOperario = async (req, res) => {
 
     // 1. Crear user — rol forzado en backend; no se acepta del payload
     const userResult = await client.query(`
-      INSERT INTO auth.users (username, email, password_hash, rol)
+      INSERT INTO app_auth.users (username, email, password_hash, rol)
       VALUES ($1, $2, crypt($3, gen_salt('bf', $4)), 'OPERARIO')
       RETURNING id
     `, [cedula, email, initialPassword, BCRYPT_ROUNDS])
@@ -137,7 +137,7 @@ export const updateOperario = async (req, res) => {
     `, [nombre, apellido, telefono, cargo, id])
 
     await client.query(`
-      UPDATE auth.users
+      UPDATE app_auth.users
       SET estado=$1
       WHERE id=$2
     `, [estado, userId])
@@ -165,7 +165,7 @@ export const deleteOperario = async (req, res) => {
     await client.query("BEGIN")
 
     const { rows, rowCount } = await client.query(
-      `UPDATE auth.users
+      `UPDATE app_auth.users
        SET estado = 'INACTIVO', updated_at = NOW()
        WHERE id = (SELECT user_id FROM operations.operarios WHERE id = $1)
        RETURNING id`,

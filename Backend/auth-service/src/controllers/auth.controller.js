@@ -20,7 +20,7 @@ async function issueRefreshToken(userId) {
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
 
   await pool.query(
-    `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+    `INSERT INTO app_auth.refresh_tokens (user_id, token_hash, expires_at)
      VALUES ($1, $2, $3)`,
     [userId, hash, expiresAt]
   )
@@ -49,7 +49,7 @@ export const login = async (req, res) => {
          u.estado,
          COALESCE(c.nombre,   o.nombre)   AS nombre,
          COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.users u
+       FROM app_auth.users u
        LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
        LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE u.email = $1`,
@@ -126,8 +126,8 @@ export const refresh = async (req, res) => {
          u.estado,
          COALESCE(c.nombre,   o.nombre)   AS nombre,
          COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.refresh_tokens rt
-       JOIN auth.users u ON u.id = rt.user_id
+       FROM app_auth.refresh_tokens rt
+       JOIN app_auth.users u ON u.id = rt.user_id
        LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
        LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE rt.token_hash = $1
@@ -145,7 +145,7 @@ export const refresh = async (req, res) => {
     // Revocar si la cuenta fue suspendida tras emitir el token
     if (row.estado !== "ACTIVO") {
       await pool.query(
-        `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
         [hash]
       )
       return res.status(403).json({ message: "Cuenta suspendida o inactiva" })
@@ -153,7 +153,7 @@ export const refresh = async (req, res) => {
 
     // Rotación: revocar el token actual e emitir un par nuevo
     await pool.query(
-      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
       [hash]
     )
 
@@ -194,7 +194,7 @@ export const forgotPassword = async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
+      `SELECT id FROM app_auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
@@ -207,7 +207,7 @@ export const forgotPassword = async (req, res) => {
 
     // Eliminar tokens previos del mismo usuario para evitar acumulación
     await pool.query(
-      `DELETE FROM auth.password_reset_tokens WHERE user_id = $1`,
+      `DELETE FROM app_auth.password_reset_tokens WHERE user_id = $1`,
       [userId]
     )
 
@@ -216,7 +216,7 @@ export const forgotPassword = async (req, res) => {
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MIN * 60_000)
 
     await pool.query(
-      `INSERT INTO auth.password_reset_tokens (user_id, otp_hash, expires_at)
+      `INSERT INTO app_auth.password_reset_tokens (user_id, otp_hash, expires_at)
        VALUES ($1, $2, $3)`,
       [userId, otpHash, expiresAt]
     )
@@ -249,7 +249,7 @@ export const verifyResetOtp = async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
+      `SELECT id FROM app_auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
@@ -261,7 +261,7 @@ export const verifyResetOtp = async (req, res) => {
     const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
-      `SELECT id FROM auth.password_reset_tokens
+      `SELECT id FROM app_auth.password_reset_tokens
        WHERE user_id   = $1
          AND otp_hash  = $2
          AND expires_at > NOW()
@@ -302,7 +302,7 @@ export const resetPassword = async (req, res) => {
          u.id, u.username, u.rol,
          COALESCE(c.nombre,   o.nombre)   AS nombre,
          COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.users u
+       FROM app_auth.users u
        LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
        LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE u.email = $1 AND u.estado = 'ACTIVO'`,
@@ -317,7 +317,7 @@ export const resetPassword = async (req, res) => {
     const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
-      `SELECT id FROM auth.password_reset_tokens
+      `SELECT id FROM app_auth.password_reset_tokens
        WHERE user_id   = $1
          AND otp_hash  = $2
          AND expires_at > NOW()
@@ -354,7 +354,7 @@ export const resetPassword = async (req, res) => {
       await client.query("BEGIN")
 
       await client.query(
-        `UPDATE auth.users
+        `UPDATE app_auth.users
          SET password_hash = crypt($1, gen_salt('bf', $3)),
              updated_at    = NOW()
          WHERE id = $2`,
@@ -362,19 +362,19 @@ export const resetPassword = async (req, res) => {
       )
 
       await client.query(
-        `UPDATE auth.password_reset_tokens SET used = TRUE WHERE id = $1`,
+        `UPDATE app_auth.password_reset_tokens SET used = TRUE WHERE id = $1`,
         [tokenId]
       )
 
       // Revocar todos los refresh tokens activos por seguridad
       await client.query(
-        `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
         [user.id]
       )
 
       // Insertar nuevo refresh token dentro de la misma transacción
       await client.query(
-        `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+        `INSERT INTO app_auth.refresh_tokens (user_id, token_hash, expires_at)
          VALUES ($1, $2, $3)`,
         [user.id, refreshHash, refreshExpires]
       )
@@ -407,7 +407,7 @@ export const logout = async (req, res) => {
   try {
     const hash = hashToken(refreshToken)
     await pool.query(
-      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
       [hash]
     )
     res.status(204).send()

@@ -91,7 +91,7 @@ export const getFeedback = async (req, res) => {
          u.rol           AS reportado_por_rol
        FROM ai.analysis_feedback af
        JOIN ai.analysis_results ar ON ar.id = af.analysis_result_id
-       JOIN auth.users u           ON u.id  = af.reportado_por
+       JOIN app_auth.users u           ON u.id  = af.reportado_por
        WHERE ar.incident_id = $1
        ORDER BY af.created_at DESC`,
       [incident_id]

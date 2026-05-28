@@ -31,9 +31,9 @@ export const registerUser = async (req, res) => {
       return res.status(400).json({ message: "Número de cédula inválido" })
     }
 
-    // Verificar que el email y la cédula no estén ya registrados en auth.users
+    // Verificar que el email y la cédula no estén ya registrados en app_auth.users
     const existe = await client.query(
-      `SELECT 1 FROM auth.users u
+      `SELECT 1 FROM app_auth.users u
        JOIN public.ciudadanos c ON c.user_id = u.id
        WHERE u.email = $1 OR c.cedula = $2
        LIMIT 1`,
@@ -49,7 +49,7 @@ export const registerUser = async (req, res) => {
 
     // Guardar o reemplazar el registro pendiente para este email
     await client.query(
-      `INSERT INTO auth.pending_registrations
+      `INSERT INTO app_auth.pending_registrations
          (nombre, apellido, cedula, email, otp_code, otp_expires_at, is_verified)
        VALUES ($1, $2, $3, $4, $5, $6, FALSE)
        ON CONFLICT (email) DO UPDATE SET
@@ -108,7 +108,7 @@ export const verifyOtp = async (req, res) => {
 
     const result = await client.query(
       `SELECT otp_code, otp_expires_at, is_verified
-       FROM auth.pending_registrations
+       FROM app_auth.pending_registrations
        WHERE email = $1`,
       [email]
     )
@@ -144,7 +144,7 @@ export const verifyOtp = async (req, res) => {
 
     // Marcar como verificado — el OTP ya cumplió su función
     await client.query(
-      `UPDATE auth.pending_registrations
+      `UPDATE app_auth.pending_registrations
        SET is_verified = TRUE, otp_code = NULL, otp_expires_at = NULL
        WHERE email = $1`,
       [email]
@@ -180,7 +180,7 @@ export const setPassword = async (req, res) => {
 
     // Leer datos del registro pendiente — debe estar verificado
     const result = await client.query(
-      `SELECT nombre, apellido, cedula FROM auth.pending_registrations
+      `SELECT nombre, apellido, cedula FROM app_auth.pending_registrations
        WHERE email = $1 AND is_verified = TRUE`,
       [email]
     )
@@ -195,9 +195,9 @@ export const setPassword = async (req, res) => {
 
     await client.query("BEGIN")
 
-    // 1. Crear cuenta en auth.users
+    // 1. Crear cuenta en app_auth.users
     const userResult = await client.query(
-      `INSERT INTO auth.users
+      `INSERT INTO app_auth.users
          (username, email, password_hash, estado, is_verified)
        VALUES
          ($1, $2, crypt($3, gen_salt('bf', $4)), 'ACTIVO', TRUE)
@@ -217,14 +217,14 @@ export const setPassword = async (req, res) => {
     const ipOrigen   = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null
     const userAgent  = req.headers['user-agent'] || null
     await client.query(
-      `INSERT INTO auth.user_consents (user_id, version_politica, ip_origen, user_agent)
+      `INSERT INTO app_auth.user_consents (user_id, version_politica, ip_origen, user_agent)
        VALUES ($1, $2, $3::inet, $4)`,
       [user.id, '1.0', ipOrigen, userAgent]
     )
 
     // 4. Eliminar el registro temporal
     await client.query(
-      `DELETE FROM auth.pending_registrations WHERE email = $1`,
+      `DELETE FROM app_auth.pending_registrations WHERE email = $1`,
       [email]
     )
 
@@ -233,7 +233,7 @@ export const setPassword = async (req, res) => {
     const refreshHash = hashToken(rawRefreshToken)
     const refreshExpires = new Date(Date.now() + 7 * 86_400_000)
     await client.query(
-      `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+      `INSERT INTO app_auth.refresh_tokens (user_id, token_hash, expires_at)
        VALUES ($1, $2, $3)`,
       [user.id, refreshHash, refreshExpires]
     )
@@ -293,7 +293,7 @@ export const registerPushToken = async (req, res) => {
 
   try {
     await pool.query(
-      `INSERT INTO auth.device_tokens (user_id, token, platform, app_version, last_seen_at)
+      `INSERT INTO app_auth.device_tokens (user_id, token, platform, app_version, last_seen_at)
        VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (token) DO UPDATE SET
          user_id      = EXCLUDED.user_id,

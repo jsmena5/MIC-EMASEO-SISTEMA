@@ -145,7 +145,7 @@ describe('setPassword — username generation', () => {
       .mockResolvedValueOnce({ rows: [{ nombre: 'Ana', apellido: 'G', cedula: CEDULA }] })
       // BEGIN
       .mockResolvedValueOnce(undefined)
-      // INSERT auth.users RETURNING id, username, email, rol
+      // INSERT app_auth.users RETURNING id, username, email, rol
       .mockImplementationOnce((_sql, params) => {
         newUser.username = params[0]; // capturar el username generado
         return Promise.resolve({ rows: [{ ...newUser, username: params[0] }] });
@@ -174,7 +174,7 @@ describe('setPassword — username generation', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// deleteOperario — soft-delete: pone estado = 'INACTIVO' en auth.users
+// deleteOperario — soft-delete: pone estado = 'INACTIVO' en app_auth.users
 // ═══════════════════════════════════════════════════════════════════════════════
 
 describe('deleteOperario — soft-delete', () => {
