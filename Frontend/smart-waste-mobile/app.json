@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bryanortiz.smartwastemobile"
+      "bundleIdentifier": "com.bryanortiz.smartwastemobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Necesitamos acceso a la cámara para detectar acumulaciones de basura."
+      }
     },
     "android": {
       "package": "com.bryanortiz.smartwastemobile",
@@ -76,6 +79,12 @@
         "projectId": "c259a64b-d63f-4a3d-bc7f-a9afcded7a48"
       }
     },
-    "owner": "bryanandreso"
+    "owner": "bryanandreso",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c259a64b-d63f-4a3d-bc7f-a9afcded7a48"
+    }
   }
 }
