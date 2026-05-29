@@ -341,7 +341,7 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
 // IMPORTANTE: Las imágenes ya subidas a S3 NUNCA se eliminan.
 // Se conservan siempre como imagen_auditoria_url para auditoría de decisiones.
 
-async function runMlAnalysis(incidentId, { buffer, image }) {
+async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio }) {
   const log      = (msg) => console.log(`[image-service] [incident=${incidentId}] ${msg}`)
   const logError = (msg) => console.error(`[image-service] [incident=${incidentId}] ${msg}`)
 
@@ -376,11 +376,15 @@ async function runMlAnalysis(incidentId, { buffer, image }) {
     let celeryTaskId
     try {
       const dims = getImageDimensions(buffer)
-      const { task_id } = await mlBreaker.fire({
+      const mlPayload = {
         image_base64: image,
         image_width:  dims?.width  ?? 0,
         image_height: dims?.height ?? 0,
-      })
+      }
+      if (client_coverage_ratio !== undefined) {
+        mlPayload.client_coverage_ratio = client_coverage_ratio
+      }
+      const { task_id } = await mlBreaker.fire(mlPayload)
       celeryTaskId = task_id
 
       // Persistir task_id inmediatamente; si muere el proceso, recoverCeleryTasks
@@ -493,7 +497,7 @@ async function runMlAnalysis(incidentId, { buffer, image }) {
 // analyzeImage — Endpoint principal
 // ──────────────────────────────────────────────────────────────────────────────
 
-export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", ubicacion_aproximada = false, userId }) {
+export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", ubicacion_aproximada = false, userId, client_coverage_ratio }) {
 
   if (!image) {
     throw createHttpError("El campo 'image' (base64) es requerido.", 400)
@@ -550,7 +554,7 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
   console.log(`[image-service] ✅ Incidente creado id=${incidentId} estado=PROCESANDO prioridad_temp=${TEMP_PRIORIDAD}`)
 
   setImmediate(() => {
-    runMlAnalysis(incidentId, { buffer, image }).catch((err) => {
+    runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio }).catch((err) => {
       console.error(`[image-service] Error no controlado en runMlAnalysis incident=${incidentId}:`, err.message)
     })
   })

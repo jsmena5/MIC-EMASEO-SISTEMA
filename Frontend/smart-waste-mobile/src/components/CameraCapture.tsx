@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons"
-import { CameraView as ExpoCameraView } from "expo-camera"
+import * as FileSystem from "expo-file-system"
 import * as Haptics from "expo-haptics"
-import React, { useEffect, useRef, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -11,52 +11,136 @@ import {
   TouchableOpacity,
   View,
 } from "react-native"
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated"
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated"
+import { Camera, useCameraPermission, type CameraDevice } from "react-native-vision-camera"
 
 import { colors } from "../theme/colors"
+import type { DistanceHint } from "../types/incident"
+import { useLiveDistanceGuidance } from "../hooks/useLiveDistanceGuidance"
 import ScanOverlay from "./ScanOverlay"
-// Constantes compartidas con ScanOverlay, CapturedFrameOverlay y cropToScanFrame
 import { SCAN_FRAME_SIZE, SCAN_OVERLAY_V } from "../utils/cropToScanFrame"
 
 type ScanPhase = "scanning" | "ready"
 
 export interface CameraCaptureProps {
   /**
-   * Called once the shutter fires and the picture is ready.
-   * `width` and `height` are the sensor dimensions of the captured photo —
-   * needed by cropToScanFrame to calculate the exact crop region.
+   * Llamado al disparar el obturador. `width` y `height` son dimensiones del sensor,
+   * necesarias para cropToScanFrame.
    */
   onPictureTaken: (base64: string, uri: string, width: number, height: number) => void
-  /** Optional: called when the user taps the back arrow. */
+  /** Llamado en cada actualización del frame processor con la pista de distancia. */
+  onCoverageUpdate?: (hint: DistanceHint, coverage: number) => void
   onBack?: () => void
 }
 
-// SCAN_FRAME_SIZE / SCAN_OVERLAY_V provienen de cropToScanFrame (fuente de verdad única)
+// Posición X del indicador en la barra de distancia (pista de 120 px, sin el ancho del indicador)
+const HINT_POSITION: Record<DistanceHint, number> = {
+  TOO_CLOSE: 4,    // extremo izquierdo (muy cerca)
+  OPTIMAL:   52,   // centro
+  TOO_FAR:   100,  // extremo derecho (muy lejos)
+}
+
+const HINT_LABEL: Record<DistanceHint, string> = {
+  TOO_CLOSE: "Muy cerca",
+  OPTIMAL:   "¡Distancia perfecta!",
+  TOO_FAR:   "Acércate más",
+}
+
+const HINT_COLOR: Record<DistanceHint, string> = {
+  TOO_CLOSE: "#FF5252",
+  OPTIMAL:   colors.secondary,
+  TOO_FAR:   "#FFA726",
+}
 
 // ─── Public component ────────────────────────────────────────────────────────
 
-export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureProps) {
-  const cameraRef = useRef<any>(null)
-  const [phase, setPhase] = useState<ScanPhase>("scanning")
-  const [capturing, setCapturing] = useState(false)
+export default function CameraCapture({
+  onPictureTaken,
+  onCoverageUpdate,
+  onBack,
+}: CameraCaptureProps) {
+  const cameraRef = useRef<InstanceType<typeof Camera>>(null)
+  const [phase, setPhase]           = useState<ScanPhase>("scanning")
+  const [capturing, setCapturing]   = useState(false)
+  const [hint, setHint]             = useState<DistanceHint>("TOO_FAR")
+  const [hintLabel, setHintLabel]   = useState(HINT_LABEL.TOO_FAR)
+  const [device, setDevice]         = useState<CameraDevice | undefined>()
 
+  const { hasPermission, requestPermission } = useCameraPermission()
+
+  // Posición animada del indicador de distancia
+  const indicatorX = useSharedValue(HINT_POSITION.TOO_FAR)
+
+  // ── Pedir permiso si no lo tenemos ──
   useEffect(() => {
-    const t = setTimeout(() => {
-      setPhase("ready")
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    }, 2600)
-    return () => clearTimeout(t)
+    if (!hasPermission) requestPermission()
+  }, [hasPermission, requestPermission])
+
+  // ── Obtener la cámara trasera disponible ──
+  useEffect(() => {
+    Camera.getAvailableCameraDevices().then((devices) => {
+      const back = devices.find((d) => d.position === "back")
+      setDevice(back)
+    })
   }, [])
 
+  // ── Ref para acceder al hint actual desde el timer sin recrearlo ──
+  const hintRef = useRef<DistanceHint>("TOO_FAR")
+
+  // ── Timer de fase: "listo" a partir de 2.6 s, pero solo si OPTIMAL ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      // Revisar cada 500 ms si ya llegó al rango OPTIMAL
+      const poll = setInterval(() => {
+        if (hintRef.current === "OPTIMAL") {
+          clearInterval(poll)
+          setPhase("ready")
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+        }
+      }, 500)
+      // Si ya es OPTIMAL al cumplir los 2.6 s, activar inmediatamente
+      if (hintRef.current === "OPTIMAL") {
+        clearInterval(poll)
+        setPhase("ready")
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+      }
+      return () => clearInterval(poll)
+    }, 2600)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // ── Callback del frame processor ──
+  const handleGuidanceUpdate = useCallback(
+    (newHint: DistanceHint, coverage: number) => {
+      hintRef.current = newHint
+      setHint(newHint)
+      setHintLabel(HINT_LABEL[newHint])
+      indicatorX.value = withSpring(HINT_POSITION[newHint], { damping: 15, stiffness: 100 })
+      onCoverageUpdate?.(newHint, coverage)
+    },
+    [onCoverageUpdate, indicatorX],
+  )
+
+  const frameProcessor = useLiveDistanceGuidance(handleGuidanceUpdate)
+
+  // ── Captura ──
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return
     setCapturing(true)
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.82 })
-      // Pasar también las dimensiones reales del sensor para que ScanScreen
-      // pueda calcular el recorte preciso en cropToScanFrame.
-      onPictureTaken(photo.base64 ?? "", photo.uri, photo.width, photo.height)
+      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: "balanced" })
+      const path = photo.path.startsWith("file://") ? photo.path : `file://${photo.path}`
+      const base64 = await FileSystem.readAsStringAsync(path, {
+        encoding: FileSystem.EncodingType.Base64,
+      })
+      onPictureTaken(base64, path, photo.width, photo.height)
     } catch {
       Alert.alert("Error", "No se pudo capturar la imagen. Intenta de nuevo.")
     } finally {
@@ -64,10 +148,47 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
     }
   }
 
-  const isReady = phase === "ready"
+  // ── Estilo animado del indicador ──
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorX.value }],
+  }))
+
+  const isReady    = phase === "ready"
+  const hintColor  = HINT_COLOR[hint]
+
+  if (!hasPermission) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Text style={styles.permissionText}>
+          Se necesita acceso a la cámara para escanear basura.
+        </Text>
+        <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
+          <Text style={styles.permissionBtnText}>Conceder permiso</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  if (!device) {
+    return (
+      <View style={styles.permissionContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.permissionText}>Iniciando cámara...</Text>
+      </View>
+    )
+  }
 
   return (
-    <ExpoCameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back">
+    <View style={StyleSheet.absoluteFill}>
+      <Camera
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        device={device}
+        isActive
+        photo
+        frameProcessor={frameProcessor}
+        pixelFormat="rgb"
+      />
 
       {/* ── Top bar ── */}
       <View style={styles.topBar}>
@@ -95,13 +216,13 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
         </Text>
       </Animated.View>
 
-      {/* ── Dark cutout overlay with frame and brackets ── */}
+      {/* ── Dark cutout overlay con frame y esquinas ── */}
       <ScanOverlay scanning={!isReady} />
 
       {/* ── Bottom controls ── */}
       <View style={styles.bottomControls}>
         <View style={styles.instructionPill}>
-          <Text style={styles.instructionText}>Tome la foto a 2 metros de distancia</Text>
+          <Text style={styles.instructionText}>Encuadra la basura en el marco</Text>
         </View>
 
         <View style={styles.hintRow}>
@@ -109,16 +230,21 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
           <HintChip icon="sunny-outline" label="Buena iluminación" />
         </View>
 
+        {/* ── Barra de distancia dinámica ── */}
         <View style={styles.distanceBar}>
           <Text style={styles.distanceLabel}>CERCA</Text>
           <View style={styles.distanceTrack}>
-            <View style={[
-              styles.distanceIndicator,
-              { backgroundColor: isReady ? colors.secondary : colors.primary },
-            ]} />
+            <Animated.View
+              style={[
+                styles.distanceIndicator,
+                { backgroundColor: hintColor },
+                indicatorStyle,
+              ]}
+            />
           </View>
           <Text style={styles.distanceLabel}>LEJOS</Text>
         </View>
+        <Text style={[styles.hintText, { color: hintColor }]}>{hintLabel}</Text>
 
         <Text style={styles.bottomHint}>
           {isReady
@@ -126,7 +252,7 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
             : "Centra la acumulación de basura en el marco"}
         </Text>
 
-        {/* ── Shutter button ── */}
+        {/* ── Botón de captura ── */}
         <TouchableOpacity
           style={[styles.shutterBtn, capturing && styles.shutterBtnDisabled]}
           onPress={handleCapture}
@@ -143,8 +269,7 @@ export default function CameraCapture({ onPictureTaken, onBack }: CameraCaptureP
           {capturing ? "Capturando..." : "Tomar foto"}
         </Text>
       </View>
-
-    </ExpoCameraView>
+    </View>
   )
 }
 
@@ -165,6 +290,17 @@ function HintChip({ icon, label }: {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  permissionContainer: {
+    flex: 1, justifyContent: "center", alignItems: "center",
+    backgroundColor: "#001828", gap: 20, padding: 32,
+  },
+  permissionText: { color: "#fff", fontSize: 15, textAlign: "center", lineHeight: 22 },
+  permissionBtn: {
+    backgroundColor: colors.primary, paddingVertical: 12, paddingHorizontal: 24,
+    borderRadius: 12,
+  },
+  permissionBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -195,14 +331,13 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,168,89,0.5)",
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  dotBlue: { backgroundColor: colors.primary },
+  dotBlue:  { backgroundColor: colors.primary },
   dotGreen: { backgroundColor: colors.secondary },
   statusText: { color: "#fff", fontSize: 13, fontWeight: "600", letterSpacing: 0.2 },
 
   bottomControls: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
-    // Arranca justo debajo del recuadro: OVERLAY_V (tope del frame) + FRAME_SIZE (alto)
     top: SCAN_OVERLAY_V + SCAN_FRAME_SIZE,
     backgroundColor: "rgba(0,0,0,0.62)",
     paddingTop: 20, alignItems: "center",
@@ -225,17 +360,20 @@ const styles = StyleSheet.create({
   },
   hintChipText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "500" },
 
-  distanceBar: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
+  distanceBar: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
   distanceLabel: {
     color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700", letterSpacing: 1,
   },
   distanceTrack: {
     width: 120, height: 4,
-    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2, justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2, overflow: "visible",
   },
   distanceIndicator: {
-    width: 16, height: 16, borderRadius: 8, alignSelf: "center",
+    width: 16, height: 16, borderRadius: 8, position: "absolute", top: -6,
     elevation: 4, shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 0 },
+  },
+  hintText: {
+    fontSize: 12, fontWeight: "700", letterSpacing: 0.3, marginBottom: 10,
   },
   bottomHint: {
     color: "rgba(255,255,255,0.55)", fontSize: 13,

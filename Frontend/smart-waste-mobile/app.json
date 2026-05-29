@@ -28,6 +28,7 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
+        "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ]
@@ -54,6 +55,13 @@
           "dark": {
             "backgroundColor": "#001828"
           }
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Necesitamos acceso a la cámara para detectar acumulaciones de basura.",
+          "enableFrameProcessors": true
         }
       ],
       "expo-secure-store"

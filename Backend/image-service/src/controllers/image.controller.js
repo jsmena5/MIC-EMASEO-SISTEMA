@@ -40,13 +40,18 @@ export const validateImage = async (req, res) => {
 // el resultado (o error tipado) a una respuesta HTTP.
 
 export const analyzeImage = async (req, res) => {
-  const { image, latitude, longitude, descripcion, ubicacion_aproximada } = req.body
+  const { image, latitude, longitude, descripcion, ubicacion_aproximada, client_coverage_ratio } = req.body
   const userId = req.headers["x-user-id"]
 
-  console.log(`[image-controller] POST /analyze userId=${userId} lat=${latitude} lon=${longitude} aprox=${!!ubicacion_aproximada}`)
+  // Validar client_coverage_ratio si fue enviado
+  const coverageRatio = (typeof client_coverage_ratio === "number" && client_coverage_ratio >= 0 && client_coverage_ratio <= 1)
+    ? client_coverage_ratio
+    : undefined
+
+  console.log(`[image-controller] POST /analyze userId=${userId} lat=${latitude} lon=${longitude} aprox=${!!ubicacion_aproximada} coverage=${coverageRatio ?? "N/A"}`)
 
   try {
-    const result = await analyzeImageService({ image, latitude, longitude, descripcion, ubicacion_aproximada: !!ubicacion_aproximada, userId })
+    const result = await analyzeImageService({ image, latitude, longitude, descripcion, ubicacion_aproximada: !!ubicacion_aproximada, userId, client_coverage_ratio: coverageRatio })
     const { httpStatus, ...body } = result
     return reply(res, httpStatus, body)
   } catch (err) {

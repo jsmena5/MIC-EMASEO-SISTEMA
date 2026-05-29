@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from "@expo/vector-icons"
 import { useNavigation } from "@react-navigation/native"
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
-import { Camera } from "expo-camera"
 import * as ImageManipulator from "expo-image-manipulator"
 import * as Location from "expo-location"
 import React, { useEffect, useRef, useState } from "react"
@@ -66,10 +65,11 @@ export default function ScanScreen() {
   // pantalla entra en foco (incluye vueltas después de "Tomar otra foto").
   useAlwaysAllowScreenCapture()
 
-  const [camGranted, setCamGranted]   = useState<boolean | null>(null)
   const [locDenied, setLocDenied]     = useState(false)
-  const [locError, setLocError]       = useState<string | null>(null) // Nuevo: error de GPS
+  const [locError, setLocError]       = useState<string | null>(null)
   const [isRetryingLocation, setIsRetryingLocation] = useState(false)
+  // Coverage ratio estimado en tiempo real por el frame processor (0-1)
+  const [liveCoverage, setLiveCoverage] = useState<number | null>(null)
 
   const [capturedUri,     setCapturedUri]     = useState<string | null>(null)
   // URI del recorte (región del recuadro). null mientras el recorte está en curso.
@@ -96,27 +96,10 @@ export default function ScanScreen() {
   // cancelar o completar exitosamente. Nunca supera MAX_RETRIES.
   const retryCountRef        = useRef(0)
 
-  // Request camera first, then location (two overlapping dialogs break on iOS/Android)
+  // VisionCamera gestiona el permiso de cámara internamente en CameraCapture.
+  // Aquí solo pedimos Location (no mezclar los dos dialogs simultáneamente).
   useEffect(() => {
     ;(async () => {
-      const { status: camStatus, canAskAgain: camCanAsk } =
-        await Camera.requestCameraPermissionsAsync()
-      if (camStatus !== "granted") {
-        setCamGranted(false)
-        if (!camCanAsk) {
-          Alert.alert(
-            "Permisos Denegados",
-            "Por favor, habilita la cámara en la configuración de tu celular",
-            [
-              { text: "Abrir Configuración", onPress: () => Linking.openSettings() },
-              { text: "Cancelar", style: "cancel" },
-            ],
-          )
-        }
-        return
-      }
-      setCamGranted(true)
-
       const { status: locStatus, canAskAgain: locCanAsk } =
         await Location.requestForegroundPermissionsAsync()
       if (locStatus !== "granted") {
@@ -407,6 +390,7 @@ export default function ScanScreen() {
         signal: controller.signal,
         onUploadProgress: setUploadProgress,
         ubicacion_aproximada: ubicacionAproximada,
+        clientCoverageRatio: liveCoverage ?? undefined,
       })
       taskId = accepted.task_id
       // Persistir task_id en ref para que handleCancelAnalysis pueda guardarlo
@@ -610,36 +594,7 @@ export default function ScanScreen() {
   }
 
   // ── Permission screens ────────────────────────────────────────────────────
-
-  if (camGranted === null) {
-    return (
-      <View style={styles.permScreen}>
-        <Ionicons name="camera-outline" size={72} color={colors.gray400} />
-        <Text style={styles.permTitle}>Cargando cámara...</Text>
-      </View>
-    )
-  }
-
-  if (camGranted === false) {
-    return (
-      <View style={styles.permScreen}>
-        <View style={styles.permIconWrap}>
-          <Ionicons name="camera-outline" size={48} color={colors.primary} />
-        </View>
-        <Text style={styles.permTitle}>Cámara requerida</Text>
-        <Text style={styles.permBody}>
-          EMASEO necesita acceso a la cámara para fotografiar y reportar acumulaciones de basura.
-        </Text>
-        <TouchableOpacity style={styles.permBtn} onPress={() => Linking.openSettings()}>
-          <Ionicons name="settings-outline" size={20} color="#fff" />
-          <Text style={styles.permBtnText}>Abrir Configuración</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.backLink} onPress={() => navigation.goBack()}>
-          <Text style={styles.backLinkText}>Volver</Text>
-        </TouchableOpacity>
-      </View>
-    )
-  }
+  // Nota: el permiso de cámara lo gestiona CameraCapture (VisionCamera).
 
   if (locDenied) {
     return (
@@ -796,7 +751,8 @@ export default function ScanScreen() {
       />
       <CameraCapture
         key={phase === "idle" ? "active" : "locked"}
-        onPictureTaken={handlePictureTaken}   // ahora recibe (b64, uri, width, height)
+        onPictureTaken={handlePictureTaken}
+        onCoverageUpdate={(_, cov) => setLiveCoverage(cov)}
         onBack={() => navigation.goBack()}
       />
       {pendingCount > 0 && (

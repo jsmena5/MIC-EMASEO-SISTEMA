@@ -6,6 +6,9 @@
 // proyecto. Si cambias un tipo aquí, sincroniza el otro.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Pista de distancia devuelta por el frame processor o el pre-check guidance. */
+export type DistanceHint = 'TOO_CLOSE' | 'OPTIMAL' | 'TOO_FAR'
+
 /**
  * Estados del ciclo de vida de una incidencia.
  *   PROCESANDO → PENDIENTE   (ML detectó residuos)

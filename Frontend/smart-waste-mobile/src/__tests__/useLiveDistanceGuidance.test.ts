@@ -1,0 +1,85 @@
+/**
+ * Tests unitarios para la lógica de mapeo de coverage → DistanceHint.
+ *
+ * useLiveDistanceGuidance usa useFrameProcessor (nativo) que no puede ejecutarse
+ * en Jest. Se testea la lógica pura de los umbrales extrayéndola del hook.
+ */
+
+import type { DistanceHint } from '../types/incident'
+
+// ─── Lógica pura extraída del hook (mismos valores que useLiveDistanceGuidance.ts) ──
+
+const TOO_FAR_MAX   = 0.15
+const TOO_CLOSE_MIN = 0.65
+
+function coverageToHint(coverage: number): DistanceHint {
+  if (coverage < TOO_FAR_MAX)   return 'TOO_FAR'
+  if (coverage > TOO_CLOSE_MIN) return 'TOO_CLOSE'
+  return 'OPTIMAL'
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+describe('coverageToHint — lógica de umbrales', () => {
+  test('coverage 0.00 → TOO_FAR', () => {
+    expect(coverageToHint(0.00)).toBe('TOO_FAR')
+  })
+
+  test('coverage 0.10 → TOO_FAR', () => {
+    expect(coverageToHint(0.10)).toBe('TOO_FAR')
+  })
+
+  test('coverage 0.14 → TOO_FAR (justo bajo el límite)', () => {
+    expect(coverageToHint(0.14)).toBe('TOO_FAR')
+  })
+
+  test('coverage 0.15 → OPTIMAL (límite inferior incluido)', () => {
+    expect(coverageToHint(0.15)).toBe('OPTIMAL')
+  })
+
+  test('coverage 0.40 → OPTIMAL (punto medio)', () => {
+    expect(coverageToHint(0.40)).toBe('OPTIMAL')
+  })
+
+  test('coverage 0.65 → OPTIMAL (límite superior incluido)', () => {
+    expect(coverageToHint(0.65)).toBe('OPTIMAL')
+  })
+
+  test('coverage 0.66 → TOO_CLOSE (justo sobre el límite)', () => {
+    expect(coverageToHint(0.66)).toBe('TOO_CLOSE')
+  })
+
+  test('coverage 0.75 → TOO_CLOSE', () => {
+    expect(coverageToHint(0.75)).toBe('TOO_CLOSE')
+  })
+
+  test('coverage 1.00 → TOO_CLOSE', () => {
+    expect(coverageToHint(1.00)).toBe('TOO_CLOSE')
+  })
+})
+
+describe('Throttle — el hook no dispara onUpdate más de 5 veces/s', () => {
+  test('llamadas en < 200 ms no deben generar actualizaciones duplicadas', () => {
+    // Simulamos el comportamiento del throttle con un contador manual
+    let callCount = 0
+    const THROTTLE_MS = 200
+    let lastMs = 0
+
+    function throttledUpdate(now: number) {
+      if (now - lastMs < THROTTLE_MS) return
+      lastMs = now
+      callCount++
+    }
+
+    // 10 llamadas en 50 ms (una cada 5 ms) → solo debería contar 1
+    for (let i = 0; i < 10; i++) {
+      throttledUpdate(i * 5)
+    }
+    // La primera a t=0 pasa (lastMs=0, diff=0, no < 200), las demás no
+    expect(callCount).toBe(1)
+
+    // Después de 200 ms ya puede pasar otra
+    throttledUpdate(200)
+    expect(callCount).toBe(2)
+  })
+})

@@ -1,12 +1,16 @@
 import api from "../utils/api"
 import type {
   AnalysisIncidentEstado,
+  DistanceHint,
   IncidentEstado,
   NivelAcum,
   Prioridad,
 } from "../types/incident"
 
+export type { DistanceHint }
+
 export type { AnalysisIncidentEstado, IncidentEstado }
+
 
 export const validateImage = async (imageBase64: string) => {
   try {
@@ -98,17 +102,22 @@ export const analyzeImage = async (
     signal?: AbortSignal
     onUploadProgress?: (percentage: number) => void
     ubicacion_aproximada?: boolean
+    clientCoverageRatio?: number
   }
 ): Promise<AnalyzeAccepted> => {
+  const body: Record<string, unknown> = {
+    image: imageBase64,
+    latitude,
+    longitude,
+    descripcion: descripcion ?? "",
+    ubicacion_aproximada: options?.ubicacion_aproximada ?? false,
+  }
+  if (options?.clientCoverageRatio !== undefined) {
+    body.client_coverage_ratio = options.clientCoverageRatio
+  }
   const res = await api.post(
     "/image/analyze",
-    {
-      image: imageBase64,
-      latitude,
-      longitude,
-      descripcion: descripcion ?? "",
-      ubicacion_aproximada: options?.ubicacion_aproximada ?? false,
-    },
+    body,
     {
       signal: options?.signal,
       onUploadProgress: options?.onUploadProgress
@@ -143,22 +152,29 @@ export interface PreCheckResult {
   garbage_score: number
   is_garbage:    boolean
   threshold:     number
+  /** Solo presente cuando guidance_mode=true en el request. */
+  coverage_ratio?: number
+  /** Solo presente cuando guidance_mode=true en el request. */
+  distance_hint?:  DistanceHint
 }
 
 /**
  * Envía un thumbnail pequeño (~15 KB, 320 px de ancho) al endpoint /ml/pre-check
  * para detectar si la imagen tiene aspecto de basura ANTES de correr YOLO.
  *
+ * Con guidanceMode=true devuelve también coverage_ratio y distance_hint.
+ *
  * Fail-closed: si el pre-check falla (red, timeout, server error) propaga el
  * error y el caller decide. NO devuelve un resultado optimista que dejaría
  * pasar reportes inválidos cuando la red es inestable.
  */
-export async function preCheckImage(thumbnailBase64: string): Promise<PreCheckResult> {
-  const { data } = await api.post<PreCheckResult>(
-    "/ml/pre-check",
-    { image_base64: thumbnailBase64 },
-    { timeout: 12_000 },
-  )
+export async function preCheckImage(
+  thumbnailBase64: string,
+  opts?: { guidanceMode?: boolean },
+): Promise<PreCheckResult> {
+  const body: Record<string, unknown> = { image_base64: thumbnailBase64 }
+  if (opts?.guidanceMode) body.guidance_mode = true
+  const { data } = await api.post<PreCheckResult>("/ml/pre-check", body, { timeout: 12_000 })
   return data
 }
 

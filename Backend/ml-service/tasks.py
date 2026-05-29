@@ -202,7 +202,7 @@ def handle_dead_letter(
     soft_time_limit=300,  # 5 min: permite limpieza antes del SIGKILL
     time_limit=360,       # 6 min: fuerza terminación si soft_time_limit se ignoró
 )
-def run_inference(self, image_path: str, image_width: int = 1280, image_height: int = 960):
+def run_inference(self, image_path: str, image_width: int = 1280, image_height: int = 960, client_coverage_ratio: float | None = None):
     if DUMMY_MODE:
         time.sleep(2)
         return {
@@ -386,8 +386,23 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         # Si USE_MIDAS_VOLUME=true, substituye el volumen interpolado por banda con
         # la estimación basada en geometría real (calibrada al plano de suelo).
         # Falla silenciosamente → fallback al volumen de banda si MiDaS no está disponible.
+        #
+        # Si client_coverage_ratio está disponible (enviado desde el móvil tras la
+        # guía de distancia del frame processor), se usa para ajustar GROUND_DEPTH_M:
+        # coverage ≈ 0.50 a 2 m de distancia → ratio = sqrt(0.50 / client_coverage)
+        # escala la distancia de referencia proporcionalmente.
         if USE_MIDAS_VOLUME:
-            midas_vol = _estimate_volume_midas(img, detecciones, img_w, img_h)
+            from ml_utils import GROUND_DEPTH_M
+            ground_m = GROUND_DEPTH_M
+            if client_coverage_ratio and 0.05 <= client_coverage_ratio <= 0.95:
+                import math as _math
+                # Escalar distancia de referencia: más coverage → más cerca → menor distancia
+                scale = _math.sqrt(0.50 / client_coverage_ratio)
+                ground_m = round(max(0.5, min(8.0, GROUND_DEPTH_M * scale)), 2)
+                logger.info("[tasks] MiDaS calibrado: coverage=%.3f → ground_m=%.2f (base=%.1f)",
+                            client_coverage_ratio, ground_m, GROUND_DEPTH_M)
+            midas_vol = _estimate_volume_midas(img, detecciones, img_w, img_h,
+                                               ground_depth_m_override=ground_m)
             if midas_vol is not None:
                 metricas["volumen"] = round(min(20.0, midas_vol), 2)
 

@@ -39,6 +39,75 @@ const LONGITUDE = -78.467838
 
 function hr(char = "─", n = 60) { return char.repeat(n) }
 
+const ML_URL = "http://localhost:8000"
+
+// ─── Helpers de aserción ──────────────────────────────────────────────────────
+function assert(condition, message) {
+  if (!condition) {
+    console.error(`  ✗ ASSERTION FAILED: ${message}`)
+    process.exit(1)
+  }
+  console.log(`  ✓ ${message}`)
+}
+
+// ─── Test de guidance pre-check ───────────────────────────────────────────────
+async function testGuidancePreCheck(imageBase64) {
+  console.log("\n" + hr())
+  console.log("  [Guidance] POST /ml/pre-check con guidance_mode=true")
+  console.log(hr())
+
+  const resp = await fetch(`${ML_URL}/pre-check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_base64: imageBase64, guidance_mode: true }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  const data = await resp.json()
+
+  assert(resp.status === 200, `HTTP 200 (got ${resp.status})`)
+  assert(typeof data.garbage_score === "number", `garbage_score es número: ${data.garbage_score}`)
+  assert(typeof data.is_garbage === "boolean", `is_garbage es boolean: ${data.is_garbage}`)
+  assert(typeof data.threshold === "number", `threshold es número: ${data.threshold}`)
+  assert(typeof data.coverage_ratio === "number", `coverage_ratio presente: ${data.coverage_ratio}`)
+  assert(data.coverage_ratio >= 0 && data.coverage_ratio <= 1, `coverage_ratio en [0,1]: ${data.coverage_ratio}`)
+  assert(["TOO_CLOSE", "OPTIMAL", "TOO_FAR"].includes(data.distance_hint),
+    `distance_hint válido: ${data.distance_hint}`)
+
+  console.log(`\n  coverage_ratio : ${data.coverage_ratio}`)
+  console.log(`  distance_hint  : ${data.distance_hint}`)
+}
+
+// ─── Test de analyze con client_coverage_ratio ────────────────────────────────
+async function testAnalyzeWithCoverage(imageBase64, jwtToken) {
+  console.log("\n" + hr())
+  console.log("  [Guidance] POST /api/image/analyze con client_coverage_ratio=0.45")
+  console.log(hr())
+
+  const resp = await fetch(`${GATEWAY_URL}/api/image/analyze`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${jwtToken}`,
+    },
+    body: JSON.stringify({
+      image: imageBase64,
+      latitude: LATITUDE,
+      longitude: LONGITUDE,
+      descripcion: "Test integración con coverage",
+      client_coverage_ratio: 0.45,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  })
+  const data = await resp.json()
+
+  assert(resp.status === 202, `HTTP 202 (got ${resp.status}: ${JSON.stringify(data)})`)
+  assert(typeof data.task_id === "string" && data.task_id.length > 0,
+    `task_id presente: ${data.task_id}`)
+  assert(data.estado === "PROCESANDO", `estado=PROCESANDO: ${data.estado}`)
+
+  console.log(`\n  task_id : ${data.task_id}`)
+}
+
 async function main() {
   console.log("\n" + hr("="))
   console.log("  Test de Integración — Flujo Reporte de Incidente con IA")
@@ -134,6 +203,27 @@ async function main() {
   console.log(`\n  SELECT * FROM incidents.incidents i`)
   console.log(`  JOIN ai.analysis_results ar ON ar.incident_id = i.id`)
   console.log(`  WHERE i.id = '${data.incident_id}';\n`)
+
+  // ── Nuevos tests de guidance ───────────────────────────────────────────────
+  try {
+    await testGuidancePreCheck(imageBase64)
+  } catch (err) {
+    console.error(`\n  ERROR en testGuidancePreCheck: ${err.message}`)
+  }
+
+  if (JWT_TOKEN !== "PEGA_AQUI_TU_TOKEN_JWT") {
+    try {
+      await testAnalyzeWithCoverage(imageBase64, JWT_TOKEN)
+    } catch (err) {
+      console.error(`\n  ERROR en testAnalyzeWithCoverage: ${err.message}`)
+    }
+  } else {
+    console.log("\n  [Guidance] testAnalyzeWithCoverage omitido — JWT_TOKEN no configurado")
+  }
+
+  console.log("\n" + hr("="))
+  console.log("  Todos los tests finalizados")
+  console.log(hr("=") + "\n")
 }
 
 function diagnostico(status, data) {

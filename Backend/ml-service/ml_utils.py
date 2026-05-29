@@ -241,6 +241,7 @@ def estimate_volume_midas(
     detecciones: list,
     img_w: int,
     img_h: int,
+    ground_depth_m_override: float | None = None,
 ) -> float | None:
     """Estima el volumen total de acumulación usando profundidad monocular MiDaS.
 
@@ -296,6 +297,9 @@ def estimate_volume_midas(
             logger.warning("[MiDaS] Disparidad de suelo casi cero — imagen inválida")
             return None
 
+        # Usar el override de distancia si fue provisto por el cliente (frame processor)
+        effective_ground_depth = ground_depth_m_override if ground_depth_m_override is not None else GROUND_DEPTH_M
+
         tan_h = math.tan(math.radians(FOV_H_DEG / 2))
         tan_v = math.tan(math.radians(FOV_V_DEG / 2))
 
@@ -326,7 +330,7 @@ def estimate_volume_midas(
                 continue
 
             # Distancia real al objeto (inversa de la disparidad relativa)
-            obj_dist_m = GROUND_DEPTH_M * (ground_disp / obj_disp)
+            obj_dist_m = effective_ground_depth * (ground_disp / obj_disp)
             obj_dist_m = max(0.3, min(50.0, obj_dist_m))   # sanity clamp
 
             # Dimensiones reales de la bbox proyectadas a esa distancia
@@ -346,3 +350,64 @@ def estimate_volume_midas(
     except Exception as exc:
         logger.warning("[estimate_volume_midas] error → fallback None: %s", exc)
         return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guía de distancia en tiempo real (pre-check guidance mode)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def estimate_coverage_fast(img) -> float:
+    """Proxy de cobertura sin YOLO usando bounding box de píxeles con alto gradiente.
+
+    Computa el rectángulo envolvente de todos los píxeles con gradiente L1 >
+    EDGE_GRAD_THRESHOLD y lo divide por el área total del frame. Es una
+    estimación rápida (~5 ms en 320 px) de qué fracción del encuadre está
+    ocupada por contenido con textura (bordes), que correlaciona bien con la
+    distancia al sujeto: objeto pequeño → cobertura baja (lejos), objeto que
+    llena el frame → cobertura alta (muy cerca).
+
+    Args:
+        img: PIL.Image.Image en cualquier modo (se convierte a escala de grises).
+
+    Returns:
+        float en [0.0, 1.0] redondeado a 4 decimales. 0.0 si no hay bordes.
+    """
+    try:
+        import numpy as np
+        gray = np.array(img.convert("L"), dtype=np.int16)
+        dy = np.abs(np.diff(gray, axis=0, prepend=gray[:1]))
+        dx = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
+        edges = (dx + dy) > EDGE_GRAD_THRESHOLD
+        rows = np.any(edges, axis=1)
+        cols = np.any(edges, axis=0)
+        if not rows.any():
+            return 0.0
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+        bbox_area = int(rmax - rmin + 1) * int(cmax - cmin + 1)
+        total_area = gray.shape[0] * gray.shape[1]
+        return round(float(bbox_area) / total_area, 4) if total_area > 0 else 0.0
+    except Exception as exc:
+        logger.warning("[estimate_coverage_fast] error: %s", exc)
+        return 0.0
+
+
+def coverage_to_distance_hint(coverage: float) -> str:
+    """Mapea coverage_ratio a una pista de distancia para guiar al usuario.
+
+    Umbrales calibrados para encuadres de ~300 px (tamaño del scan overlay):
+    - < 0.15 → objeto demasiado pequeño en el frame → TOO_FAR
+    - > 0.70 → objeto llena casi todo el frame → TOO_CLOSE
+    - [0.15, 0.70] → rango óptimo para estimación de volumen → OPTIMAL
+
+    Args:
+        coverage: valor devuelto por estimate_coverage_fast(), float [0, 1].
+
+    Returns:
+        "TOO_FAR" | "OPTIMAL" | "TOO_CLOSE"
+    """
+    if coverage < 0.15:
+        return "TOO_FAR"
+    if coverage > 0.70:
+        return "TOO_CLOSE"
+    return "OPTIMAL"
