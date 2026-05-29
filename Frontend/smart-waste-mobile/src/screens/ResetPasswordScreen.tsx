@@ -1,4 +1,5 @@
 // src/screens/ResetPasswordScreen.tsx
+import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useState } from "react"
 import {
@@ -82,30 +83,54 @@ export default function ResetPasswordScreen({ navigation, route }: Props) {
         <Text style={{ color: colors.black, marginBottom: 4 }}>Nueva contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0 }]}
-            placeholder="Mínimo 6 caracteres"
+            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0, color: colors.black }]}
+            placeholder="Mínimo 8 caracteres"
             placeholderTextColor={colors.gray}
             secureTextEntry={!showPass}
+            autoCapitalize="none"
+            autoCorrect={false}
             onChangeText={setPassword}
             value={password}
           />
-          <TouchableOpacity onPress={() => setShowPass(!showPass)} style={{ marginLeft: 10 }}>
-            <Text style={{ fontSize: 18 }}>{showPass ? "🙈" : "👁"}</Text>
+          <TouchableOpacity
+            onPress={() => setShowPass(!showPass)}
+            style={{ marginLeft: 10, padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+          >
+            <Ionicons
+              name={showPass ? "eye-off-outline" : "eye-outline"}
+              size={22}
+              color={colors.gray500}
+            />
           </TouchableOpacity>
         </View>
 
         <Text style={{ color: colors.black, marginBottom: 4 }}>Confirmar contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 24 }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0 }]}
+            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0, color: colors.black }]}
             placeholder="Repite la contraseña"
             placeholderTextColor={colors.gray}
             secureTextEntry={!showConf}
+            autoCapitalize="none"
+            autoCorrect={false}
             onChangeText={setConfirm}
             value={confirm}
           />
-          <TouchableOpacity onPress={() => setShowConf(!showConf)} style={{ marginLeft: 10 }}>
-            <Text style={{ fontSize: 18 }}>{showConf ? "🙈" : "👁"}</Text>
+          <TouchableOpacity
+            onPress={() => setShowConf(!showConf)}
+            style={{ marginLeft: 10, padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel={showConf ? "Ocultar confirmación" : "Mostrar confirmación"}
+          >
+            <Ionicons
+              name={showConf ? "eye-off-outline" : "eye-outline"}
+              size={22}
+              color={colors.gray500}
+            />
           </TouchableOpacity>
         </View>
 

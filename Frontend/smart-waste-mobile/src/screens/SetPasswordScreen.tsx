@@ -1,4 +1,5 @@
 // src/screens/SetPasswordScreen.tsx
+import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useState } from "react"
 import {
@@ -13,6 +14,7 @@ import {
 import BackButton from "../components/BackButton"
 import LinkButton from "../components/LinkButton"
 import ProgressBar from "../components/ProgressBar"
+import { useAuth } from "../contexts/AuthContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { setPassword } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -22,6 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "SetPassword">
 
 export default function SetPasswordScreen({ navigation, route }: Props) {
   const { email } = route.params
+  const { login } = useAuth()
 
   const [password, setPasswordValue]   = useState("")
   const [confirm, setConfirm]          = useState("")
@@ -41,13 +44,16 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
 
     try {
       setLoading(true)
-      await setPassword({ email, password })
+      const res = await setPassword({ email, password })
 
-      // Registro completo — limpiar el stack para que no pueda volver atrás
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Home" }]
-      })
+      // Registro completo — login() actualiza el AuthContext y AppNavigator
+      // cambia automáticamente al grupo privado (Home). navigation.reset("Home")
+      // desde el stack público produciría "not handled by any navigator".
+      Alert.alert(
+        "¡Cuenta creada!",
+        "Tu cuenta ha sido creada exitosamente. Bienvenido a EMASEO.",
+        [{ text: "Continuar", onPress: () => login(res.data.token) }]
+      )
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "No se pudo crear la cuenta")
     } finally {
@@ -69,10 +75,12 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
         <Text style={{ color: colors.black, marginBottom: 4 }}>Nueva contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0 }]}
+            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0, color: colors.black }]}
             placeholder="Mínimo 6 caracteres"
             placeholderTextColor={colors.gray}
             secureTextEntry={!showPass}
+            autoCapitalize="none"
+            autoCorrect={false}
             onChangeText={setPasswordValue}
             value={password}
             accessibilityLabel="Campo de nueva contraseña"
@@ -81,22 +89,28 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
           />
           <TouchableOpacity
             onPress={() => setShowPass(!showPass)}
-            style={{ marginLeft: 10 }}
+            style={{ marginLeft: 10, padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
-            accessibilityHint={showPass ? "Oculta los caracteres de la contraseña" : "Muestra los caracteres de la contraseña"}
           >
-            <Text style={{ fontSize: 18 }}>{showPass ? "🙈" : "👁"}</Text>
+            <Ionicons
+              name={showPass ? "eye-off-outline" : "eye-outline"}
+              size={22}
+              color={colors.gray500}
+            />
           </TouchableOpacity>
         </View>
 
         <Text style={{ color: colors.black, marginBottom: 4 }}>Confirmar contraseña</Text>
         <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 24 }}>
           <TextInput
-            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0 }]}
+            style={[globalStyles.input, { flex: 1, borderRadius: 12, marginBottom: 0, color: colors.black }]}
             placeholder="Repite la contraseña"
             placeholderTextColor={colors.gray}
             secureTextEntry={!showConfirm}
+            autoCapitalize="none"
+            autoCorrect={false}
             onChangeText={setConfirm}
             value={confirm}
             accessibilityLabel="Campo de confirmación de contraseña"
@@ -105,12 +119,16 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
           />
           <TouchableOpacity
             onPress={() => setShowConfirm(!showConfirm)}
-            style={{ marginLeft: 10 }}
+            style={{ marginLeft: 10, padding: 4 }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
             accessibilityLabel={showConfirm ? "Ocultar confirmación de contraseña" : "Mostrar confirmación de contraseña"}
-            accessibilityHint={showConfirm ? "Oculta los caracteres de confirmación" : "Muestra los caracteres de confirmación"}
           >
-            <Text style={{ fontSize: 18 }}>{showConfirm ? "🙈" : "👁"}</Text>
+            <Ionicons
+              name={showConfirm ? "eye-off-outline" : "eye-outline"}
+              size={22}
+              color={colors.gray500}
+            />
           </TouchableOpacity>
         </View>
 
