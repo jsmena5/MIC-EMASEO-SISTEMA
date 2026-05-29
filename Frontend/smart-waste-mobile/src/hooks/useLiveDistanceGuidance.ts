@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { Dimensions } from 'react-native'
 import { useFrameProcessor } from 'react-native-vision-camera'
-import { runOnJS, useSharedValue } from 'react-native-reanimated'
+import { runOnJS, useSharedValue } from 'react-native-worklets-core'
 
 import type { DistanceHint } from '../types/incident'
 

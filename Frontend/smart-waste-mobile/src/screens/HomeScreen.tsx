@@ -20,6 +20,7 @@ import Animated, {
 } from "react-native-reanimated"
 
 import { useAuth } from "../contexts/AuthContext"
+import { useAnalysis } from "../contexts/AnalysisContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 
@@ -29,6 +30,7 @@ const { width: SW } = Dimensions.get("window")
 
 export default function HomeScreen({ navigation }: Props) {
   const { user, logout } = useAuth()
+  const { isAnalysisRunning } = useAnalysis()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
 
   const displayName = user?.nombre ?? "Usuario"
@@ -76,6 +78,18 @@ export default function HomeScreen({ navigation }: Props) {
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
+
+      {/* ── Banner análisis en curso ── */}
+      {isAnalysisRunning && (
+        <TouchableOpacity
+          style={styles.analysisBanner}
+          onPress={() => navigation.navigate("Historial")}
+          activeOpacity={0.85}
+        >
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.analysisBannerText}>Análisis en curso — toca para ver historial</Text>
+        </TouchableOpacity>
+      )}
 
       {/* ── Header ── */}
       <Animated.View style={[styles.header, headerStyle]}>
@@ -483,5 +497,21 @@ const styles = StyleSheet.create({
   logoutTextMuted: {
     color: colors.error,
     opacity: 0.7,
+  },
+
+  // Analysis background banner
+  analysisBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  analysisBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
   },
 })

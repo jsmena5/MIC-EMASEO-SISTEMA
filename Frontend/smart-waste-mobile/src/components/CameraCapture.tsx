@@ -135,7 +135,7 @@ export default function CameraCapture({
     setCapturing(true)
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
-      const photo = await cameraRef.current.takePhoto({ qualityPrioritization: "balanced" })
+      const photo = await cameraRef.current.takePhoto({})
       const path = photo.path.startsWith("file://") ? photo.path : `file://${photo.path}`
       const base64 = await FileSystem.readAsStringAsync(path, {
         encoding: FileSystem.EncodingType.Base64,

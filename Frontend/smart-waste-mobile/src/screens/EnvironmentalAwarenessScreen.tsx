@@ -27,46 +27,46 @@ const TIPS: {
 }[] = [
   {
     icon: "leaf-outline",
-    title: "Separa en la fuente",
-    body: "Clasifica tus residuos antes de sacarlos: orgánicos, reciclables y no reciclables. Una bolsa diferente por tipo facilita la recolección y el tratamiento posterior.",
+    title: "Separa tu basura",
+    body: "Usa bolsas distintas para residuos orgánicos (sobras de comida), reciclables (cartón, plástico, vidrio) y el resto. Así el recolector puede darles el tratamiento correcto.",
     color: "#059669",
   },
   {
     icon: "refresh-outline",
-    title: "Reduce, reutiliza, recicla",
-    body: "Compra solo lo necesario, prefiere envases retornables y lleva tu propia bolsa al mercado. Cada objeto que reutilizas es uno menos en el relleno sanitario.",
+    title: "Compra menos, reutiliza más",
+    body: "Antes de botar algo, piensa si lo puedes reutilizar o donar. Llevar tu propia bolsa al mercado y elegir productos con menos empaque hace una gran diferencia.",
     color: "#0284C7",
   },
   {
     icon: "flask-outline",
-    title: "Residuos peligrosos",
-    body: "Pilas, medicamentos vencidos, aceites y aerosoles NO van a la basura común. Deposítalos en los puntos de acopio habilitados por el Municipio de Quito.",
+    title: "Basura peligrosa, aparte",
+    body: "Pilas, medicamentos vencidos y aceite de cocina usado NO van a la basura normal. Quito tiene puntos de recolección especiales para estos — búscalos en tu municipio.",
     color: "#DC2626",
   },
   {
     icon: "nutrition-outline",
-    title: "Compostaje en casa",
-    body: "Los residuos orgánicos (cáscaras, restos de comida) pueden convertirse en abono para plantas. Un tarro con tapa y algo de tierra es suficiente para empezar.",
+    title: "Haz abono en casa",
+    body: "Las cáscaras de frutas, restos de verduras y posos de café se convierten en abono para plantas en pocas semanas. Solo necesitas un recipiente con tapa en un rincón del jardín o balcón.",
     color: "#7C3AED",
   },
   {
     icon: "car-outline",
-    title: "Horarios de recolección",
-    body: "Saca la basura solo el día y hora asignados a tu sector. Bolsas en la calle fuera del horario atraen animales y generan nuevos focos de acumulación.",
+    title: "Saca la basura a tiempo",
+    body: "Cada barrio tiene días y horarios específicos de recolección. Sacar las bolsas fuera de ese horario atrae animales y genera nuevos puntos de acumulación.",
     color: "#D97706",
   },
   {
     icon: "people-outline",
-    title: "Cultura ciudadana",
-    body: "Reporta acumulaciones irregulares con esta app. Cada reporte activa una respuesta de EMASEO EP y contribuye a mantener Quito limpio para todos.",
+    title: "Reporta y ayuda a tu barrio",
+    body: "Con esta app puedes avisar a EMASEO cuando hay basura acumulada en tu barrio. Tu reporte llega directo al equipo que puede limpiarlo. ¡Cada foto cuenta!",
     color: colors.primary,
   },
 ]
 
 const FACTS = [
-  { value: "12 180", label: "imágenes para entrenar la IA" },
-  { value: "88 %", label: "precisión de detección" },
-  { value: "4 niveles", label: "de clasificación (Bajo → Crítico)" },
+  { value: "+ 12 000", label: "fotos usadas para enseñarle a la IA" },
+  { value: "88 %", label: "de acierto al detectar basura" },
+  { value: "4 niveles", label: "para medir qué tan grave es la acumulación" },
 ]
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ export default function EnvironmentalAwarenessScreen({ navigation }: Props) {
       >
         {/* Estadísticas rápidas */}
         <Animated.Text entering={FadeInDown.delay(100).duration(400)} style={styles.sectionLabel}>
-          La IA que nos ayuda
+          La tecnología detrás de la app
         </Animated.Text>
         <Animated.View entering={FadeInDown.delay(160).duration(450)} style={styles.factsRow}>
           {FACTS.map((f, i) => (
@@ -111,7 +111,7 @@ export default function EnvironmentalAwarenessScreen({ navigation }: Props) {
 
         {/* Tips */}
         <Animated.Text entering={FadeInDown.delay(240).duration(400)} style={styles.sectionLabel}>
-          Consejos y buenas prácticas
+          Consejos para tu día a día
         </Animated.Text>
 
         {TIPS.map((tip, i) => (

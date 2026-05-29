@@ -23,6 +23,7 @@ import AnalyzingOverlay from "../components/AnalyzingOverlay"
 import CameraCapture from "../components/CameraCapture"
 import CapturedFrameOverlay from "../components/CapturedFrameOverlay"
 import { useNetwork } from "../contexts/NetworkContext"
+import { useAnalysis } from "../contexts/AnalysisContext"
 import { useAlwaysAllowScreenCapture } from "../hooks/useAlwaysAllowScreenCapture"
 import type { RootStackParamList } from "../navigation/AppNavigator"
 import {
@@ -60,6 +61,7 @@ function overlayLabel(phase: AnalysisPhase, slow: boolean): string {
 export default function ScanScreen() {
   const navigation = useNavigation<ScanNavProp>()
   const { isConnected, pendingCount, refreshPendingCount } = useNetwork()
+  const { sendToBackground } = useAnalysis()
 
   // Limpia FLAG_SECURE que expo-camera activa en Android cada vez que la
   // pantalla entra en foco (incluye vueltas después de "Tomar otra foto").
@@ -92,9 +94,13 @@ export default function ScanScreen() {
   const pollingInProgressRef = useRef(false)
   // Guarda el task_id activo para que handleCancelAnalysis pueda persistirlo
   const currentTaskIdRef     = useRef<string | null>(null)
-  // Cuenta los reintentos consecutivos (upload o polling). Se resetea al retomar,
-  // cancelar o completar exitosamente. Nunca supera MAX_RETRIES.
-  const retryCountRef        = useRef(0)
+  // Contadores independientes para upload y polling.
+  // uploadRetryRef: reintentos de envío de la imagen (incluye llamada a analyzeImage).
+  // pollRetryRef: reintentos de consulta de estado (getTaskStatus) sobre el mismo task_id.
+  const uploadRetryRef       = useRef(0)
+  const pollRetryRef         = useRef(0)
+  // Alias para compatibilidad con retake() que lo resetea
+  const retryCountRef        = uploadRetryRef
 
   // VisionCamera gestiona el permiso de cámara internamente en CameraCapture.
   // Aquí solo pedimos Location (no mezclar los dos dialogs simultáneamente).
@@ -225,7 +231,8 @@ export default function ScanScreen() {
     stopPolling()
     abortControllerRef.current?.abort()
     currentTaskIdRef.current = null
-    retryCountRef.current = 0
+    uploadRetryRef.current = 0
+    pollRetryRef.current = 0
     setCapturedUri(null)
     setCapturedCropUri(null)
     setIsCropping(false)
@@ -271,15 +278,65 @@ export default function ScanScreen() {
     }
   }
 
+  // Transfiere el polling al AnalysisContext y libera la pantalla.
+  const handleSendToBackground = () => {
+    const taskId = currentTaskIdRef.current
+    if (!taskId) return
+    stopPolling()
+    const lastLat = location?.latitude ?? -0.180653
+    const lastLng = location?.longitude ?? -78.467838
+    sendToBackground({
+      taskId,
+      lat: lastLat,
+      lng: lastLng,
+      imageUri: capturedCropUri ?? capturedUri ?? undefined,
+    })
+    retake()
+    navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+  }
+
+  // Resuelve la ubicación y arranca performAnalysis.
+  // Se llama desde handleAnalyze (flujo normal) y desde los Alerts de preCheck (fail-open).
+  const proceedToAnalysis = async (b64: string) => {
+    let currentLat = location?.latitude ?? null
+    let currentLng = location?.longitude ?? null
+
+    if (!currentLat || !currentLng) {
+      setIsRetryingLocation(true)
+      const loc = await getCurrentLocation(true)
+      setIsRetryingLocation(false)
+
+      if (loc) {
+        setLocation(loc)
+        currentLat = loc.latitude
+        currentLng = loc.longitude
+      } else {
+        Alert.alert(
+          "Ubicación no disponible",
+          "No pudimos obtener tu ubicación exacta. El reporte se registrará con una ubicación aproximada en Quito.",
+          [
+            {
+              text: "Continuar de todos modos",
+              onPress: () => {
+                const lat = -0.180653
+                const lng = -78.467838
+                performAnalysis(b64, lat, lng, true)
+              },
+            },
+            { text: "Cancelar", style: "cancel" },
+          ]
+        )
+        return
+      }
+    }
+
+    performAnalysis(b64, currentLat, currentLng)
+  }
+
   const handleAnalyze = async () => {
     if (!capturedB64) return
 
-    // ── Pre-check de basura (antes de gastar recursos en YOLO) ──────────────
-    // Genera un thumbnail 320 px de ancho (~15 KB) y lo envía al endpoint
-    // /ml/pre-check que corre compute_garbage_score() en <200 ms sin YOLO.
-    // Fail-closed: si el pre-check rechaza la imagen o si la red falla, se
-    // BLOQUEA el envío. Evita que falsos positivos como mochila/objetos
-    // personales lleguen al supervisor sólo porque la red estaba inestable.
+    // ── Pre-check de basura (thumbnail 320 px → /ml/pre-check) ────────────
     const sourceUri = capturedCropUri ?? capturedUri
     if (sourceUri) {
       let thumbB64: string | null = null
@@ -291,8 +348,6 @@ export default function ScanScreen() {
         )
         thumbB64 = thumb.base64 ?? null
       } catch {
-        // Fallo al redimensionar (problema local de PIL/expo) → continuar sin pre-check
-        // para no bloquear por un bug del cliente. La validación del backend igual aplica.
         thumbB64 = null
       }
 
@@ -300,19 +355,30 @@ export default function ScanScreen() {
         let check: Awaited<ReturnType<typeof preCheckImage>> | null = null
         try {
           check = await preCheckImage(thumbB64)
-        } catch {
-          // Red inestable o servidor caído: pedir reintentar en lugar de enviar a ciegas.
-          Alert.alert(
-            "Sin conexión al validador",
-            "No pudimos verificar la imagen antes de enviarla. Reintenta cuando tengas mejor señal.",
-            [{ text: "Entendido" }],
-          )
+        } catch (preCheckErr: any) {
+          const isNetworkError = !preCheckErr?.response
+          if (isNetworkError) {
+            // Fail-open: validador inaccesible por red → ofrecer enviar igual.
+            // El pipeline YOLO del backend aplicará su propia validación.
+            Alert.alert(
+              "Validador no disponible",
+              "No pudimos verificar la imagen antes de enviarla. El servidor la analizará al recibirla.",
+              [
+                { text: "Cancelar", style: "cancel" },
+                { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
+              ],
+            )
+          } else {
+            Alert.alert(
+              "Error al validar imagen",
+              "Hubo un problema al verificar la imagen. Inténtalo de nuevo.",
+              [{ text: "Entendido" }],
+            )
+          }
           return
         }
 
-        if (!check.is_garbage) {
-          // Bloqueo duro: no hay opción "reportar de todas formas".
-          // El usuario debe re-encuadrar para que la cámara capte residuos reales.
+        if (check && !check.is_garbage) {
           Alert.alert(
             "No detectamos basura",
             "La imagen no parece mostrar acumulación de residuos. Acerca la cámara al lugar correcto e inténtalo de nuevo.",
@@ -323,43 +389,7 @@ export default function ScanScreen() {
       }
     }
 
-    // ── Validar que tengamos ubicación antes de enviar ──────────────────────
-    let currentLat = location?.latitude ?? null
-    let currentLng = location?.longitude ?? null
-    
-    // Si no hay ubicación, intentar obtenerla de nuevo
-    if (!currentLat || !currentLng) {
-      setIsRetryingLocation(true)
-      const loc = await getCurrentLocation(true)
-      setIsRetryingLocation(false)
-      
-      if (loc) {
-        setLocation(loc)
-        currentLat = loc.latitude
-        currentLng = loc.longitude
-      } else {
-        // Usuario decidió continuar sin ubicación (usar coordenadas por defecto de Quito)
-        Alert.alert(
-          "Ubicación no disponible",
-          "No pudimos obtener tu ubicación exacta. El reporte se registrará con una ubicación aproximada en Quito.",
-          [
-            {
-              text: "Continuar de todos modos",
-              onPress: () => {
-                // A-07: coordenadas de referencia de Quito — se marca como aproximada
-                currentLat = -0.180653
-                currentLng = -78.467838
-                performAnalysis(capturedB64, currentLat!, currentLng!, true)
-              },
-            },
-            { text: "Cancelar", style: "cancel" },
-          ]
-        )
-        return
-      }
-    }
-    
-    performAnalysis(capturedB64, currentLat, currentLng)
+    await proceedToAnalysis(capturedB64)
   }
   
   const performAnalysis = async (b64: string, lat: number, lng: number, ubicacionAproximada = false) => {
@@ -400,13 +430,13 @@ export default function ScanScreen() {
       setPhase("idle")
       if (e?.code === "ERR_CANCELED") return
       const isNetworkError = !e?.response
-      retryCountRef.current += 1
-      const canRetry = retryCountRef.current < MAX_RETRIES
+      uploadRetryRef.current += 1
+      const canRetry = uploadRetryRef.current < MAX_RETRIES
 
       if (!canRetry) {
-        // ── Límite de reintentos alcanzado ───────────────────────────────────
+        // ── Límite de reintentos de upload alcanzado ─────────────────────────
         Alert.alert(
-          "No se pudo completar el análisis",
+          "No se pudo enviar la foto",
           `Después de ${MAX_RETRIES} intentos no fue posible enviar la imagen.\nPuedes cancelar o guardar el reporte para enviarlo más tarde.`,
           [
             {
@@ -435,8 +465,8 @@ export default function ScanScreen() {
       Alert.alert(
         "Error de conexión",
         isNetworkError
-          ? `Sin conexión (intento ${retryCountRef.current} de ${MAX_RETRIES}). ¿Qué deseas hacer?`
-          : `No se pudo enviar la imagen (intento ${retryCountRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
+          ? `Sin conexión al enviar la foto (intento ${uploadRetryRef.current} de ${MAX_RETRIES}). ¿Qué deseas hacer?`
+          : `No se pudo enviar la imagen (intento ${uploadRetryRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
         isNetworkError
           ? [
               { text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng, ubicacionAproximada) },
@@ -456,20 +486,24 @@ export default function ScanScreen() {
       return
     }
 
-    // ── Step 2: poll every 2 s until success or failure ─────────────────────
-    // Progreso por fases: queued = 30 %, analyzing = 50 %, success = 100 %.
+    // Upload exitoso → resetear contador de polling antes de empezar
+    pollRetryRef.current = 0
+    startPolling(taskId, lat, lng, capturedCropUri ?? capturedUri ?? undefined)
+  }
+
+  // Arranca el loop de polling sobre un task_id ya conocido.
+  // Se llama desde performAnalysis (flujo normal) y desde "Reintentar" en errores de polling.
+  const startPolling = (taskId: string, lat: number, lng: number, imageUri?: string) => {
     setPhase("queued")
     setPollProgress(30)
     pollingStartRef.current = Date.now()
 
-    // Kick off first tick right away, then repeat
     const tick = async () => {
       if (pollingInProgressRef.current) return
       pollingInProgressRef.current = true
 
       const elapsed = Date.now() - pollingStartRef.current
 
-      // A-04: Hard cap — stop polling after 120 s and save task_id for later retrieval
       if (elapsed >= POLL_TIMEOUT_MS) {
         stopPolling()
         setPhase("idle")
@@ -497,12 +531,10 @@ export default function ScanScreen() {
         const status = await getTaskStatus(taskId)
 
         if (status.estado === "PROCESANDO") {
-          // Progreso basado en estado real del servidor: analyzing = 50 % fijo.
-          // No se usa el tiempo transcurrido para evitar valores inconsistentes.
           setPhase("analyzing")
           setPollProgress(50)
           pollingInProgressRef.current = false
-          return // keep polling
+          return
         }
 
         stopPolling()
@@ -518,10 +550,9 @@ export default function ScanScreen() {
           return
         }
 
-        // Success — snap progress to 100 % and show "saving" briefly before navigating
         setPollProgress(100)
         setPhase("saving")
-        currentTaskIdRef.current = null   // tarea completada, ya no hace falta rastrearla
+        currentTaskIdRef.current = null
         const result = status as AnalysisResult
         setTimeout(() => {
           setPhase("done")
@@ -529,37 +560,25 @@ export default function ScanScreen() {
             result,
             latitude:  lat,
             longitude: lng,
-            // Preferimos mostrar el recorte (lo que analizó el ML);
-            // si el recorte falló, se muestra la imagen completa como respaldo.
-            imageUri: capturedCropUri ?? capturedUri ?? undefined,
+            imageUri,
           })
         }, 600)
 
       } catch {
         stopPolling()
         setPhase("idle")
-        retryCountRef.current += 1
-        const canRetry = retryCountRef.current < MAX_RETRIES
+        pollRetryRef.current += 1
+        const canRetry = pollRetryRef.current < MAX_RETRIES
 
         if (!canRetry) {
-          // ── Límite de reintentos alcanzado ─────────────────────────────────
           const savedTaskId = currentTaskIdRef.current
           Alert.alert(
-            "No se pudo completar el análisis",
-            `Después de ${MAX_RETRIES} intentos no fue posible obtener el resultado.\nPuedes cancelar o revisarlo en tu historial más tarde.`,
+            "No se pudo obtener el resultado",
+            "No fue posible consultar el estado del análisis. Puedes revisarlo en tu historial más tarde.",
             [
               {
-                text: "Cancelar",
-                style: "cancel",
-                onPress: () => {
-                  retake()
-                  navigation.reset({ index: 0, routes: [{ name: "Home" }] })
-                },
-              },
-              {
-                text: "Guardar para después",
+                text: "Ver historial",
                 onPress: async () => {
-                  // Persistir el task_id en AsyncStorage para que el historial pueda rastrearlo
                   if (savedTaskId) {
                     try {
                       const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
@@ -567,12 +586,18 @@ export default function ScanScreen() {
                       if (!tasks.includes(savedTaskId)) tasks.push(savedTaskId)
                       await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
                     } catch (err) {
-                      if (__DEV__) console.warn("[ScanScreen] persist task en cancelación falló:", err)
+                      if (__DEV__) console.warn("[ScanScreen] persist task falló:", err)
                     }
                   }
                   retake()
                   navigation.reset({ index: 0, routes: [{ name: "Home" }] })
-                  Alert.alert("Guardado", "El resultado aparecerá en tu historial cuando el análisis termine.")
+                },
+              },
+              {
+                text: "Reintentar",
+                onPress: () => {
+                  pollRetryRef.current = 0
+                  startPolling(taskId, lat, lng, imageUri)
                 },
               },
             ],
@@ -580,8 +605,8 @@ export default function ScanScreen() {
         } else {
           Alert.alert(
             "Error de conexión",
-            `No se pudo obtener el estado del análisis (intento ${retryCountRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
-            [{ text: "Reintentar", onPress: () => performAnalysis(b64, lat, lng) }],
+            `No se pudo obtener el estado del análisis (intento ${pollRetryRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
+            [{ text: "Reintentar", onPress: () => startPolling(taskId, lat, lng, imageUri) }],
           )
         }
       } finally {
@@ -734,6 +759,8 @@ export default function ScanScreen() {
           isAnalyzing={showOverlay}
           label={overlayLabel(phase, isSlowMessage)}
           progress={pollProgress}
+          onBackground={handleSendToBackground}
+          canBackground={canCancel && !!currentTaskIdRef.current}
           onCancel={canCancel ? handleCancelAnalysis : undefined}
         />
       </View>

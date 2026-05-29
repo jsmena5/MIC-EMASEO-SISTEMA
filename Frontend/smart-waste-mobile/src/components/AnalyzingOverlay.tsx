@@ -12,16 +12,14 @@ import { colors } from "../theme/colors"
 
 interface AnalyzingOverlayProps {
   isAnalyzing: boolean
-  /** Optional label shown below the spinner */
   label?: string
-  /**
-   * Analysis progress percentage (0–100).
-   * When provided, a progress bar and the percentage value are rendered.
-   * Values outside [0, 100] are clamped automatically.
-   */
   progress?: number
-  /** When provided, renders a cancel button */
+  /** Renders a cancel button */
   onCancel?: () => void
+  /** Renders a "Continuar navegando" button that sends analysis to background */
+  onBackground?: () => void
+  /** Controls whether the background button is visible (only during polling phases) */
+  canBackground?: boolean
 }
 
 export default function AnalyzingOverlay({
@@ -29,10 +27,11 @@ export default function AnalyzingOverlay({
   label = "Analizando imagen...",
   progress,
   onCancel,
+  onBackground,
+  canBackground = false,
 }: AnalyzingOverlayProps) {
   if (!isAnalyzing) return null
 
-  // Defensive clamp — callers should already send valid values, but guard anyway.
   const pct =
     progress !== undefined ? Math.min(100, Math.max(0, Math.round(progress))) : undefined
 
@@ -46,13 +45,17 @@ export default function AnalyzingOverlay({
 
         {pct !== undefined && (
           <View style={styles.progressWrapper}>
-            {/* Track — el ancho refleja la fase actual (30 % → 50 % → 100 %).
-                No se muestra el número porque el valor es fijo por fase, no
-                continuo, y podría confundir más que informar. */}
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${pct}%` }]} />
             </View>
           </View>
+        )}
+
+        {onBackground && canBackground && (
+          <TouchableOpacity style={styles.backgroundBtn} onPress={onBackground} activeOpacity={0.75}>
+            <Ionicons name="arrow-back-circle-outline" size={18} color="#fff" />
+            <Text style={styles.backgroundText}>Continuar navegando</Text>
+          </TouchableOpacity>
         )}
 
         {onCancel && (
@@ -104,13 +107,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.secondary, // #00A859 — brand green
     borderRadius: 3,
   },
-  cancelBtn: {
+  backgroundBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginTop: 8,
     paddingVertical: 10,
     paddingHorizontal: 20,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.20)",
+  },
+  backgroundText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  cancelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.3)",

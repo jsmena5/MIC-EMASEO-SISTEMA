@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { Component, useState, useEffect } from "react"
 import {
   View,
   Text,
@@ -20,6 +20,19 @@ import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReportDetail">
 
+// Error boundary para capturar crashes nativos de MapView en ciertos Android
+class MapErrorBoundary extends Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { crashed: boolean }
+> {
+  state = { crashed: false }
+  static getDerivedStateFromError() { return { crashed: true } }
+  componentDidCatch() {}
+  render() {
+    return this.state.crashed ? this.props.fallback : this.props.children
+  }
+}
+
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleDateString("es-EC", {
     day: "2-digit",
@@ -35,9 +48,10 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
 
   if (__DEV__) console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
 
-  const lat = incident.latitud ?? null
-  const lon = incident.longitud ?? null
-  const hasCoords = lat != null && lon != null
+  const lat = incident.latitud != null && !isNaN(Number(incident.latitud)) ? Number(incident.latitud) : null
+  const lon = incident.longitud != null && !isNaN(Number(incident.longitud)) ? Number(incident.longitud) : null
+  const hasCoords = lat != null && lon != null &&
+    lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 
   const [address, setAddress] = useState<string | null>(null)
   const [imgError, setImgError] = useState(false)
@@ -76,23 +90,32 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
 
         {/* ── Mapa (cabecera visual) ─────────────────────────────────── */}
         {hasCoords ? (
-          <MapView
-            style={styles.map}
-            provider={PROVIDER_DEFAULT}
-            initialRegion={{
-              latitude: lat!,
-              longitude: lon!,
-              latitudeDelta: 0.004,
-              longitudeDelta: 0.004,
-            }}
-            scrollEnabled={false}
-            zoomEnabled={false}
-            rotateEnabled={false}
-            pitchEnabled={false}
-            toolbarEnabled={false}
+          <MapErrorBoundary
+            fallback={
+              <View style={[styles.map, styles.mapFallback]}>
+                <Ionicons name="map-outline" size={40} color={colors.gray400} />
+                <Text style={styles.mapFallbackText}>{`${lat!.toFixed(5)}, ${lon!.toFixed(5)}`}</Text>
+              </View>
+            }
           >
-            <Marker coordinate={{ latitude: lat!, longitude: lon! }} />
-          </MapView>
+            <MapView
+              style={styles.map}
+              provider={PROVIDER_DEFAULT}
+              initialRegion={{
+                latitude: lat!,
+                longitude: lon!,
+                latitudeDelta: 0.004,
+                longitudeDelta: 0.004,
+              }}
+              scrollEnabled={false}
+              zoomEnabled={false}
+              rotateEnabled={false}
+              pitchEnabled={false}
+              toolbarEnabled={false}
+            >
+              <Marker coordinate={{ latitude: lat!, longitude: lon! }} />
+            </MapView>
+          </MapErrorBoundary>
         ) : (
           <View style={[styles.map, styles.mapFallback]}>
             <Ionicons name="map-outline" size={40} color={colors.gray400} />

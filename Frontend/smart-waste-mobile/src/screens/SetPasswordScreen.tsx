@@ -1,5 +1,5 @@
 // src/screens/SetPasswordScreen.tsx
-import { Ionicons } from "@expo/vector-icons"
+import { MaterialIcons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useState } from "react"
 import {
@@ -44,15 +44,17 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
 
     try {
       setLoading(true)
-      const res = await setPassword({ email, password })
-
-      // Registro completo — login() actualiza el AuthContext y AppNavigator
-      // cambia automáticamente al grupo privado (Home). navigation.reset("Home")
-      // desde el stack público produciría "not handled by any navigator".
+      await setPassword({ email, password })
+      // Cuenta creada — navegar a Login para que el usuario inicie sesión.
+      // El Alert no cancelable evita que en Android se descarte tocando fuera.
       Alert.alert(
         "¡Cuenta creada!",
-        "Tu cuenta ha sido creada exitosamente. Bienvenido a EMASEO.",
-        [{ text: "Continuar", onPress: () => login(res.data.token) }]
+        "Tu cuenta fue creada exitosamente. Inicia sesión para continuar.",
+        [{
+          text: "Ir a iniciar sesión",
+          onPress: () => navigation.reset({ index: 0, routes: [{ name: "Login" }] }),
+        }],
+        { cancelable: false },
       )
     } catch (err: any) {
       Alert.alert("Error", err?.response?.data?.message || "No se pudo crear la cuenta")
@@ -81,6 +83,8 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             secureTextEntry={!showPass}
             autoCapitalize="none"
             autoCorrect={false}
+            textContentType="newPassword"
+            importantForAutofill="no"
             onChangeText={setPasswordValue}
             value={password}
             accessibilityLabel="Campo de nueva contraseña"
@@ -94,8 +98,8 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
           >
-            <Ionicons
-              name={showPass ? "eye-off-outline" : "eye-outline"}
+            <MaterialIcons
+              name={showPass ? "visibility-off" : "visibility"}
               size={22}
               color={colors.gray500}
             />
@@ -111,6 +115,8 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             secureTextEntry={!showConfirm}
             autoCapitalize="none"
             autoCorrect={false}
+            textContentType="newPassword"
+            importantForAutofill="no"
             onChangeText={setConfirm}
             value={confirm}
             accessibilityLabel="Campo de confirmación de contraseña"
@@ -124,8 +130,8 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={showConfirm ? "Ocultar confirmación de contraseña" : "Mostrar confirmación de contraseña"}
           >
-            <Ionicons
-              name={showConfirm ? "eye-off-outline" : "eye-outline"}
+            <MaterialIcons
+              name={showConfirm ? "visibility-off" : "visibility"}
               size={22}
               color={colors.gray500}
             />

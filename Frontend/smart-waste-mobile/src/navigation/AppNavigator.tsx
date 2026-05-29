@@ -5,6 +5,7 @@ import React, { lazy, Suspense } from "react"
 import { ActivityIndicator, View } from "react-native"
 
 import { useAuth } from "../contexts/AuthContext"
+import { AnalysisProvider } from "../contexts/AnalysisContext"
 import { navigationRef } from "../utils/navigationService"
 import type { AnalysisResult, Incident } from "../services/image.service"
 
@@ -117,6 +118,7 @@ export default function AppNavigator() {
   const { token, isLoading } = useAuth()
 
   return (
+    <AnalysisProvider>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isLoading ? (
@@ -153,5 +155,6 @@ export default function AppNavigator() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+    </AnalysisProvider>
   )
 }
