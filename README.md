@@ -1,431 +1,564 @@
 # MIC EMASEO — Sistema de Gestión Inteligente de Residuos Urbanos
 
-> **v2.1 — Modelo ML Activo · Pipeline Asíncrono · Seguridad Reforzada**  
-> Plataforma de detección y gestión de acumulación de basura para **EMASEO EP** (Quito, Ecuador).  
-> Los ciudadanos reportan mediante foto + GPS; la IA clasifica el nivel de acumulación; supervisores y operarios gestionan la respuesta.
+> **v3.0 — Sistema en producción** · Backend en Contabo + Supabase + Cloudflare R2 · Panel en Cloudflare Pages · APK Android distribuible
+>
+> Plataforma de detección y gestión de acumulación de basura para **EMASEO EP** (Distrito Metropolitano de Quito, Ecuador).
+> Los ciudadanos reportan mediante foto + GPS; la IA (RT-DETR-L v2) clasifica el nivel de acumulación y decide entre cuatro vías (válido / dudoso / rechazo confiable / error técnico); el supervisor revisa, corrige y asigna.
+
+---
+
+## Sistema en producción
+
+| Componente | URL | Tecnología |
+|---|---|---|
+| **API backend** | https://micemaseo.duckdns.org | Contabo VPS + Docker + Caddy + Let's Encrypt |
+| **Panel supervisor** | https://mic-emaseo-panel.pages.dev | Cloudflare Pages (Vite build estático) |
+| **APK móvil (Android)** | Generado vía EAS Build (`eas build:list`) | React Native + Expo SDK 54 |
+| **Base de datos** | Supabase managed (región `sa-east-1`, São Paulo) | PostgreSQL 17 + PostGIS + pgcrypto |
+| **Almacenamiento de imágenes** | Cloudflare R2 — bucket `emaseo-incidents` | S3-compatible |
+| **DNS** | DuckDNS — `micemaseo.duckdns.org` (cron de auto-update en el VPS) | Free dynamic DNS |
+
+**Costo mensual operativo:** ~$5.40 USD (solo Contabo VPS 10). Supabase, R2, Pages, DuckDNS y EAS están dentro de planes gratuitos.
 
 ---
 
 ## Índice
 
-1. [Características Principales](#1-características-principales)
-2. [Stack Tecnológico](#2-stack-tecnológico)
-3. [Arquitectura del Sistema](#3-arquitectura-del-sistema)
-4. [Microservicios Backend](#4-microservicios-backend)
-5. [Modelo de Machine Learning](#5-modelo-de-machine-learning)
-6. [Infraestructura Docker](#6-infraestructura-docker)
-7. [Frontend — Aplicación Móvil y Panel Web](#7-frontend--aplicación-móvil-y-panel-web)
-8. [Esquema de Base de Datos](#8-esquema-de-base-de-datos)
-9. [Seguridad](#9-seguridad)
-10. [Testing y Calidad de Código](#10-testing-y-calidad-de-código)
-11. [Inicio Rápido](#11-inicio-rápido)
-12. [Variables de Entorno](#12-variables-de-entorno)
-13. [Flujos Principales](#13-flujos-principales)
-14. [Usuarios de Prueba](#14-usuarios-de-prueba)
-15. [Estructura del Proyecto](#15-estructura-del-proyecto)
-16. [Licencia y Créditos](#16-licencia-y-créditos)
+1. [Características principales](#1-características-principales)
+2. [Stack tecnológico](#2-stack-tecnológico)
+3. [Arquitectura — desarrollo y producción](#3-arquitectura--desarrollo-y-producción)
+4. [Microservicios backend](#4-microservicios-backend)
+5. [Modelo de Machine Learning y pipeline de decisión](#5-modelo-de-machine-learning-y-pipeline-de-decisión)
+6. [Frontend — app móvil y panel web](#6-frontend--app-móvil-y-panel-web)
+7. [Esquema de base de datos](#7-esquema-de-base-de-datos)
+8. [Seguridad](#8-seguridad)
+9. [Infraestructura Docker](#9-infraestructura-docker)
+10. [Inicio rápido — desarrollo local](#10-inicio-rápido--desarrollo-local)
+11. [Despliegue en producción](#11-despliegue-en-producción)
+12. [Variables de entorno](#12-variables-de-entorno)
+13. [Flujos principales](#13-flujos-principales)
+14. [Usuarios de prueba](#14-usuarios-de-prueba)
+15. [Estructura del proyecto](#15-estructura-del-proyecto)
+16. [Migraciones y cambios destacables](#16-migraciones-y-cambios-destacables)
+17. [Licencia y créditos](#17-licencia-y-créditos)
 
 ---
 
-## 1. Características Principales
+## 1. Características principales
 
-- **Reporte ciudadano con foto + GPS** — La app móvil captura la imagen y las coordenadas geográficas con un solo gesto.
-- **Detección con IA (RT-DETR-L v2, mAP@50 = 0.8802)** — Modelo transformer entrenado en GPU sobre 12 180 imágenes; +85 % de mejora respecto al baseline.
-- **Clasificación de nivel y volumen** — BAJO / MEDIO / ALTO / CRÍTICO con volumen estimado en m³.
-- **Rechazo amigable** — Si la IA no detecta basura, la imagen se elimina de MinIO y el ciudadano recibe un mensaje legible (sin registros huérfanos en BD).
-- **Pipeline asíncrono (202 + polling con backoff)** — La respuesta HTTP llega inmediatamente; el cliente sondea con backoff exponencial (500 ms → 8 s). El usuario puede cancelar la espera y el análisis continúa en segundo plano.
-- **Seguimiento en segundo plano** — Si el usuario cancela la espera, el `task_id` se guarda en AsyncStorage y la pantalla de Historial muestra el resultado cuando esté listo (auto-polling cada 5 s).
-- **Circuit Breaker sobre el ML Service** — Degrada elegantemente ante fallos del servicio de inferencia sin colgar el Image Service.
-- **Asignación automática por zona geográfica** — PostGIS asigna el operario más cercano según polígonos EPSG:4326.
-- **Panel de supervisor (web)** — Listado, detalle, cambio de estado, asignación de operarios y estadísticas por zona.
-- **Microservicios aislados** — Cada servicio tiene su propio rol de BD con mínimo privilegio; comunicación interna autenticada por token.
-- **Recuperación periódica de tareas** — Un worker de recovery retoma tareas Celery huérfanas en estado PROCESANDO cada 30 segundos.
-
----
-
-## 2. Stack Tecnológico
-
-| Capa | Tecnología | Versión |
-|------|-----------|---------|
-| API Gateway | Node.js / Express + Helmet + pino | 18+ |
-| Auth Service | Node.js / Express + bcryptjs + nodemailer + pino | 18+ |
-| Users Service | Node.js / Express + pino | 18+ |
-| Image Service | Node.js / Express + AWS SDK v3 + opossum (CB) + sharp | 18+ |
-| ML API | Python / FastAPI + Gunicorn + Uvicorn workers | 3.11 |
-| ML Worker | Celery + Ultralytics RT-DETR | 3.11 |
-| Base de datos | PostgreSQL 16 + PostGIS 3.4 + pgcrypto | Docker |
-| Object Storage | MinIO (dev) / AWS S3 (prod) | Docker |
-| Message Broker | Redis 7 (requirepass) | Docker |
-| Task Dashboard | Flower 2.0 | Docker |
-| App móvil | React Native / Expo SDK 54 + TypeScript | — |
-| Panel web | React + Vite + TypeScript | — |
-| Modelo IA | RT-DETR-L v2 (`rtdetr_l_best.pt`) — mAP@50=0.880 | Ultralytics |
-| Seguridad HTTP | Helmet, express-rate-limit, CORS | — |
-| Logs | pino (JSON estructurado, log levels) | — |
-| Documentación API | swagger-jsdoc + swagger-ui-express | — |
+- **Reporte ciudadano con foto + GPS** — La app móvil captura imagen y coordenadas en un solo gesto, con permisos secuenciales y cola offline en `AsyncStorage` (reintento FIFO con backoff exponencial al recuperar conectividad).
+- **Detección con IA RT-DETR-L v2** — Modelo transformer entrenado en GPU NVIDIA T4 sobre 21 987 imágenes (4 fuentes fusionadas + 501 negativas de Quito). **mAP@50 = 0.8802** (+85.2% vs baseline), precisión 0.884, recall 0.820.
+- **Pipeline de decisión en 4 vías** — La IA no clasifica solo "hay basura / no hay basura"; emite uno de cuatro veredictos: `INCIDENTE_VALIDO`, `RECHAZO_CONFIABLE`, `REVISION_REQUERIDA` o `ERROR_TECNICO`. Cada uno deriva a un estado distinto del incidente (PENDIENTE, DESCARTADO, EN_REVISION, FALLIDO).
+- **Revisión supervisada con corrección estructurada** — El supervisor puede firmar un veredicto sobre la decisión IA (`ia_fue_correcta`) y corregir nivel/tipo (`*_supervisor`) sin sobrescribir el dato original ML, preservando el dataset para auditoría y reentrenamiento.
+- **Pipeline asíncrono 202 + polling** — Respuesta HTTP inmediata con `task_id`; el cliente sondea con backoff (500 ms → 8 s); si cancela, el `task_id` queda en `AsyncStorage` y la pantalla de historial hace auto-polling cada 5 s.
+- **Circuit Breaker (opossum)** sobre el ML Service para degradar elegantemente.
+- **Asignación automática por zona** — PostGIS `ST_Covers` asigna `zona_id` por polígono EPSG:4326 mediante trigger; si la ubicación es aproximada (GPS no disponible) queda para revisión manual.
+- **Auditoría completa** — Schema `audit` con triggers automáticos en INSERT/UPDATE/DELETE de tablas críticas; particiones mensuales (`audit.audit_log_YYYY_MM`).
+- **Validación de cédula ecuatoriana** — Función `public.fn_validar_cedula_ec()` implementa el algoritmo Módulo 10 del Registro Civil.
+- **Rate limiting granular** por endpoint (login 5/15min, OTP 10/15min, imagen 20/h, forgot-password 5/h, global 100/15min).
+- **Anti-enumeración** — Login devuelve siempre el mismo mensaje para email inexistente y contraseña errónea.
+- **Rechazo amigable (Friendly Rejection)** — Si la IA decide `RECHAZO_CONFIABLE`, el incidente queda en `DESCARTADO` con la imagen preservada en R2/MinIO para auditoría (no se elimina, a diferencia del flujo anterior).
+- **Notificaciones push** — Expo Notifications al ciudadano cuando cambia el estado de su reporte; WebSocket al supervisor para alertas CRÍTICO/ALTO.
+- **HTTPS automático en producción** — Caddy obtiene y renueva certificados Let's Encrypt sin configuración manual.
 
 ---
 
-## 3. Arquitectura del Sistema
+## 2. Stack tecnológico
+
+| Capa | Tecnología | Versión / nota |
+|---|---|---|
+| API Gateway | Node.js + Express + Helmet + pino + http-proxy-middleware | Node 22 |
+| Auth Service | Node.js + Express + bcryptjs + nodemailer + pg | Node 22 |
+| Users Service | Node.js + Express + pg | Node 22 |
+| Image Service | Node.js + Express + AWS SDK v3 + opossum (CB) + sharp + pg | Node 22 |
+| ML API | Python + FastAPI + Gunicorn + Uvicorn workers | Python 3.11 |
+| ML Worker | Celery + Ultralytics 8.3.x (RT-DETR) | Python 3.11 |
+| Base de datos (dev) | PostgreSQL 16 + PostGIS 3.4 + pgcrypto | Docker `postgis/postgis:16-3.4` |
+| Base de datos (prod) | PostgreSQL 17 + PostGIS + pgcrypto | Supabase managed (sa-east-1) |
+| Object storage (dev) | MinIO | Docker |
+| Object storage (prod) | Cloudflare R2 | S3-compatible |
+| Message broker | Redis 7 (requirepass) | Docker |
+| Reverse proxy (prod) | Caddy 2.11 + Let's Encrypt | apt package |
+| App móvil | React Native + Expo SDK 54 + TypeScript | EAS Build |
+| Panel web | React 19 + Vite 8 + TypeScript + Tailwind 4 + React Leaflet | Cloudflare Pages |
+| Modelo IA | RT-DETR-L v2 (`rtdetr_l_best.pt`) — 32.8 M params, 63 MB | Entrenado en Colab T4 |
+| Documentación API | swagger-jsdoc + swagger-ui-express | `/api-docs` |
+| Logs | pino (JSON estructurado) | Campos sensibles → `[REDACTED]` |
+
+---
+
+## 3. Arquitectura — desarrollo y producción
+
+### 3.1 Desarrollo local (Docker Compose)
+
+Todo corre en un solo `docker compose up -d`. PostgreSQL, MinIO, Redis y todos los microservicios están dentro de la misma red bridge `emaseo_network`. Solo el API Gateway (puerto 4000) se publica al host.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              CLIENTES                                     │
-│   📱 React Native / Expo (ciudadano, operario)   🖥  React + Vite (sup.) │
-└─────────────────────────────┬────────────────────────────────────────────┘
-                              │  HTTPS (LAN / Cloudflare Tunnel / Ngrok)
-                              ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                      API GATEWAY :4000  [Docker]                          │
-│  Helmet · CORS · JWT (15 min) · Rate Limit · RBAC · pino · Swagger UI    │
-│  X-Internal-Token inyectado en cada petición a microservicios             │
-└────────┬──────────────────┬──────────────────┬───────────────────────────┘
-         │                  │                  │
-         ▼                  ▼                  ▼
-    Auth Service       Users Service      Image Service      [Docker — sin
-       :3002              :3000              :5000             puertos expuestos]
-         │                  │                  │
-         └──────────────────┴──────────────────┘
-                            │  SQL (roles de mínimo privilegio)
-                            ▼
-          ┌─────────────────────────────────────┐
-          │  PostgreSQL 16 + PostGIS 3.4         │  :5432 (solo red interna)
-          │  pgcrypto · RLS · auditoria triggers │
-          └─────────────────────────────────────┘
-
-          ┌─────────────────────────────────────┐
-          │  MinIO (S3-compatible)               │  :9000/:9001 (dev opcional)
-          │  Bucket: emaseo-incidents (público)  │
-          └─────────────────────────────────────┘
-
-          ┌─────────────────────────────────────┐
-          │  Redis 7 (requirepass)               │  :6379 (solo red interna)
-          │  Broker + Result Backend de Celery   │
-          └──────────────────┬──────────────────┘
-                             │ Celery tasks
-               ┌─────────────┴──────────────┐
-               ▼                            ▼
-        ┌─────────────┐            ┌─────────────────┐
-        │  ML API      │            │  ML Worker(s)    │
-        │  FastAPI +   │            │  Celery + RTDETR │
-        │  Gunicorn    │            │  GPU/CPU         │
-        └─────────────┘            └─────────────────┘
-
-          ┌─────────────────────────────────────┐
-          │  Flower :5555  (dashboard Celery)    │  :5555 (dev opcional)
-          └─────────────────────────────────────┘
+Cliente móvil ──┐
+                ├──► API Gateway :4000 ──┬──► Auth :3002 ────► PostgreSQL :5432
+Panel web ──────┘    (Helmet + JWT +     ├──► Users :3000 ───►   (PostGIS)
+                      Rate Limit +       ├──► Image :5000 ───┬─► MinIO :9000
+                      RBAC + Swagger)    │                   └─► Redis :6379
+                                         └──► ML API :8000 ──► ML Worker (Celery)
 ```
 
-### Comunicación entre servicios
+### 3.2 Producción (cloud distribuido)
 
-- El **API Gateway** es el único punto de entrada externo; los microservicios no exponen puertos al host.
-- El Gateway inyecta `X-Internal-Token` en cada petición; los servicios rechazan con 403 cualquier llamada sin él.
-- El **Image Service** llama al **ML API** internamente (`http://ml-api:8000/predict`), protegido por un Circuit Breaker (opossum).
-- La inferencia ML corre de forma asíncrona en el **ML Worker** via Celery; el resultado se recoge mediante polling con backoff exponencial (500 ms → 8 s).
+Misma arquitectura lógica, infraestructura distinta. La aplicación móvil y el panel web hablan con el backend a través de HTTPS público; el backend usa servicios managed en lugar de contenedores propios para la DB y el object storage.
+
+```
+┌─────────────────────┐         ┌───────────────────────────────┐
+│  📱 APK Android     │         │  🌐 Panel supervisor          │
+│  (EAS Build)        │         │  Cloudflare Pages             │
+└──────────┬──────────┘         │  mic-emaseo-panel.pages.dev   │
+           │                    └────────────┬──────────────────┘
+           │   HTTPS                         │  HTTPS + CORS
+           ▼                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│            Caddy :443  ──►  Let's Encrypt cert               │
+│            micemaseo.duckdns.org  (DuckDNS A record)         │
+│            VPS Contabo Cloud VPS 10 (Ubuntu 22.04)           │
+└────────────────────────────┬─────────────────────────────────┘
+                             │  reverse_proxy 127.0.0.1:4000
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│   Docker Compose (network IPv4 + IPv6 NAT habilitado)        │
+│   ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────┐           │
+│   │ Gateway  │─▶│  Auth  │  │ Users  │  │ Image  │           │
+│   │  :4000   │  │ :3002  │  │ :3000  │  │ :5000  │           │
+│   └──────────┘  └────┬───┘  └───┬────┘  └────┬───┘           │
+│                      │          │            │               │
+│                      └──┬───────┴────────────┘               │
+│                         │ pg (auth_svc / users_svc / image_svc)
+│                         │ IPv6 directo                       │
+│                         ▼                                    │
+│         Supabase  db.<ref>.supabase.co :5432  (IPv6)         │
+│           PostgreSQL 17 + PostGIS + pgcrypto                 │
+│           Schema renombrado: app_auth (no colisiona con Supabase Auth)
+│                                                              │
+│   ┌──────────┐  ┌─────────────┐                              │
+│   │ ML API   │  │ ML Worker   │──► Redis :6379 (broker local) │
+│   └────┬─────┘  └─────────────┘                              │
+│        │ S3 SDK                                              │
+│        ▼                                                     │
+│   Cloudflare R2  (emaseo-incidents)                          │
+│   pub-<id>.r2.dev  →  imágenes públicas para el panel        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Decisiones técnicas clave del despliegue:**
+
+- **Schema `auth` renombrado a `app_auth`** — Supabase reserva el schema `auth` para Supabase Auth (gotrue). Para evitar colisión con `auth.users` y `auth.refresh_tokens` se renombró nuestro schema. La DB local sigue la misma convención para no divergir.
+- **Conexión directa por IPv6 (puerto 5432)** en lugar del pooler de Supabase. El pooler (Supavisor) solo conoce el usuario `postgres`; los roles personalizados `auth_svc`/`users_svc`/`image_svc` no están en su registro y devuelven `tenant/user not found`. La conexión directa sí los acepta y mantenemos el principio de mínimo privilegio.
+- **Docker IPv6 habilitado** (`/etc/docker/daemon.json` con `"ipv6": true, "ip6tables": true, "fixed-cidr-v6": "fd00:dead:beef::/48"`) más `enable_ipv6: true` en la network de compose. Sin esto los contenedores no enrutan al host IPv6 de Supabase.
+- **`search_path` por rol** — `ALTER ROLE auth_svc SET search_path = public, extensions, "$user"` para que `crypt()` y `gen_salt()` (en el schema `extensions` de Supabase) sean accesibles sin calificar.
+- **No usamos Supabase Auth ni Data API** — las desactivamos al crear el proyecto. Supabase es **solo** Postgres + PostGIS.
 
 ---
 
-## 4. Microservicios Backend
+## 4. Microservicios backend
 
 ### API Gateway `:4000`
 
-Punto de entrada único. Responsabilidades:
-
-- **Proxy HTTP** a microservicios upstream via `http-proxy-middleware`.
-- **Validación JWT** (access token, 15 min) en rutas protegidas antes de reenviar la petición.
-- **RBAC**: `requireCiudadano`, `requireSupervisor`, `requireStaff`, `requireAdmin` según el rol.
-- **Rate limiting granular**: global 100 req/15 min; login 5/15 min; OTP 10/15 min; imagen 20/hora; forgot-password 5/hora.
-- **Helmet** y **CORS** configurados (origins via variable de entorno).
-- **Swagger UI** en `/api-docs` (spec generado con swagger-jsdoc).
-- **`trust proxy 1`** — necesario para leer la IP real detrás de Cloudflare Tunnel / Ngrok.
+- Proxy a microservicios upstream con `http-proxy-middleware`.
+- Validación de JWT (access token, 15 min) antes de reenviar.
+- RBAC con middlewares `requireCiudadano`, `requireOperario`, `requireSupervisor`, `requireAdmin`.
+- Rate limiting granular: global 100/15min · login 5/15min · OTP 10/15min · imagen 20/h · forgot-password 5/h.
+- `app.set("trust proxy", 1)` para leer la IP real detrás de Caddy / Cloudflare Tunnel.
+- Inyecta `X-Internal-Token` en cada petición upstream; los servicios rechazan 403 si falta.
+- Swagger UI en `/api-docs`.
 
 ### Auth Service `:3002`
 
-Maneja identidad y sesiones:
-
 | Endpoint | Descripción |
-|----------|-------------|
-| `POST /api/auth/login` | Devuelve `access_token` (15 min) + `refresh_token` (7 días, hash SHA-256 en DB) |
-| `POST /api/auth/refresh` | Rota el refresh token (rotación de token único) |
-| `POST /api/auth/logout` | Revoca el refresh token |
-| `POST /api/auth/forgot-password` | OTP de 6 dígitos (15 min), **hash bcrypt almacenado en DB** |
-| `POST /api/auth/verify-reset-otp` | Valida el OTP hasheado |
-| `POST /api/auth/reset-password` | Actualiza contraseña en transacción atómica; marca OTP como usado; devuelve JWT listo para usar |
-| `POST /api/auth/register` | Inicia registro (paso 1) — INSERT en `pending_registrations` + OTP por email |
-| `POST /api/auth/verify-otp` | Verifica OTP de registro (paso 2) |
-| `POST /api/auth/set-password` | Finaliza registro: INSERT `auth.users` + `public.ciudadanos` (paso 3) |
-
-**Seguridad anti-enumeración:** login devuelve el mismo mensaje "Credenciales incorrectas" tanto si el email no existe como si la contraseña es incorrecta. No es posible descubrir qué emails están registrados.
+|---|---|
+| `POST /api/auth/login` | Devuelve `access_token` (15 min) + `refresh_token` (7 días, SHA-256 en DB). Anti-enumeración: mensaje genérico para email inexistente o password errónea. |
+| `POST /api/auth/refresh` | Rotación de refresh token. |
+| `POST /api/auth/logout` | Revoca el refresh token. |
+| `POST /api/auth/forgot-password` | OTP 6 dígitos (TTL 15 min), **bcrypt en DB**, email vía SMTP. |
+| `POST /api/auth/verify-reset-otp` | Valida el OTP hasheado. |
+| `POST /api/auth/reset-password` | Actualiza contraseña en transacción atómica + devuelve JWT listo. |
+| `POST /api/auth/register` | Paso 1 — INSERT en `app_auth.pending_registrations` + OTP. |
+| `POST /api/auth/verify-otp` | Paso 2 — valida OTP de registro. |
+| `POST /api/auth/set-password` | Paso 3 — INSERT `app_auth.users` + `public.ciudadanos` + `app_auth.user_consents` (LOPDP). |
 
 ### Users Service `:3000`
 
-CRUD de perfiles (ciudadanos, operarios, supervisores). Avatar, datos de contacto y gestión de estado de cuenta.
+CRUD de perfiles ciudadanos y staff (operarios/supervisores/admins). Endpoints para crear, listar, editar y desactivar usuarios. Incluye `supervisor.controller.js` con endpoints para gestionar el staff operativo y `operarios.controller.js` para asignaciones.
 
 ### Image Service `:5000`
 
-Orquestador del flujo de reporte:
+Orquestador del flujo de reporte. **Implementa la nueva máquina de estados de 4 decisiones** (migración 032):
 
 ```
 1. Validación de imagen (sharp):
-   ├─ Magic bytes (JPEG: FF D8 / PNG: 89 50 4E 47)
-   ├─ Dimensiones mínimas: 320 × 320 px
-   └─ Tamaño mínimo: 1 KB (anti-polyglot)
+   ├─ Magic bytes (JPEG/PNG)
+   ├─ Dimensiones mínimas 320 × 320 px
+   └─ Tamaño mínimo 1 KB (anti-polyglot)
 
-2. INSERT incidents estado=PROCESANDO
-   ← 202 { task_id, poll_url }  ← respuesta inmediata al cliente
+2. INSERT incidents (estado=PROCESANDO, decision_automatica=NULL)
+   ← 202 { task_id, poll_url }   ← respuesta inmediata
 
-3. [background — setImmediate]
-   → Circuit Breaker → POST ml-api:8000/predict (imagen base64)
-   ← has_waste === false
-       → UPDATE estado=FALLIDO (sin imagen en MinIO)
-   ← has_waste === true
-       → PutObject MinIO → incidents/{uuid}.jpg
-       → Transacción PostgreSQL atómica:
-           UPDATE incidents estado=PENDIENTE prioridad=<IA>
-           INSERT incidents.incident_images  (URL pública MinIO)
-           INSERT ai.analysis_results        (JSONB detecciones)
+3. [background — Celery via Redis]
+   → Circuit Breaker → POST ml-api:8000/predict
+   ← La respuesta del ML incluye `decision_automatica` ∈
+      { INCIDENTE_VALIDO, RECHAZO_CONFIABLE, REVISION_REQUERIDA, ERROR_TECNICO }
 
-4. GET /api/image/status/:task_id (polling por el cliente)
-   ← 202 PROCESANDO | 200 FALLIDO | 200 PENDIENTE (con metadata)
+   Según el veredicto:
+   ├─ INCIDENTE_VALIDO   → estado=PENDIENTE   (imagen + analysis_results en DB)
+   ├─ REVISION_REQUERIDA → estado=EN_REVISION (imagen preservada, espera supervisor)
+   ├─ RECHAZO_CONFIABLE  → estado=DESCARTADO  (imagen preservada para auditoría)
+   └─ ERROR_TECNICO      → estado=FALLIDO     (imagen preservada si ya estaba en S3)
+
+4. GET /api/image/status/:task_id (polling)
+   ← 202 PROCESANDO | 200 con estado final + metadata
 ```
 
-**Recovery periódico**: cada 30 segundos se revisan incidentes en estado PROCESANDO por más de 3 minutos y se intenta recuperar su tarea Celery.
+**Recovery periódico:** cada 30 s un job revisa incidentes en `PROCESANDO` por más de 3 minutos y reintenta su tarea Celery (campo `celery_task_id`).
+
+**Endpoints supervisores** (servidos por `image-service`, ruta `/supervisor/*`):
+
+| Endpoint | Descripción |
+|---|---|
+| `GET /supervisor/incidents` | Lista paginada con filtros: `estado`, `prioridad`, `zona_id`, `decision_automatica`, `fecha_desde`, `fecha_hasta`, `ia_incorrecta`, `sin_supervisar`, `sort=priority\|newest`, `page`, `limit`. |
+| `GET /supervisor/incidents/:id` | Detalle completo: historial, asignaciones, feedback IA, correcciones supervisoras. |
+| `PUT /supervisor/incidents/:id/estado` | Cambio de estado con transición validada (FSM). |
+| `POST /supervisor/incidents/:id/asignar` | Asigna operario (opcional: fecha esperada, notas). |
+| `PUT /supervisor/incidents/:id/revision-ia` | Veredicto supervisado: `es_correcta_ia`, `nivel_acumulacion_supervisor`, `tipo_residuo_supervisor`, comentario. Idempotente (puede llamarse varias veces). |
+| `GET /supervisor/operarios` | Lista de operarios activos para el dropdown del wizard. |
+
+### ML Service `:8000`
+
+FastAPI + Gunicorn (4 workers) + Celery worker. Detalles en la sección 5.
 
 ---
 
-## 5. Modelo de Machine Learning
+## 5. Modelo de Machine Learning y pipeline de decisión
 
-**Archivo:** `Backend/ml-service/main.py`  
-**Pesos:** `ML/modelos/rtdetr_l_best.pt` (RT-DETR-L v2, 63 MB)  
-**Framework:** FastAPI + Ultralytics + Celery  
-**Arquitectura:** RT-DETR-L, 32.8 M parámetros, backbone ResNet-101D
+**Archivo:** `Backend/ml-service/main.py` + `tasks.py`
+**Pesos:** `ML/modelos/rtdetr_l_best.pt` (RT-DETR-L v2, 63 MB, 32.8 M params)
+**Framework:** FastAPI + Ultralytics 8.3 + Celery + Redis
+**Arquitectura del modelo:** RT-DETR-L (Real-Time Detection Transformer, large variant)
 
-### Métricas (RT-DETR-L v2 vs v1)
+### 5.1 Métricas (v1 → v2)
 
-| Métrica | v1 (CPU baseline) | v2 (producción) | Mejora |
-|---------|------------------|-----------------|--------|
+| Métrica | v1 (CPU, dataset 12 k) | v2 (GPU T4, dataset 22 k) | Mejora |
+|---|---|---|---|
 | mAP@50 | 0.4752 | **0.8802** | +85.2% |
 | mAP@50:95 | 0.2450 | **0.6069** | +147.7% |
 | Precision | 0.5523 | **0.8840** | +60.1% |
 | Recall | 0.4353 | **0.8203** | +88.5% |
 
-> Evaluado sobre conjunto de validación (623 imágenes). Best checkpoint: epoch 64/100 con GPU T4, AdamW, lr=0.0001, batch=16.  
-> Ver tabla comparativa completa en [`ML/resultados/README.md`](ML/resultados/README.md).
+Evaluado sobre el conjunto de validación (3 531 imágenes), best epoch 64/100, optimizador AdamW, `lr0=0.0001`, batch=16, cosine annealing, augmentation Mosaic + HSV + Erasing + CopyPaste 0.1.
 
-### Dataset
+### 5.2 Dataset
 
-**1 clase** (`garbage`) — 12 180 imágenes totales (11 557 train / 623 val)  
-Fuente: *Garbage Collector v8* — Roboflow Universe
+**1 clase remapeada (`garbage`, nc=1)** — 21 987 train + 3 531 val.
 
-### Pipeline de inferencia
+| Fuente | Tipo | Aporte |
+|---|---|---|
+| Garbage Collector v8 (Roboflow) | YOLO | Base principal |
+| TACO (pedropro/TACO en GitHub) | COCO JSON → YOLO | Imágenes de campo reales |
+| Garbage Detection (Roboflow) | YOLO | Variedad de escenas |
+| Street Trash (Roboflow) | YOLO | Basura en vía pública |
+| **501 fotografías negativas de Quito** | YOLO (sin etiquetas) | Background — calles limpias para reducir falsos positivos |
+
+Pipeline de preparación: scripts numerados `01_descargar_taco.py` → `06_agregar_taco.py` en `ML/scripts/` (con `unique_stem()` para evitar colisión de nombres entre `batch_N/000000.jpg`).
+
+### 5.3 Pipeline de inferencia y pre-check
 
 ```
-Imagen base64 → Decodificación PIL
-    → RTDETR.predict(conf=0.35, iou=0.50)
-    → Filtro whitelist de clases (RECICLABLE, ORGANICO, ESCOMBROS, PELIGROSO, MIXTO, ...)
-    → Filtro área < 0.5% del frame (ruido)
-    → Sin detecciones válidas  → has_waste: false  (Rechazo Amigable)
-    → Con detecciones  → cálculo effective_ratio
-        ├─ conf_factor  = min(1.0, conf_media / 0.60)
-        ├─ det_factor   = min(1.0, 0.40 + 0.20 × num_detecciones)
-        ├─ ISOLATION_PENALTY × 0.65 (si 1 objeto > 55% del frame)
-        └─ class_weight (PELIGROSO ×1.30 … RECICLABLE ×0.85)
+Imagen base64 → Decodificación PIL → resize 640×640
+   │
+   ├── (opcional) /ml/pre-check  → garbage_score, is_garbage, threshold
+   │                              ↑ thumbnail liviano para validación rápida desde el móvil
+   │
+   └── /predict (vía Celery worker):
+       → RTDETR.predict(conf=0.35, iou=0.50)
+       → Filtro whitelist de clases
+       → Filtro área < 0.5% del frame (ruido)
+       │
+       ├── Sin detecciones válidas → decision_automatica = RECHAZO_CONFIABLE
+       │                            → estado = DESCARTADO (imagen preservada)
+       │
+       └── Con detecciones → cálculo de coverage_ratio + effective_ratio:
+           ├─ conf_factor   = min(1.0, conf_media / 0.60)
+           ├─ det_factor    = min(1.0, 0.40 + 0.20 × num_detecciones)
+           ├─ ISOLATION_PENALTY × 0.65 si 1 bbox > 55 % del frame
+           ├─ class_weight (PELIGROSO ×1.30 … RECICLABLE ×0.85)
+           └─ scale_penalty si hay muchas detecciones diminutas
+
+           effective_ratio = coverage_ratio × conf_factor × det_factor × class_weight
+                             × ISOLATION_PENALTY (si aplica) × scale_penalty
 ```
 
-### Bandas de clasificación
+### 5.4 Bandas de clasificación y estimación de volumen
 
 | `effective_ratio` | Nivel | Prioridad | Volumen estimado |
-|-------------------|-------|-----------|-----------------|
+|---|---|---|---|
 | 0.00 – 0.15 | BAJO | BAJA | 0.1 – 0.5 m³ |
 | 0.15 – 0.40 | MEDIO | MEDIA | 0.5 – 2.0 m³ |
 | 0.40 – 0.70 | ALTO | ALTA | 2.0 – 5.0 m³ |
 | 0.70 – 1.00 | CRÍTICO | CRÍTICA | 5.0 – 15.0 m³ |
 
-### Nota técnica — URL encoding de Redis
+**Sobre el "volumen":** no se calcula con una fórmula geométrica directa (π·r²·h ni área·d). El sistema emite un **rango estimado** mapeando el `effective_ratio` a una banda predefinida. Es una proxy operativa para priorización, no una medición física. Ver detalles en `Backend/ml-service/tasks.py`.
 
-El `REDIS_PASSWORD` generado con `openssl rand -base64 24` contiene caracteres especiales (`+`, `/`) que son reservados en URLs. El archivo `celery_app.py` construye la URL de conexión usando `urllib.parse.quote(password, safe='')` para codificarlos correctamente antes de armar la cadena `redis://:PASS@host:port/db`. Flower (imagen pre-compilada) usa la variable `REDIS_PASSWORD_ENCODED` (con `+`→`%2B`, `/`→`%2F`) ya que no tiene acceso al código Python.
+### 5.5 Las cuatro decisiones automáticas
 
----
+El ML no devuelve solo `has_waste: true/false` como en la versión anterior. Devuelve un veredicto estructurado en el campo `decision_automatica` que el image-service mapea a un estado del incidente:
 
-## 6. Infraestructura Docker
+| `decision_automatica` | Significado | Estado final del incidente |
+|---|---|---|
+| `INCIDENTE_VALIDO` | Detecciones con buena confianza → reporte real | `PENDIENTE` (visible al supervisor para asignación) |
+| `REVISION_REQUERIDA` | Detecciones ambiguas / confianza media | `EN_REVISION` (el supervisor decide si validar o descartar) |
+| `RECHAZO_CONFIABLE` | Sin detecciones, ML confiado en que no hay basura | `DESCARTADO` (imagen preservada para auditoría) |
+| `ERROR_TECNICO` | Fallo de inferencia (timeout, modelo caído) | `FALLIDO` (imagen preservada si ya estaba en S3) |
 
-Todo el sistema corre dentro de Docker con **nombre de proyecto fijo `emaseo`** (`name: emaseo` en `docker-compose.yml`). Esto garantiza que los volúmenes siempre se llamen `emaseo_postgres_data`, `emaseo_minio_data`, etc., sin importar el directorio desde el que se ejecute el comando.
+Diferencia clave con el flujo anterior: ya no se elimina la imagen en `FALLIDO`/`DESCARTADO`. Toda imagen se preserva en R2 (`imagen_auditoria_url`) para que el supervisor pueda revisarla y, si la IA se equivocó, anular el rechazo automático llevando el incidente a `PENDIENTE`.
 
-El único puerto publicado al host por defecto es el **4000** del API Gateway.
+### 5.6 Corrección supervisada (migración 033)
 
-| Contenedor | Imagen / Build | Función | Puerto host |
-|-----------|---------------|---------|-------------|
-| `emaseo-postgres` | `postgis/postgis:16-3.4` | BD + extensiones geoespaciales | 5432 |
-| `emaseo-minio` | `minio/minio:latest` | Object Storage S3-compatible | 9000, 9001 (\*) |
-| `emaseo-minio-init` | `minio/mc:latest` | Crea bucket y permisos (efímero, se detiene solo) | — |
-| `emaseo-redis` | `redis:7-alpine` | Broker + result backend Celery | 6379 (\*) |
-| `emaseo-auth` | Build `./Backend/auth-service` | Autenticación y sesiones | — |
-| `emaseo-users` | Build `./Backend/users-service` | CRUD de perfiles | — |
-| `emaseo-image` | Build `./Backend/image-service` | Orquestador de reportes | — |
-| `emaseo-gateway` | Build `./Backend/api-gateway` | API Gateway (único acceso externo) | **4000** |
-| `emaseo-ml-api` | Build `./Backend/ml-service` | API ML (Gunicorn + Uvicorn) | — |
-| `emaseo-ml-worker-1` | Build `./Backend/ml-service` | Worker Celery (inferencia RT-DETR GPU/CPU) | — |
-| `emaseo-flower` | `mher/flower:2.0` | Dashboard de tareas Celery | 5555 (\*) |
+Cuando el supervisor revisa un incidente, puede firmar un veredicto sobre la IA sin sobrescribir el resultado original. Las columnas `*_supervisor` en `ai.analysis_results` son **aditivas**:
 
-> (\*) Solo publicados en `127.0.0.1` cuando se usa `docker-compose.dev.yml` (con `-f docker-compose.dev.yml`).
+| Campo | Tipo | Significado |
+|---|---|---|
+| `ia_fue_correcta` | `boolean` | `TRUE` si el supervisor avala la decisión IA, `FALSE` si la corrige, `NULL` si aún no se revisó |
+| `nivel_acumulacion_supervisor` | `ai.accumulation_level` | Nivel real según el supervisor (NULL si la IA estaba bien) |
+| `tipo_residuo_supervisor` | `ai.waste_type` | Tipo real (NULL si la IA estaba bien) |
+| `nota_supervision` | `text` | Comentario libre de auditoría |
+| `supervisado_por` | `uuid` | FK a `app_auth.users` |
+| `supervisado_at` | `timestamptz` | Cuándo se firmó |
 
-> **`emaseo-minio-init`** aparece como "Exited" en Docker Desktop una vez que termina de crear el bucket — esto es normal y esperado. No es un error.
-
-**Volúmenes persistentes:** `emaseo_postgres_data`, `emaseo_minio_data`, `emaseo_redis_data`, `emaseo_shared_uploads`  
-**Red interna:** `emaseo_network` (bridge) — los contenedores se comunican por nombre de servicio.  
-**Healthchecks:** todos los servicios con `depends_on: condition: service_healthy`.  
-**Escalado ML:** `docker compose up -d --scale ml-worker=N` para N réplicas del worker Celery.
+Estos datos alimentan dos cosas: el pipeline de detección de drift del modelo (junto con `ai.analysis_feedback` de operarios) y la trazabilidad de auditoría para EMASEO.
 
 ---
 
-## 7. Frontend — Aplicación Móvil y Panel Web
+## 6. Frontend — app móvil y panel web
 
-### App Móvil — `Frontend/smart-waste-mobile/`
+### 6.1 App móvil — `Frontend/smart-waste-mobile/`
 
-**Stack:** React Native (Expo SDK 54) + TypeScript + SecureStore
+**Stack:** React Native + Expo SDK 54 + TypeScript + SecureStore + Expo Camera + Expo Location + AsyncStorage.
 
-| Pantalla | Descripción |
-|----------|-------------|
-| Login / Register | Wizard de 3 pasos: datos → OTP email → contraseña |
-| ForgotPassword | Recuperación por OTP con flujo seguro de 3 pasos |
-| ResetPassword | Nueva contraseña; al completar llama `login(token)` para cambiar al grupo privado automáticamente |
-| ScanScreen | Cámara + GPS; permisos secuenciales; animación de escaneo; timeout 110 s; cancel guarda task_id en AsyncStorage |
-| ScanResult | Resultado del análisis IA (nivel, volumen, tipo, confianza) |
-| Historial | Lista de reportes; auto-polling cada 5 s si hay incidentes en estado PROCESANDO |
-| ReportDetail | Mapa interactivo + geocoding inverso + foto MinIO |
-| Perfil | Datos del ciudadano autenticado |
+| Pantalla | Función |
+|---|---|
+| `LoginScreen` / `RegisterScreen` | Wizard de 3 pasos: datos → OTP email → contraseña |
+| `ForgotPasswordScreen` | Recuperación por OTP de 3 pasos |
+| `ResetPasswordScreen` | Nueva contraseña + login automático (el backend devuelve JWT listo) |
+| `ScanScreen` | Cámara con overlay de recuadro, GPS automático, animación de escaneo, timeout 110 s; cancelar guarda `task_id` en `AsyncStorage` (no aborta el análisis) |
+| `ScanResultScreen` | Nivel, volumen, tipo, confianza del análisis IA |
+| `HistorialScreen` | Lista de reportes; auto-polling cada 5 s mientras haya incidentes en `PROCESANDO` |
+| `ReportDetailScreen` | Mapa interactivo + geocoding inverso + foto desde R2/MinIO |
+| `PerfilScreen` | Datos del ciudadano + logout |
 
-**Seguridad móvil:** tokens almacenados con **SecureStore** (no AsyncStorage); aborto de peticiones con `AbortController`; barra de progreso de upload; cancelación no bloqueante (el análisis continúa en segundo plano).
+**Particularidades:**
+- Tokens en **SecureStore** (cifrado del dispositivo) — no en AsyncStorage.
+- Cola offline FIFO con backoff exponencial en `src/services/offlineQueue.js`.
+- Recorte real al recuadro del overlay con `expo-image-manipulator` (constantes en `src/utils/cropToScanFrame.ts`); recorte y captura de GPS se hacen en paralelo.
+- Pre-check de basura (~15 KB thumbnail a `/ml/pre-check`) antes del upload completo: fail-closed (si el pre-check falla por red, NO se asume optimista).
+- Validación de password sincronizada con el backend: 8+ chars, mayúscula, minúscula, dígito.
 
-**Validación de contraseña (sincronizada con el backend):**
-- Mínimo 8 caracteres
-- Al menos 1 letra mayúscula
-- Al menos 1 letra minúscula
-- Al menos 1 dígito numérico
+### 6.2 Panel supervisor — `Frontend/supervisor-panel/`
 
-**Flujo de recuperación de contraseña:**
-1. `ForgotPasswordScreen` — el usuario ingresa su email y recibe un OTP por correo
-2. `OtpScreen` — verifica el OTP de 6 dígitos
-3. `ResetPasswordScreen` — elige nueva contraseña; el backend devuelve un JWT listo y se llama `login(token)` para que `AppNavigator` cambie automáticamente al grupo privado (Home) sin necesidad de `navigation.reset()`
+**Stack:** React 19 + Vite 8 + TypeScript + Tailwind CSS 4 + React Leaflet + lucide-react.
+**Despliegue:** Cloudflare Pages (build estático). Build command: `npm install && npm run build`, output `dist/`, variable `VITE_API_URL=https://micemaseo.duckdns.org/api`.
 
-**Procesamiento en segundo plano:**
-- Al cancelar el análisis en `ScanScreen`, el `task_id` se guarda en `AsyncStorage` bajo la clave `PROCESSING_TASKS_KEY`
-- `HistorialScreen` detecta incidentes con `estado === "PROCESANDO"` y activa auto-polling cada 5 s
-- El usuario puede cerrar la pantalla de escaneo y consultar el resultado en su historial cuando esté listo
+**Layout tablet-first** (rediseñado en el sprint 3.5):
+- Sidebar colapsable (80 px → 224 px) con icon+label, sin la card de logo gigante anterior.
+- Topbar minimalista con avatar dropdown + chip de pendientes en vivo.
+- Home con 4 KPI cards (Pendientes / En revisión / Asignados hoy / Resueltos hoy) + lista de 5 incidencias críticas.
 
-### Panel de Supervisor — `Frontend/supervisor-panel/`
+**Bandeja de incidencias con wizard de 3 pasos** (`Frontend/supervisor-panel/src/features/incidents/`):
 
-**Stack:** React 19 + Vite + TypeScript + Tailwind CSS 4 + React Leaflet  
-No corre en Docker — se levanta como proceso de desarrollo local.
-
-```bash
-cd Frontend/supervisor-panel
-npm install        # solo la primera vez
-npm run dev        # → http://localhost:5173
+```
+┌─ IncidentRail (filtros + lista) ──┐  ┌─ Workspace (Stepper) ──────────────────┐
+│ FiltersBar.tsx                    │  │ Step1Validate.tsx                       │
+│   - estado, prioridad, zona       │  │   "¿Es un reporte real?" → 2 botones    │
+│   - decision_automatica           │  │   ├─ ✅ Es real → avanza al paso 2     │
+│   - fecha_desde / fecha_hasta     │  │   └─ ❌ Descartar → RECHAZADA          │
+│   - ia_incorrecta (toggle)        │  │                                         │
+│   - sin_supervisar (toggle)       │  │ Step2Classify.tsx                       │
+│   - sort: priority / newest       │  │   Formulario IA: validar tipo, nivel,   │
+│ IncidentRail.tsx                  │  │   firmar es_correcta_ia + comentario   │
+│   - card pequeño por incidente    │  │                                         │
+│   - badge color por nivel         │  │ Step3Assign.tsx                         │
+└───────────────────────────────────┘  │   Select de operario + notas → asigna   │
+                                       │   y deja el incidente en EN_ATENCION    │
+                                       │                                         │
+                                       │ CaseTimeline.tsx                        │
+                                       │   Timeline unificado al pie             │
+                                       └─────────────────────────────────────────┘
 ```
 
-**Variable de entorno:** `Frontend/supervisor-panel/.env`
-```env
-VITE_API_URL=http://localhost:4000/api   # desarrollo local
-# VITE_API_URL=/api                      # producción (relativo)
-```
+**Reglas del wizard:**
+- No se puede saltar al paso 3 si el paso 1 dice "no es real".
+- El paso 2 requiere completarse antes del paso 3.
+- Si se reabre un caso, el wizard retoma en el paso correspondiente según `incident.estado`.
+- Para casos `RECHAZO_CONFIABLE` viejos, el Paso 1 pre-marca "Descartar" y pide solo confirmación.
 
-**Funcionalidades:** listado y gestión de incidentes, cambio de estado, asignación de operarios, estadísticas por zona, revisión de decisiones IA (corrección de severidad/tipo), mapas interactivos con Leaflet.
+**Estilos:** se eliminaron los `rounded-[28px]` y gradientes; ahora `rounded-2xl` + fondos planos. Tipografía bajada de `text-3xl` a `text-xl` en títulos. Migración progresiva de CSS-in-JS inline a Tailwind (se mantiene `styles.ts` como fallback centralizado).
 
 ---
 
-## 8. Esquema de Base de Datos
+## 7. Esquema de base de datos
 
-**Motor:** PostgreSQL 16 + PostGIS 3.4 + pgcrypto  
-**Scripts:** `Backend/database/` (montados en `docker-entrypoint-initdb.d`) — 31 migraciones numeradas
+**Motor (dev):** PostgreSQL 16 + PostGIS 3.4 + pgcrypto (Docker `postgis/postgis:16-3.4`).
+**Motor (prod):** PostgreSQL 17 + PostGIS + pgcrypto (Supabase managed, región `sa-east-1`).
+**Scripts:** `Backend/database/01_init_schema.sql` … `034_fix_image_urls.sql` (28 migraciones + seed + queries de ejemplo + script de roles `012_db_users_isolation.{sql,sh}`).
+
+### 7.1 Schemas
 
 | Schema | Tablas principales |
-|--------|-------------------|
-| `auth` | `users`, `refresh_tokens`, `password_reset_tokens` |
-| `public` | `ciudadanos` (perfil 1:1), `pending_registrations`, `user_consents` |
+|---|---|
+| `app_auth` | `users`, `refresh_tokens`, `password_reset_tokens`, `pending_registrations`, `device_tokens`, `user_consents` |
+| `public` | `ciudadanos` (perfil 1:1 con `app_auth.users`), tablas de PostGIS |
 | `operations` | `operarios`, `zones` (polígonos PostGIS EPSG:4326) |
 | `incidents` | `incidents`, `incident_images`, `status_history`, `assignments` |
-| `ai` | `analysis_results` (JSONB detecciones, waste_type, accumulation_level) |
-| `notifications` | `device_tokens`, `notifications`, `notifications_retry` |
-| `audit` | Auditoría de acciones sensibles (triggers automáticos) |
+| `ai` | `analysis_results` (JSONB detecciones + correcciones supervisor 033), `analysis_feedback` |
+| `notifications` | `notifications` (con reintento + push index) |
+| `audit` | `audit_log` particionado mensual (`audit_log_YYYY_MM`) |
 
-**ENUMs clave:**
+> **Nota sobre el rename `auth` → `app_auth`:** En producción Supabase reserva el schema `auth` para Supabase Auth (tabla `auth.users` de gotrue, etc.). Para evitar colisión nuestro schema se renombró a `app_auth` y los 9 archivos del backend que tenían SQL con `auth.users`/`auth.refresh_tokens`/etc. fueron actualizados (commit `159d45b`). La DB local de desarrollo también usa `app_auth` para no divergir.
 
-```sql
-auth.user_role:            CIUDADANO | OPERARIO | SUPERVISOR | ADMIN
-incidents.incident_status: PENDIENTE | EN_ATENCION | RESUELTA | RECHAZADA | PROCESANDO | FALLIDO
-incidents.priority_level:  BAJA | MEDIA | ALTA | CRITICA
-ai.waste_type:             DOMESTICO | ORGANICO | RECICLABLE | ESCOMBROS | PELIGROSO | MIXTO | OTRO
-ai.accumulation_level:     BAJO | MEDIO | ALTO | CRITICO
-```
-
-**Índices geoespaciales:**
+### 7.2 ENUMs clave
 
 ```sql
-CREATE INDEX ON incidents.incidents USING GIST (ubicacion);
-CREATE INDEX ON operations.zones    USING GIST (geom);
-CREATE INDEX ON ai.analysis_results USING GIN  (detecciones);
+app_auth.user_role         : CIUDADANO | OPERARIO | SUPERVISOR | ADMIN
+app_auth.user_status       : ACTIVO | INACTIVO | SUSPENDIDO
+incidents.incident_status  : PENDIENTE | EN_ATENCION | RESUELTA | RECHAZADA
+                             | PROCESANDO | FALLIDO | EN_REVISION | DESCARTADO
+incidents.priority_level   : BAJA | MEDIA | ALTA | CRITICA
+ai.waste_type              : DOMESTICO | ORGANICO | RECICLABLE | ESCOMBROS
+                             | PELIGROSO | MIXTO | OTRO
+ai.accumulation_level      : BAJO | MEDIO | ALTO | CRITICO
+notifications.channel_type : PUSH | EMAIL
+notifications.notification_status : PENDIENTE | ENVIADA | LEIDA | FALLIDA
 ```
 
-**RLS activo** en tablas del image-service para que `image_svc` solo acceda a sus propias filas.  
-**Particionamiento:** `incidents.incidents` particionado por `created_at` (mensual).  
-**Retención:** política automática de limpieza de imágenes huérfanas y notificaciones antiguas.  
-**Validación de cédula ecuatoriana:** función `fn_validar_cedula_ec()` implementa el algoritmo Módulo 10 del Registro Civil del Ecuador.
+`incidents.incidents.decision_automatica` es un `varchar(30)` con `CHECK` constraint sobre los 4 valores: `ERROR_TECNICO`, `RECHAZO_CONFIABLE`, `REVISION_REQUERIDA`, `INCIDENTE_VALIDO`.
+
+### 7.3 Índices destacables
+
+```sql
+-- Geoespaciales (GIST)
+CREATE INDEX idx_incidents_ubicacion_gist ON incidents.incidents USING gist (ubicacion);
+CREATE INDEX idx_zones_geom_gist          ON operations.zones     USING gist (geom);
+
+-- Detecciones JSON (GIN) — permite WHERE detecciones @> '[{"class":"PLASTICO"}]'
+CREATE INDEX idx_ai_detecciones_gin ON ai.analysis_results USING gin (detecciones);
+
+-- Parciales para los nuevos estados (032)
+CREATE INDEX idx_incidents_en_revision ON incidents.incidents (created_at DESC)
+   WHERE estado = 'EN_REVISION';
+CREATE INDEX idx_incidents_descartado  ON incidents.incidents (created_at DESC)
+   WHERE estado = 'DESCARTADO';
+
+-- Supervisión IA (033)
+CREATE INDEX idx_ai_ia_incorrecta      ON ai.analysis_results (supervisado_at DESC)
+   WHERE ia_fue_correcta = false;
+CREATE INDEX idx_ai_pendiente_revision ON ai.analysis_results (created_at DESC)
+   WHERE supervisado_por IS NULL;
+CREATE INDEX idx_ai_supervisado        ON ai.analysis_results (supervisado_por, supervisado_at DESC)
+   WHERE supervisado_por IS NOT NULL;
+
+-- Recovery Celery
+CREATE INDEX idx_incidents_celery_pending ON incidents.incidents (celery_task_id)
+   WHERE celery_task_id IS NOT NULL AND estado = 'PROCESANDO';
+```
+
+### 7.4 Triggers y funciones
+
+- `incidents.fn_assign_zone` — BEFORE INSERT/UPDATE de `ubicacion`, usa `ST_Covers + ORDER BY ST_Area ASC` para asignar la zona más específica. Si `ubicacion_aproximada = TRUE`, deja `zona_id = NULL` con `nota_fallo` explicativa.
+- `incidents.fn_log_status_change` — BEFORE UPDATE de `estado`, inserta en `incidents.status_history` y setea `resuelto_at` cuando pasa a `RESUELTA`.
+- `incidents.fn_notify_citizen` — AFTER UPDATE de `estado`, inserta en `notifications.notifications` el mensaje correspondiente (incluye `DESCARTADO` en 032).
+- `audit.fn_audit_trigger` — SECURITY DEFINER, captura `actor_id` y `actor_ip` desde `current_setting('audit.actor_id')` y registra INSERT/UPDATE/DELETE en `audit.audit_log`.
+- `public.fn_validar_cedula_ec(text)` — algoritmo Módulo 10 del Registro Civil ecuatoriano para validar cédulas (CHECK constraint en `public.ciudadanos`).
+
+### 7.5 Roles de mínimo privilegio
+
+| Rol | Permisos |
+|---|---|
+| `auth_svc` | RW en `app_auth.*`, SELECT en `public.ciudadanos`, SELECT en `operations.operarios` |
+| `users_svc` | RW en `public.*`, RW en `operations.*`, SELECT/INSERT/UPDATE en `app_auth.users`, RW en `app_auth.pending_registrations` y `user_consents` |
+| `image_svc` | RW en `incidents.*` y `ai.*`, INSERT en `notifications.notifications`, SELECT en `app_auth.users`, `public.ciudadanos`, `operations.zones`, `operations.operarios` |
+
+En producción cada rol tiene `search_path = public, extensions, "$user"` para acceder a `crypt()`, `gen_salt()`, `uuid_generate_v4()` (que en Supabase viven en el schema `extensions`).
 
 ---
 
-## 9. Seguridad
+## 8. Seguridad
 
 | Capa | Medida |
-|------|--------|
-| **Red** | Microservicios sin puertos expuestos; solo Gateway en :4000 |
-| **Autenticación** | JWT (15 min) + Refresh Token rotatorio (7 días, hash SHA-256 en BD) |
-| **Contraseñas** | bcrypt con cost factor 10; reglas: 8+ chars, mayúscula, minúscula, dígito |
-| **Anti-enumeración** | Login devuelve el mismo mensaje para email inexistente y contraseña incorrecta |
-| **OTP** | 6 dígitos, hash bcrypt en BD, TTL 15 min, un solo uso |
-| **Comunicación interna** | `X-Internal-Token` en cada petición; 403 si falta |
-| **HTTP Headers** | Helmet.js (CSP, HSTS, X-Frame-Options, etc.) |
-| **CORS** | Origins configurables por variable de entorno |
-| **Rate Limiting** | Granular por endpoint (global / login / OTP / imagen / forgot-password) |
-| **Trust Proxy** | `app.set("trust proxy", 1)` en todos los servicios para leer IP real detrás de Cloudflare |
-| **Validación de imágenes** | sharp: magic bytes, dimensiones mínimas, anti-polyglot |
-| **Almacenamiento móvil** | SecureStore (cifrado del dispositivo) en lugar de AsyncStorage |
-| **BD: mínimo privilegio** | Roles `auth_svc`, `users_svc`, `image_svc` con GRANT mínimos |
-| **BD: RLS** | Row Level Security en tablas del image-service |
-| **BD: cifrado PII** | pgcrypto para datos personales sensibles |
-| **BD: auditoría** | Triggers de auditoría en acciones críticas |
-| **Logs** | pino (JSON estructurado); campos `password/token/otp` saneados con `[REDACTED]` |
-| **Circuit Breaker** | opossum sobre el ML Service (50 % errores / ventana 60 s) |
+|---|---|
+| **Red (prod)** | Solo Caddy expone 80/443 (UFW). Gateway escucha en `127.0.0.1:4000`. Demás contenedores sin puertos al host. |
+| **TLS** | Caddy obtiene y renueva certificados Let's Encrypt automáticamente para `micemaseo.duckdns.org`. HSTS + Strict-Transport-Security activos. |
+| **Autenticación** | JWT (15 min) + refresh token rotatorio (7 días, SHA-256 en DB). |
+| **Contraseñas** | bcrypt (cost 12 en prod, 10 en dev). Reglas: 8+ chars, mayúscula, minúscula, dígito. |
+| **Anti-enumeración** | Login devuelve mensaje genérico para email inexistente vs password errónea. |
+| **OTP** | 6 dígitos, bcrypt en DB, TTL 15 min, un solo uso. |
+| **Comunicación interna** | `X-Internal-Token` en cada petición upstream; 403 si falta. |
+| **CORS** | Origins configurables por env. En prod: `https://mic-emaseo-panel.pages.dev`. |
+| **Rate limiting** | Granular por endpoint (ver sección 4). |
+| **Validación de imágenes** | sharp: magic bytes JPEG/PNG, dimensiones mínimas, anti-polyglot. |
+| **DB: mínimo privilegio** | Tres roles separados (`auth_svc`, `users_svc`, `image_svc`) con GRANT solo de lo que necesitan. |
+| **DB: cifrado PII** | pgcrypto disponible en el schema `extensions` (Supabase) o `public` (dev). |
+| **DB: auditoría** | Triggers en INSERT/UPDATE/DELETE de tablas críticas, particiones mensuales. |
+| **Móvil** | Tokens en SecureStore (no AsyncStorage). Pre-check fail-closed. Cancelación de upload con `AbortController`. |
+| **Logs** | pino JSON estructurado. Campos `password / token / otp / refresh_token` → `[REDACTED]`. |
+| **Circuit Breaker** | opossum sobre el ML Service (50% errores / ventana 60 s). |
 
 ---
 
-## 10. Testing y Calidad de Código
+## 9. Infraestructura Docker
 
-- **Tests**: Vitest — suites unitarias e integración en los servicios Node.js (`Backend/*/src/__tests__/`).
-- **Linting**: ESLint + Prettier configurados en cada servicio Backend.
-- **Logs estructurados**: pino en todos los servicios; niveles `info/warn/error/fatal`; request-id por petición.
-- **OpenAPI**: Swagger UI vivo en `http://localhost:4000/api-docs`.
+Nombre de proyecto fijo `name: emaseo` para que los volúmenes se llamen siempre `emaseo_postgres_data`, `emaseo_minio_data`, etc.
+
+### 9.1 `docker-compose.yml` (desarrollo)
+
+| Contenedor | Imagen / Build | Puerto host |
+|---|---|---|
+| `emaseo-postgres` | `postgis/postgis:16-3.4` | 5432 |
+| `emaseo-minio` | `minio/minio:latest` | 9000 (+9001 con `-Dev`) |
+| `emaseo-minio-init` | `minio/mc:latest` (efímero) | — |
+| `emaseo-redis` | `redis:7-alpine` | (interno) |
+| `emaseo-auth` | Build `./Backend/auth-service` | (interno) |
+| `emaseo-users` | Build `./Backend/users-service` | (interno) |
+| `emaseo-image` | Build `./Backend/image-service` | (interno) |
+| `emaseo-gateway` | Build `./Backend/api-gateway` | **4000** |
+| `emaseo-ml-api` | Build `./Backend/ml-service` | (interno) |
+| `emaseo-ml-worker-1` | Build `./Backend/ml-service` | (interno) |
+| `emaseo-flower` | `mher/flower:2.0` | 5555 (solo con `-Dev`) |
+
+`docker-compose.dev.yml` se aplica como overlay (`-f docker-compose.yml -f docker-compose.dev.yml`) para exponer MinIO console, Redis y Flower al `127.0.0.1` del host.
+
+### 9.2 `docker-compose.prod.yml`
+
+Diferencias respecto a desarrollo:
+- **Sin Postgres ni MinIO** — apuntamos a Supabase y a Cloudflare R2.
+- **Sin `shared_uploads`** — las imágenes pasan por R2 vía el image-service.
+- **Solo el Gateway publica puerto** — y solo en `127.0.0.1:4000`, ya que Caddy en el host es el único que llega a Internet.
+- **`enable_ipv6: true`** en la network `emaseo_network` para que los contenedores puedan llegar al host IPv6 de Supabase.
+- **Imágenes referenciadas como `ghcr.io/jsmena5/<svc>:latest`** con `build:` como fallback. Si el registry tiene la imagen, la jala; si no, la construye localmente.
 
 ---
 
-## 11. Inicio Rápido
+## 10. Inicio rápido — desarrollo local
 
-> **Requisitos:** Docker Desktop instalado y corriendo. No se necesita Node.js ni Python para ejecutar el sistema completo.  
-> Para la guía completa con todos los escenarios, ver [GUIA_EJECUCION.md](GUIA_EJECUCION.md).
+> Requisitos: Docker Desktop instalado y corriendo. Para la guía exhaustiva ver [`GUIA_EJECUCION.md`](GUIA_EJECUCION.md).
 
-### ① Backend completo (Docker — un solo comando)
+### ① Backend completo
 
 **Windows (PowerShell):**
 ```powershell
-.\start.ps1           # genera .env + construye imágenes + levanta 11 contenedores
-.\start.ps1 -NoBuild  # inicio rápido (imágenes ya construidas)
-.\start.ps1 -Build    # forzar reconstrucción (tras cambios en el código)
-.\start.ps1 -Dev      # exponer MinIO :9001, Redis :6379, Flower :5555
+.\start.ps1           # genera .env, construye imágenes y levanta 11 contenedores
+.\start.ps1 -NoBuild  # arranque rápido cuando ya están las imágenes
+.\start.ps1 -Build    # forzar reconstrucción tras cambios
+.\start.ps1 -Dev      # expone MinIO :9001, Redis :6379, Flower :5555
+.\start.ps1 -Tunnel   # backend + túnel Cloudflare para pruebas con datos móviles
 ```
 
 **Linux / macOS / WSL:**
 ```bash
-bash start.sh           # genera .env + construye + levanta
+bash start.sh           # genera + construye + levanta
 bash start.sh --no-build
 bash start.sh --dev
 ```
@@ -436,240 +569,488 @@ docker compose up -d --build   # primera vez
 docker compose up -d           # sesiones posteriores
 ```
 
-> **Nota Windows con espacios en la ruta:** `start.ps1` lo soluciona automáticamente. Si usas comandos manuales, crea primero una junction sin espacios:
+> **Nota Windows con espacios en la ruta:** los scripts `start.ps1/sh` lo solucionan. Si ejecutas Docker manualmente, crea una junction sin espacios:
 > ```powershell
 > cmd /c mklink /J C:\MIC-EMASEO-WORK "C:\REPOSITORIOS GITHUB\MIC-EMASEO-SISTEMA"
 > cd C:\MIC-EMASEO-WORK
 > ```
 
-### ② Panel de Supervisor (React + Vite)
+### ② Panel supervisor (dev)
 
 ```bash
 cd Frontend/supervisor-panel
-npm install        # solo la primera vez
+npm install
 npm run dev
-# → Acceder en http://localhost:5173
+# → http://localhost:5173
 ```
 
-Asegúrate de que `.env` del panel apunte al Gateway:
+`.env` del panel:
 ```env
-# Frontend/supervisor-panel/.env
 VITE_API_URL=http://localhost:4000/api
 ```
 
-### ③ Túnel Cloudflare (acceso remoto desde datos móviles)
-
-```powershell
-# Windows — modo remoto completo (2 túneles + Expo automático)
-.\start-remote.ps1
-
-# Windows — backend + túnel API integrado
-.\start.ps1 -Tunnel
-```
+### ③ App móvil (dev con Expo)
 
 ```bash
-# Linux / WSL — solo túnel API (actualiza .env.development automáticamente)
-bash tools/start-tunnel.sh
+cd Frontend/smart-waste-mobile
+npm install
+npx expo start
+# Escanea el QR con Expo Go o presiona 'a' para abrir en emulador Android
 ```
 
-### Acceder a los servicios
+`.env.development`:
+```env
+EXPO_PUBLIC_API_URL=http://<IP-LAN>:4000/api
+```
 
-| Servicio | URL | Cuándo está disponible |
-|---------|-----|----------------------|
-| **API Gateway** | `http://localhost:4000` | Siempre (con Docker activo) |
-| **Swagger UI** | `http://localhost:4000/api-docs` | Siempre (con Docker activo) |
-| **Panel Supervisor** | `http://localhost:5173` | Con `npm run dev` activo |
-| **MinIO Console** | `http://localhost:9001` | Con `-Dev` o `docker-compose.dev.yml` |
-| **Flower (Celery)** | `http://localhost:5555` | Con `-Dev` o `docker-compose.dev.yml` |
+### URLs útiles en dev
+
+| Servicio | URL |
+|---|---|
+| API Gateway | `http://localhost:4000` |
+| Swagger UI | `http://localhost:4000/api-docs` |
+| Panel supervisor | `http://localhost:5173` |
+| MinIO Console | `http://localhost:9001` (con `-Dev`) |
+| Flower (Celery) | `http://localhost:5555` (con `-Dev`) |
 
 ---
 
-## 12. Variables de Entorno
+## 11. Despliegue en producción
 
-Todas las variables se gestionan desde un **único archivo `.env` en la raíz del proyecto**.
+Esta sección documenta cómo se desplegó el sistema actualmente en producción. Sirve también como receta repetible.
+
+### 11.1 Supabase (PostgreSQL managed)
+
+1. Crear proyecto en https://supabase.com con región **South America (São Paulo)** (`sa-east-1`).
+2. Desactivar Data API y RLS automático en la pantalla de creación (no usamos Supabase Auth ni PostgREST).
+3. Guardar la contraseña de la DB del proyecto.
+4. Vía MCP/SQL Editor:
+   - `CREATE EXTENSION IF NOT EXISTS postgis;` (verificar que `uuid-ossp` y `pgcrypto` ya estén en el schema `extensions`).
+   - Aplicar el dump consolidado del esquema con el rename `auth` → `app_auth`.
+   - Ejecutar el script `012` (versión SQL) con los placeholders de password reemplazados por valores generados (`openssl rand -base64 32`).
+   - `ALTER ROLE auth_svc SET search_path = public, extensions, "$user"` (idem `users_svc`, `image_svc`).
+   - `GRANT USAGE ON SCHEMA extensions TO auth_svc, users_svc, image_svc;`
+   - `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA extensions TO auth_svc, users_svc, image_svc;`
+
+### 11.2 Cloudflare R2 (object storage)
+
+1. Crear bucket `emaseo-incidents`.
+2. Habilitar **Public Development URL** (genera `https://pub-<id>.r2.dev`).
+3. Crear Account API Token con **Object Read & Write** sobre el bucket; guardar `Access Key ID`, `Secret Access Key` y `Endpoint`.
+
+### 11.3 VPS Contabo
+
+1. Cloud VPS 10 (4 vCPU, 8 GB RAM, 75 GB NVMe), Ubuntu 22.04, región US Central (o EU si capacity).
+2. Generar par SSH local (`ssh-keygen -t ed25519`) y subir la clave pública al servidor (vía el panel o `ssh-copy-id`).
+3. Bootstrap del servidor:
+   ```bash
+   apt update && apt install -y ca-certificates curl gnupg ufw git
+   ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+
+   # Docker
+   install -m 0755 -d /etc/apt/keyrings
+   curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu jammy stable" \
+     > /etc/apt/sources.list.d/docker.list
+   apt update && apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+   # Caddy
+   apt install -y debian-keyring debian-archive-keyring apt-transport-https
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+   apt update && apt install -y caddy
+
+   # Docker IPv6 (necesario para llegar a Supabase IPv6 desde los contenedores)
+   cat > /etc/docker/daemon.json <<JSON
+   { "ipv6": true, "ip6tables": true, "fixed-cidr-v6": "fd00:dead:beef::/48" }
+   JSON
+   systemctl restart docker
+
+   # Repo
+   mkdir -p /opt && cd /opt && git clone https://github.com/jsmena5/MIC-EMASEO-SISTEMA.git mic-emaseo
+   ```
+
+### 11.4 DuckDNS
+
+1. https://www.duckdns.org → crear subdominio (ej. `micemaseo`) apuntando a la IP del VPS.
+2. Cron en el VPS para mantener la IP actualizada (cada 5 min):
+   ```bash
+   mkdir -p /opt/duckdns
+   cat > /opt/duckdns/update.sh <<'EOF'
+   #!/bin/bash
+   curl -fsS "https://www.duckdns.org/update?domains=micemaseo&token=<TOKEN>&ip=" >> /var/log/duckdns.log 2>&1
+   EOF
+   chmod +x /opt/duckdns/update.sh
+   ( crontab -l 2>/dev/null; echo "*/5 * * * * /opt/duckdns/update.sh" ) | crontab -
+   ```
+
+### 11.5 Caddy
+
+`/etc/caddy/Caddyfile`:
+```caddy
+micemaseo.duckdns.org {
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    nosniff
+        X-Frame-Options           DENY
+        Referrer-Policy           strict-origin-when-cross-origin
+    }
+    reverse_proxy 127.0.0.1:4000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+```
+`systemctl reload caddy` y Caddy gestiona Let's Encrypt automáticamente.
+
+### 11.6 `.env` de producción
+
+`cp .env.production.example .env` y rellenar con Supabase + R2 + dominio:
+```env
+NODE_ENV=production
+
+# Supabase — conexión directa IPv6 (NO el pooler)
+DB_HOST=db.<project-ref>.supabase.co
+DB_PORT=5432
+DB_NAME=postgres
+DB_SSL=true
+DB_USER_AUTH=auth_svc
+DB_USER_USERS=users_svc
+DB_USER_IMAGE=image_svc
+DB_PASSWORD_AUTH=…
+DB_PASSWORD_USERS=…
+DB_PASSWORD_IMAGE=…
+
+# Cloudflare R2
+S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+S3_BUCKET=emaseo-incidents
+S3_REGION=auto
+S3_ACCESS_KEY_ID=…
+S3_SECRET_ACCESS_KEY=…
+S3_PUBLIC_URL=https://pub-<id>.r2.dev
+
+# Dominios
+PUBLIC_API_URL=https://micemaseo.duckdns.org
+CORS_ORIGINS=https://micemaseo.duckdns.org,https://mic-emaseo-panel.pages.dev
+
+# Modelo ML — copiar manualmente al VPS:
+#   scp ML/modelos/rtdetr_l_best.pt root@<ip>:/opt/mic-emaseo/ML/modelos/
+```
+
+### 11.7 Levantar el stack
 
 ```bash
-# Genera .env con valores aleatorios seguros (Linux/macOS/WSL)
-bash scripts/generate_env.sh
-
-# O copia el ejemplo y completa manualmente
-cp .env.example .env
+cd /opt/mic-emaseo
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml ps
+curl -sS https://micemaseo.duckdns.org/health   # → {"status":"ok"}
 ```
+
+La primera build tarda 10–15 min (PyTorch + ultralytics es el cuello de botella). Las siguientes son incrementales.
+
+### 11.8 Panel supervisor en Cloudflare Pages
+
+Como el repo está bajo otra cuenta de GitHub, se usa `wrangler` desde la máquina del desarrollador:
+
+```bash
+cd Frontend/supervisor-panel
+npm install
+VITE_API_URL=https://micemaseo.duckdns.org/api npm run build
+npx wrangler login          # 1 vez
+npx wrangler pages project create mic-emaseo-panel --production-branch=main
+npx wrangler pages deploy dist --project-name=mic-emaseo-panel --branch=main
+```
+
+Tras el deploy, agregar la URL `https://mic-emaseo-panel.pages.dev` a `CORS_ORIGINS` del backend y reiniciar el gateway.
+
+### 11.9 APK móvil con EAS Build
+
+```bash
+cd Frontend/smart-waste-mobile
+# Asegúrate de que .env.production tenga EXPO_PUBLIC_API_URL=https://micemaseo.duckdns.org/api
+npx eas-cli login
+npx eas-cli init --non-interactive --force      # crea el proyecto en expo.dev
+npx eas-cli build --profile preview --platform android --non-interactive --no-wait
+```
+
+> **Nota sobre monorepo + EAS:** el repo monorepo (con `ML/` de 13 GB) hace que EAS suba 8 GB de tarball y rechace el build. La solución es **copiar la carpeta `smart-waste-mobile/` a un directorio aislado**, hacer `git init` allí, `npm install` y luego correr `eas build` desde esa copia. Esto deja el upload en ~1 MB. Ver detalle en el commit asociado al `.easignore`.
+
+`eas.json` con perfil `preview` que genera APK directo (no AAB):
+```json
+{
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_API_URL": "https://micemaseo.duckdns.org/api" }
+    }
+  }
+}
+```
+
+Cuando el build termina (10–25 min en cola gratuita), `expo.dev` da una URL de descarga directa del `.apk`.
+
+---
+
+## 12. Variables de entorno
+
+Dos archivos coexisten:
+
+- **`.env`** — desarrollo local con Docker Compose. Generado por `scripts/generate_env.sh` con secretos aleatorios. Ver `.env.example`.
+- **`.env.production.local`** — producción (ignorado por git vía `.env.*.local`). Plantilla en `.env.production.example`.
 
 | Variable | Descripción | Ejemplo |
-|----------|-------------|---------|
-| `POSTGRES_PASSWORD` | Contraseña del superusuario PostgreSQL | `openssl rand -base64 24` |
-| `DB_PASSWORD_AUTH/USERS/IMAGE` | Contraseñas de roles de servicio (mínimo privilegio) | `openssl rand -base64 24` |
-| `JWT_SECRET` | Secreto para firmar access tokens (mín. 48 bytes) | `openssl rand -base64 48` |
+|---|---|---|
+| `POSTGRES_PASSWORD` | Superusuario Postgres (solo dev) | `openssl rand -base64 24` |
+| `DB_HOST` / `DB_PORT` | Host y puerto de la DB | dev: `postgres`/`5432`; prod: `db.<ref>.supabase.co`/`5432` |
+| `DB_NAME` | Nombre de la DB | dev: `MIC-EMASEO`; prod: `postgres` |
+| `DB_SSL` | Conexión TLS a Postgres | `false` (dev) / `true` (prod) |
+| `DB_USER_AUTH/USERS/IMAGE` | Usuario de cada microservicio | `auth_svc`, `users_svc`, `image_svc` |
+| `DB_PASSWORD_AUTH/USERS/IMAGE` | Password de cada rol | `openssl rand -base64 32` |
+| `JWT_SECRET` | Firma de access tokens | `openssl rand -base64 48` |
 | `JWT_EXPIRES_IN` | TTL del access token | `15m` |
-| `MINIO_ROOT_PASSWORD` | Contraseña root de MinIO | `openssl rand -base64 24` |
-| `REDIS_PASSWORD` | Contraseña de Redis (requirepass) | `openssl rand -base64 24` |
-| `REDIS_PASSWORD_ENCODED` | Igual que REDIS_PASSWORD pero percent-encoded (`+`→`%2B`, `/`→`%2F`) — usado por Flower | Ver nota abajo |
-| `INTERNAL_TOKEN` | Token de autenticación interna entre servicios | `openssl rand -base64 32` |
-| `SMTP_HOST` | Servidor SMTP | `smtp.gmail.com` |
-| `SMTP_PORT` | Puerto SMTP | `587` |
-| `SMTP_USER` | Email remitente | `tu@gmail.com` |
-| `SMTP_PASS` | Contraseña SMTP (Gmail: App Password de 16 chars) | Ver nota abajo |
-| `EMAIL_FROM` | Dirección From de los correos | `tu@gmail.com` |
-| `DUMMY_MODE` | `false` = modelo real RT-DETR; `true` = respuesta simulada (sin `.pt`) | `false` |
-| `EXPOSE_DEV_PORTS` | (legacy) `true` en `.env`; preferir `docker-compose.dev.yml` | `` (vacío) |
-| `CORS_ORIGINS` | Orígenes CORS permitidos (coma-separados) | `http://localhost:5173` |
-| `S3_PUBLIC_URL` | URL pública de MinIO — usar IP de red, no `localhost`, para acceso desde el móvil | `http://192.168.1.x:9000` |
-| `FLOWER_USER` / `FLOWER_PASSWORD` | Credenciales de acceso al dashboard Flower | Secreto aleatorio |
-
-### Gmail App Password (para SMTP)
-
-Gmail requiere una contraseña de aplicación (no la contraseña de la cuenta):
-
-1. Habilitar Verificación en 2 pasos en [myaccount.google.com](https://myaccount.google.com) → Seguridad
-2. Ir a **Contraseñas de aplicaciones** → Generar → nombre: `EMASEO`
-3. Copiar la clave de 16 caracteres generada en `SMTP_PASS` del `.env` (sin espacios)
-
-### REDIS_PASSWORD_ENCODED (generación)
-
-Si la contraseña de Redis contiene `+` o `/` (frecuente con `openssl rand -base64`), generar la versión encoded:
-
-```powershell
-# PowerShell
-$pwd = "tu_redis_password_aqui"
-[Uri]::EscapeDataString($pwd)
-```
-
-```bash
-# Bash
-python3 -c "import urllib.parse; print(urllib.parse.quote('tu_redis_password_aqui', safe=''))"
-```
-
-Ver [`env.example`](.env.example) para la lista completa con comentarios.
+| `BCRYPT_ROUNDS` | Cost factor bcrypt | `10` (dev) / `12` (prod) |
+| `INTERNAL_TOKEN` | Token entre microservicios | `openssl rand -base64 32` |
+| `REDIS_PASSWORD` | Password de Redis | `openssl rand -base64 24` |
+| `REDIS_PASSWORD_ENCODED` | Idem URL-encoded (`+`→`%2B`, `/`→`%2F`, `=`→`%3D`) — Flower lo necesita | Ver nota |
+| `MINIO_ROOT_PASSWORD` | Root MinIO (solo dev) | `openssl rand -base64 24` |
+| `S3_ENDPOINT` | Endpoint S3 | dev: `http://minio:9000`; prod: `https://<acct>.r2.cloudflarestorage.com` |
+| `S3_BUCKET` | Bucket | `emaseo-incidents` |
+| `S3_REGION` | Región | dev: `us-east-1`; prod: `auto` |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Credenciales S3/R2 | — |
+| `S3_PUBLIC_URL` | URL pública para servir imágenes | dev: `http://<ip-lan>:9000`; prod: `https://pub-<id>.r2.dev` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `EMAIL_FROM` | SMTP para OTP. Gmail requiere App Password de 16 chars. | — |
+| `PUBLIC_API_URL` | URL pública de la API | `https://micemaseo.duckdns.org` |
+| `CORS_ORIGINS` | Orígenes permitidos (coma-separados) | `https://mic-emaseo-panel.pages.dev` |
+| `DUMMY_MODE` | `true` simula respuestas del ML sin cargar el modelo | `false` |
+| `PRE_CHECK_THRESHOLD` | Umbral del pre-check de basura | `0.35` |
+| `FLOWER_USER` / `FLOWER_PASSWORD` | Acceso al dashboard Flower | — |
+| `REGISTRY` / `TAG` | Para imágenes pre-construidas en GHCR | `ghcr.io/jsmena5` / `latest` |
 
 ---
 
-## 13. Flujos Principales
+## 13. Flujos principales
 
-### Reporte de incidente (pipeline asíncrono con cancelación)
+### 13.1 Reporte de incidente (pipeline asíncrono con 4 decisiones)
 
 ```
 App móvil
   → POST /api/image/analyze  (base64 + lat/lon)
-      → API Gateway: valida JWT + imageLimiter
+      → API Gateway: JWT + imageLimiter
           → Image Service:
-              → sharp: magic bytes + dimensiones
-              → INSERT incidents estado=PROCESANDO
+              sharp (magic bytes, dimensiones)
+              INSERT incidents estado=PROCESANDO
               ← 202 { task_id, poll_url }   ← respuesta inmediata
 
-              [setImmediate — background]
-              → Circuit Breaker → POST ml-api:8000/predict
-              ← has_waste: false → UPDATE estado=FALLIDO (sin MinIO)
-              ← has_waste: true  → PutObject MinIO
-                                  → Transacción atómica PostgreSQL
-                                      UPDATE incidents estado=PENDIENTE
-                                      INSERT incident_images + analysis_results
+              [Celery via Redis]
+              → POST ml-api:8000/predict
+              ← decision_automatica + detecciones + effective_ratio
+
+              switch decision_automatica:
+                INCIDENTE_VALIDO   → R2 putObject + transacción:
+                                       UPDATE incidents estado=PENDIENTE prioridad
+                                       INSERT incident_images + analysis_results
+                REVISION_REQUERIDA → R2 putObject (imagen_auditoria_url)
+                                       UPDATE incidents estado=EN_REVISION
+                RECHAZO_CONFIABLE  → R2 putObject (preservar)
+                                       UPDATE incidents estado=DESCARTADO
+                ERROR_TECNICO      → UPDATE incidents estado=FALLIDO nota_fallo
 
   ← App sondea GET /api/image/status/:task_id  (backoff 500 ms → 8 s)
-      → 202 PROCESANDO
-      → 200 FALLIDO   (sin imagen, mensaje descriptivo)
-      → 200 PENDIENTE (nivel, volumen, tipo_residuo, url_imagen)
+      ← 202 PROCESANDO
+      ← 200 estado_final + metadata (nivel, volumen, tipo, decision_automatica)
 
-  [Si el usuario cancela]
-      → task_id guardado en AsyncStorage
-      → HistorialScreen auto-polling cada 5 s mientras haya PROCESANDO
-      → resultado aparece automáticamente cuando el ML termina
+  [Cancelación del usuario]
+      → task_id queda en AsyncStorage
+      → HistorialScreen auto-polling cada 5 s mientras existan PROCESANDO
 ```
 
-### Autenticación y sesiones
+### 13.2 Wizard del supervisor (3 pasos)
+
+```
+Bandeja → click en card de incidente PENDIENTE
+   ↓
+Step1Validate
+   ¿Es real?
+   ├─ ❌ Descartar (motivo obligatorio) → estado RECHAZADA (fin)
+   └─ ✅ Es real → siguiente paso
+                          ↓
+                    Step2Classify
+                       Formulario ReviewCard:
+                          es_correcta_ia (boolean firmado)
+                          + nivel_acumulacion_supervisor (si IA estaba mal)
+                          + tipo_residuo_supervisor (si IA estaba mal)
+                          + nota_supervision
+                       → PUT /supervisor/incidents/:id/revision-ia
+                                  ↓
+                            Step3Assign
+                               Select operario + notas
+                               → POST /supervisor/incidents/:id/asignar
+                               → estado EN_ATENCION
+```
+
+Si el incidente entra al wizard ya en estado `EN_REVISION` (por decisión `REVISION_REQUERIDA` del ML), el wizard arranca en paso 1; si está `DESCARTADO` y el supervisor lo abre, el paso 1 pre-marca "Descartar".
+
+### 13.3 Autenticación
 
 ```
 POST /api/auth/login
   → bcrypt.compare(password, hash)
-  → genera access_token JWT (15 min)
-  → genera refresh_token (64 bytes) → SHA-256 → INSERT refresh_tokens
+  → genera access_token (15 min) + refresh_token (64 bytes) → SHA-256 → INSERT
   ← { access_token, refresh_token }
 
 POST /api/auth/refresh
-  → SHA-256(token) → busca en DB → verifica no revocado y no expirado
-  → DELETE viejo + INSERT nuevo refresh_token (rotación)
+  → SHA-256(token) → busca, valida, rota
   ← { access_token, refresh_token }
 ```
 
-### Recuperación de contraseña (3 pasos)
+### 13.4 Recuperación de contraseña (3 pasos)
 
 ```
-1. POST /api/auth/forgot-password  → OTP 6 dígitos (bcrypt en DB, TTL 15 min) → email al usuario
-2. POST /api/auth/verify-reset-otp → valida OTP
-3. POST /api/auth/reset-password   → actualiza contraseña (transacción atómica)
-                                   ← { token: JWT }  ← login automático en la app
-   App: login(token) → AuthContext actualiza → AppNavigator → grupo privado (Home)
-```
-
-### Registro ciudadano (3 pasos)
-
-```
-1. POST /api/auth/register   → INSERT pending_registrations + OTP email
-2. POST /api/auth/verify-otp → valida OTP hasheado (TTL 15 min)
-3. POST /api/auth/set-password → INSERT auth.users + ciudadanos (atómico)
-                                → DELETE pending_registration
+1. POST /api/auth/forgot-password    → OTP 6 dígitos (bcrypt en DB, TTL 15 min) → email
+2. POST /api/auth/verify-reset-otp   → valida OTP
+3. POST /api/auth/reset-password     → UPDATE password en transacción atómica
+                                       ← { token: JWT }   ← login automático en la app
 ```
 
 ---
 
-## 14. Usuarios de Prueba
+## 14. Usuarios de prueba
 
-Los siguientes usuarios están disponibles en el entorno de desarrollo (cargados por `Backend/database/02_seed_data.sql`).  
-**Contraseña de todos:** `Test1234!`
+### Producción
 
-| Email | Rol | Nombre |
-|-------|-----|--------|
-| `admin@emaseo.gob.ec` | ADMIN | Administrador Sistema |
-| `maria.lopez@emaseo.gob.ec` | SUPERVISOR | María López |
-| `pedro.garcia@emaseo.gob.ec` | OPERARIO | Pedro García |
-| `luis.martinez@emaseo.gob.ec` | OPERARIO | Luis Martínez |
-| `ana.ciudadana@gmail.com` | CIUDADANO | Ana Ciudadana |
-| `jorge.ramirez@gmail.com` | CIUDADANO | Jorge Ramírez |
+| Email | Rol | Notas |
+|---|---|---|
+| `bryanfamiliat@gmail.com` | SUPERVISOR | Único usuario creado manualmente en Supabase para validar el panel |
+
+Para crear más usuarios en producción, registrar desde la app móvil (CIUDADANO) o vía SQL en Supabase para staff.
+
+### Desarrollo (seed `02_seed_data.sql`)
+
+Contraseña común: `Test1234!`
+
+| Email | Rol |
+|---|---|
+| `admin@emaseo.gob.ec` | ADMIN |
+| `maria.lopez@emaseo.gob.ec` | SUPERVISOR |
+| `pedro.garcia@emaseo.gob.ec` | OPERARIO |
+| `luis.martinez@emaseo.gob.ec` | OPERARIO |
+| `ana.ciudadana@gmail.com` | CIUDADANO |
+| `jorge.ramirez@gmail.com` | CIUDADANO |
 
 ---
 
-## 15. Estructura del Proyecto
+## 15. Estructura del proyecto
 
 ```
 MIC-EMASEO-SISTEMA/
-├── .env                      ← Variables de entorno (NO commitear — en .gitignore)
-├── .env.example              ← Plantilla de variables (sin secretos)
-├── docker-compose.yml        ← Orquestación de los 11 contenedores (name: emaseo)
-├── docker-compose.dev.yml    ← Overlay: expone puertos de MinIO, Redis y Flower
-├── start.ps1                 ← Script de arranque Windows (-Tunnel, -Expo, -Dev, -Build, -NoBuild)
-├── start.sh                  ← Script de arranque Linux/macOS/WSL
+├── .env                          ← Dev local (NO commitear)
+├── .env.example                  ← Plantilla dev
+├── .env.production.example       ← Plantilla prod
+├── .env.production.local         ← Prod real (NO commitear, .env.*.local en .gitignore)
+├── docker-compose.yml            ← Stack dev (11 contenedores, name: emaseo)
+├── docker-compose.dev.yml        ← Overlay: expone MinIO/Redis/Flower
+├── docker-compose.prod.yml       ← Stack prod (sin Postgres ni MinIO, IPv6 habilitado)
+├── start.ps1 / start.sh          ← Scripts de arranque dev
 ├── scripts/
-│   └── generate_env.sh       ← Genera .env con secretos aleatorios seguros
+│   └── generate_env.sh           ← Genera .env con secretos aleatorios
+├── deploy/
+│   ├── Caddyfile                 ← Plantilla de reverse proxy para el VPS
+│   └── README.md                 ← Guía de despliegue
 ├── Backend/
-│   ├── api-gateway/          ← Express + JWT + Rate Limit + RBAC + Swagger
-│   ├── auth-service/         ← Identidad, sesiones, OTP, refresh tokens, anti-enumeration
-│   ├── users-service/        ← CRUD de perfiles
-│   ├── image-service/        ← Pipeline de reportes + Circuit Breaker + recovery 30 s
-│   ├── ml-service/           ← FastAPI + Celery + RT-DETR-L (celery_app.py con URL encoding)
-│   └── database/             ← Scripts SQL de inicialización (31 migraciones)
+│   ├── api-gateway/              ← Express + JWT + Rate Limit + RBAC + Swagger
+│   ├── auth-service/             ← OTP, refresh tokens, recuperación, anti-enumeración
+│   ├── users-service/            ← CRUD perfiles + staff (operarios/supervisores)
+│   ├── image-service/            ← Pipeline 4-decisiones + Circuit Breaker + recovery
+│   │   └── src/controllers/
+│   │       ├── supervisor.controller.js   ← endpoints /supervisor/*
+│   │       └── feedback.controller.js     ← endpoints /operario/feedback/*
+│   ├── ml-service/               ← FastAPI + Celery + RT-DETR-L (effective_ratio, decisiones)
+│   └── database/                 ← 28 migraciones (01_init → 034_fix_image_urls) + 012 script roles
 ├── Frontend/
-│   ├── smart-waste-mobile/   ← Expo SDK 54 + TypeScript (ciudadano/operario)
-│   │   └── src/screens/      ← ScanScreen, HistorialScreen, ResetPasswordScreen, …
-│   └── supervisor-panel/     ← React + Vite (supervisor web)
+│   ├── smart-waste-mobile/       ← Expo SDK 54 (CIUDADANO/OPERARIO)
+│   │   └── src/screens/          ← Scan, Historial, ScanResult, ReportDetail, ResetPassword, …
+│   └── supervisor-panel/         ← React 19 + Vite 8 + Tailwind 4
+│       └── src/features/incidents/
+│           ├── IncidentsPage.tsx        ← orquestador
+│           ├── IncidentRail.tsx         ← lista lateral
+│           ├── FiltersBar.tsx           ← filtros (decision_automatica, fecha, ia_incorrecta, …)
+│           ├── Stepper.tsx              ← wizard 3 pasos
+│           ├── Step1Validate.tsx        ← ¿es real?
+│           ├── Step2Classify.tsx        ← validar IA + corrección
+│           ├── Step3Assign.tsx          ← asignar operario
+│           ├── CaseTimeline.tsx         ← timeline unificado
+│           └── styles.ts                ← paleta/constantes centralizadas
 ├── ML/
-│   ├── modelos/              ← rtdetr_l_best.pt (63 MB, no en git)
-│   └── resultados/           ← Métricas comparativas y curvas de entrenamiento
-└── docs/                     ← Documentación técnica interna
+│   ├── modelos/                  ← rtdetr_l_best.pt (63 MB, ignorado por git)
+│   ├── scripts/                  ← 01_descargar_taco … 06_agregar_taco
+│   └── resultados/               ← Métricas comparativas y curvas
+├── tests/                        ← test-integration.js
+├── tools/                        ← start-tunnel.{ps1,sh}
+└── docs/                         ← Documentación interna
 ```
 
 ---
 
-## 16. Licencia y Créditos
+## 16. Migraciones y cambios destacables
 
-**Proyecto de Tesis — Maestría en Ingeniería de Software**  
-Universidad de las Fuerzas Armadas ESPE — 2026  
+| # | Archivo | Descripción |
+|---|---|---|
+| 01 | `01_init_schema.sql` | Esquema inicial completo (schemas, ENUMs, tablas, índices, triggers) |
+| 02 | `02_seed_data.sql` | Datos de prueba (solo dev) |
+| 008 | `008_refresh_tokens.sql` | Tabla `refresh_tokens` con SHA-256 |
+| 009 | `009_password_reset_tokens.sql` | OTP de recuperación con bcrypt |
+| 010 | `010_incident_status_async.sql` | Añade `PROCESANDO` y `FALLIDO` al ENUM de estados |
+| 011 | `011_consolidation.sql` | Triggers, funciones auxiliares, consolidación |
+| 012 | `012_db_users_isolation.{sql,sh}` | Roles `auth_svc` / `users_svc` / `image_svc` con GRANTs mínimos |
+| 014 | `014_initial_status_history.sql` | Trigger AFTER INSERT para registrar estado inicial |
+| 015 | `015_missing_indexes.sql` | Índices faltantes detectados en perfilado |
+| 016 | `016_data_validation.sql` | Constraints de validación (cédula, ubicación dentro de Ecuador, etc.) |
+| 017 | `017_audit_schema.sql` | Schema `audit` + función SECURITY DEFINER + particiones mensuales |
+| 018 | `018_device_tokens.sql` | Tokens FCM/APNs para push |
+| 019 | `019_notifications_retry.sql` | Reintentos de notificaciones con backoff |
+| 020 | `020_pending_registrations_to_auth.sql` | Mueve `pending_registrations` de `public` a `app_auth` (entonces `auth`) |
+| 021 | `021_partition_incidents.sql` | Particionamiento de incidents (no aplicado en prod actualmente) |
+| 022 | `022_lopdp_arco_functions.sql` | Funciones ARCO (LOPDP — derechos de acceso/rectificación/cancelación/oposición) |
+| 023 | `023_user_consents.sql` | Registro de consentimiento LOPDP por versión de política |
+| 024 | `024_pgcrypto_pii.sql` | Cifrado de PII con pgcrypto |
+| 025 | `025_rls_image_svc.sql` | Row Level Security en tablas del image-service |
+| 026 | `026_retention_policy.sql` | Política de retención (limpieza de imágenes huérfanas y notificaciones antiguas) |
+| 027 | `027_fix_chk_prioridad_requerida.sql` | Corrige el CHECK de prioridad para los nuevos estados |
+| 028 | `028_add_ubicacion_aproximada.sql` | Columna `ubicacion_aproximada` para GPS no disponible |
+| 029 | `029_celery_task_id.sql` | Columna `celery_task_id` para recovery |
+| 030 | `030_analysis_feedback.sql` | Tabla `ai.analysis_feedback` (feedback binario de operarios) |
+| 031 | `031_notifications_push_index.sql` | Índice parcial para el push-worker |
+| **032** | `032_human_review_flow.sql` | **Nuevos estados `EN_REVISION` y `DESCARTADO` + columnas `decision_automatica`, `confianza_decision`, `imagen_auditoria_url`. Resuelve el problema de imágenes eliminadas al rechazar.** |
+| **033** | `033_supervisor_ia_corrections.sql` | **Correcciones supervisoras estructuradas en `ai.analysis_results` (`ia_fue_correcta`, `*_supervisor`, autoría). Alimenta drift detection.** |
+| 034 | `034_fix_image_urls.sql` | Data-fix para normalizar URLs de imágenes |
 
-**Entidad beneficiaria:** EMASEO EP (Empresa Pública Metropolitana de Aseo, Quito)  
+**Cambios significativos no estrictamente "de migración":**
+- **Rename `auth` → `app_auth`** (commit `159d45b`) — 9 archivos del backend actualizados para evitar colisión con `auth.users` de Supabase. La DB local también renombrada para no divergir.
+- **Wizard de 3 pasos en el supervisor-panel** (sprint 3.5) — refactor de `pages/Reports.tsx` (1500 líneas monolíticas) a `features/incidents/*` con `Step1Validate`/`Step2Classify`/`Step3Assign`.
+- **KPI cards en Home del panel** — 4 indicadores en vivo (Pendientes, En revisión, Asignados hoy, Resueltos hoy) + 5 críticas recientes.
+- **Sidebar tablet-first** — colapsable 80 ↔ 224 px, sin logo gigante, navegación por iconos.
+- **Tipos compartidos `incident.ts`** duplicados intencionalmente en `Frontend/supervisor-panel/src/types/` y `Frontend/smart-waste-mobile/src/types/` (decisión tomada al detectar que builds aislados — Docker, Pages — no pueden importar fuera del project root sin monorepo formal).
 
-**Equipo de desarrollo:**  
-- Bryan Ortiz — Arquitectura, Backend, ML, Seguridad, App Móvil
+---
 
-**Dataset:** [Garbage Collector v8 — Roboflow Universe](https://universe.roboflow.com/garbage-epywh/garbage-collector-qcgu1)  
-**Modelo base:** RT-DETR-L — PaddlePaddle / Ultralytics  
+## 17. Licencia y créditos
 
-> Este sistema no está afiliado oficialmente a EMASEO EP. Los datos de producción son confidenciales y no se incluyen en este repositorio.
+**Trabajo de integración curricular — Carrera de Tecnologías de la Información**
+Universidad de las Fuerzas Armadas ESPE — 2026
+
+**Tutor:** Ing. Washington Eduardo Loza Herrera, Mgtr.
+
+**Autores:**
+- **Mena James** — C.C. 1752784460
+- **Ortiz Bryan** — C.C. 1754336160
+
+**Entidad beneficiaria:** EMASEO EP — Empresa Pública Metropolitana de Aseo, Quito.
+
+**Dataset:** [Garbage Collector v8 — Roboflow Universe](https://universe.roboflow.com/garbage-epywh/garbage-collector-qcgu1) + [TACO](https://github.com/pedropro/TACO) + Street Trash + Garbage Detection (Roboflow) + 501 fotografías negativas de Quito.
+
+**Modelo base:** RT-DETR-L — Baidu Research / Ultralytics.
+
+> Este sistema no está afiliado oficialmente a EMASEO EP. Los datos en producción son de demostración. Las credenciales de servicios cloud (Supabase, R2, DuckDNS, EAS, Contabo) viven exclusivamente en `.env.production.local` (fuera de git) y `.deploy_creds.local`.
