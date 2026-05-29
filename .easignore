@@ -1,0 +1,46 @@
+# Root-level .easignore — EAS archives from the git root in a monorepo.
+# Exclude everything that is NOT needed to build the mobile app.
+
+# ── Other services / projects ──────────────────────────────────────────────────
+Backend/
+Frontend/supervisor-panel/
+ML/
+deploy/
+docs/
+scripts/
+tools/
+tests/
+runs/
+backups/
+
+# ── CI / IDE ───────────────────────────────────────────────────────────────────
+.github/
+.claude/
+.vscode/
+.idea/
+
+# ── Mobile app — build artifacts and native folders (rebuilt by EAS cloud) ───
+Frontend/smart-waste-mobile/node_modules/
+Frontend/smart-waste-mobile/android/
+Frontend/smart-waste-mobile/ios/
+Frontend/smart-waste-mobile/.expo/
+Frontend/smart-waste-mobile/.expo-shared/
+Frontend/smart-waste-mobile/dist/
+Frontend/smart-waste-mobile/build/
+Frontend/smart-waste-mobile/web-build/
+Frontend/smart-waste-mobile/*.apk
+Frontend/smart-waste-mobile/*.aab
+Frontend/smart-waste-mobile/*.ipa
+
+# ── Secrets and local env ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.deploy_creds*
+
+# ── OS / temp ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.tmp
