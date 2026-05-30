@@ -1,9 +1,10 @@
 import React from "react"
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
-import MapView, { Marker } from "react-native-maps"
+import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { useNavigation, useRoute } from "@react-navigation/native"
+import { Ionicons } from "@expo/vector-icons"
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack"
 import type { RootStackParamList } from "../navigation/AppNavigator"
+import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ScanResult">
 type NavProp = NativeStackNavigationProp<RootStackParamList>
@@ -30,13 +31,6 @@ export default function ScanResultScreen() {
   const color = NIVEL_COLORS[result.nivel_acumulacion] ?? "#6B7280"
   const label = NIVEL_LABELS[result.nivel_acumulacion] ?? result.nivel_acumulacion
   const shortId = result.incident_id.slice(-8).toUpperCase()
-
-  const region = {
-    latitude,
-    longitude,
-    latitudeDelta: 0.003,
-    longitudeDelta: 0.003,
-  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -71,20 +65,23 @@ export default function ScanResultScreen() {
         </View>
       )}
 
-      {/* Minimapa — ubicación del reporte */}
-      <View style={styles.mapCard}>
-        <MapView
-          style={styles.map}
-          initialRegion={region}
-          scrollEnabled={false}
-          zoomEnabled={false}
-          pitchEnabled={false}
-          rotateEnabled={false}
-          pointerEvents="none"
-        >
-          <Marker coordinate={{ latitude, longitude }} />
-        </MapView>
-      </View>
+      {/* Ubicación del reporte — card con link a Google Maps */}
+      <TouchableOpacity
+        style={styles.mapCard}
+        activeOpacity={0.75}
+        onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`)}
+      >
+        <View style={styles.mapCardLeft}>
+          <View style={styles.mapPin}>
+            <Ionicons name="location" size={22} color={colors.primary} />
+          </View>
+          <View>
+            <Text style={styles.mapCardTitle}>Ver ubicación en mapa</Text>
+            <Text style={styles.mapCardCoords}>{`${latitude.toFixed(5)}, ${longitude.toFixed(5)}`}</Text>
+          </View>
+        </View>
+        <Ionicons name="open-outline" size={18} color={colors.primary} />
+      </TouchableOpacity>
 
       {/* Tarjetas de métricas */}
       <View style={styles.grid}>
@@ -162,20 +159,45 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   mapCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
     marginHorizontal: 12,
     marginTop: 16,
     marginBottom: 4,
     borderRadius: 12,
-    overflow: "hidden",
+    padding: 16,
     elevation: 3,
     shadowColor: "#000",
     shadowOpacity: 0.08,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
   },
-  map: {
-    width: "100%",
-    height: 200,
+  mapCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  mapPin: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryLight,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mapCardTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.primary,
+    marginBottom: 2,
+  },
+  mapCardCoords: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontFamily: "monospace",
   },
   grid: {
     flexDirection: "row",
