@@ -355,26 +355,22 @@ export default function ScanScreen() {
         let check: Awaited<ReturnType<typeof preCheckImage>> | null = null
         try {
           check = await preCheckImage(thumbB64)
-        } catch (preCheckErr: any) {
-          const isNetworkError = !preCheckErr?.response
-          if (isNetworkError) {
-            // Fail-open: validador inaccesible por red → ofrecer enviar igual.
-            // El pipeline YOLO del backend aplicará su propia validación.
-            Alert.alert(
-              "Validador no disponible",
-              "No pudimos verificar la imagen antes de enviarla. El servidor la analizará al recibirla.",
-              [
-                { text: "Cancelar", style: "cancel" },
-                { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
-              ],
-            )
-          } else {
-            Alert.alert(
-              "Error al validar imagen",
-              "Hubo un problema al verificar la imagen. Inténtalo de nuevo.",
-              [{ text: "Entendido" }],
-            )
-          }
+        } catch {
+          // El pre-check es SOLO una optimización para ahorrar inferencia en el
+          // servidor; el validador real es el pipeline YOLO del backend (que
+          // devuelve DESCARTADO si no hay basura). Por eso ante CUALQUIER fallo
+          // del pre-check —sea de red (sin response) o un error HTTP 4xx/5xx/504—
+          // hacemos fail-OPEN: ofrecemos enviar igual en lugar de bloquear al
+          // usuario. Bloquear aquí dejaba al ciudadano sin poder reportar cuando
+          // el pre-check tenía un hipo (timeout del modelo en frío, 500, etc.).
+          Alert.alert(
+            "No pudimos verificar la imagen",
+            "No se pudo revisar la imagen antes de enviarla, pero el servidor la analizará al recibirla. ¿Deseas enviarla de todos modos?",
+            [
+              { text: "Cancelar", style: "cancel" },
+              { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
+            ],
+          )
           return
         }
 

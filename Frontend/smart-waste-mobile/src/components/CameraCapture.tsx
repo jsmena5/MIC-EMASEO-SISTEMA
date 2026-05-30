@@ -71,6 +71,13 @@ export default function CameraCapture({
   const [hint, setHint]             = useState<DistanceHint>("TOO_FAR")
   const [hintLabel, setHintLabel]   = useState(HINT_LABEL.TOO_FAR)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  // true mientras el frame processor (guía de distancia en vivo) esté operativo.
+  // Si VisionCamera reporta que los frame processors no están disponibles
+  // (worklets no enlazados en el build), lo desactivamos para que la cámara
+  // siga funcionando SIN la barra de distancia, en vez de quedar en negro.
+  const [fpEnabled, setFpEnabled]   = useState(true)
+  // true en cuanto llega la primera medición real del frame processor.
+  const [guidanceLive, setGuidanceLive] = useState(false)
 
   const { hasPermission, requestPermission } = useCameraPermission()
   const device = useCameraDevice("back")
@@ -87,7 +94,14 @@ export default function CameraCapture({
   const hintRef = useRef<DistanceHint>("TOO_FAR")
 
   // ── Timer de fase: "listo" a partir de 2.6 s, pero solo si OPTIMAL ──
+  // Si la guía en vivo no está disponible (fpEnabled=false), no se puede medir
+  // distancia: pasamos a "listo" tras un breve margen para no dejar al usuario
+  // atascado en "Buscando área óptima..." indefinidamente.
   useEffect(() => {
+    if (!fpEnabled) {
+      const t = setTimeout(() => setPhase("ready"), 1200)
+      return () => clearTimeout(t)
+    }
     const timer = setTimeout(() => {
       // Revisar cada 500 ms si ya llegó al rango OPTIMAL
       const poll = setInterval(() => {
@@ -106,18 +120,19 @@ export default function CameraCapture({
       return () => clearInterval(poll)
     }, 2600)
     return () => clearTimeout(timer)
-  }, [])
+  }, [fpEnabled])
 
   // ── Callback del frame processor ──
   const handleGuidanceUpdate = useCallback(
     (newHint: DistanceHint, coverage: number) => {
+      if (!guidanceLive) setGuidanceLive(true)
       hintRef.current = newHint
       setHint(newHint)
       setHintLabel(HINT_LABEL[newHint])
       indicatorX.value = withSpring(HINT_POSITION[newHint], { damping: 15, stiffness: 100 })
       onCoverageUpdate?.(newHint, coverage)
     },
-    [onCoverageUpdate, indicatorX],
+    [onCoverageUpdate, indicatorX, guidanceLive],
   )
 
   const frameProcessor = useLiveDistanceGuidance(handleGuidanceUpdate)
@@ -194,8 +209,18 @@ export default function CameraCapture({
         isActive
         photo
         pixelFormat="yuv"
-        frameProcessor={frameProcessor}
-        onError={(e) => setCameraError(e.message)}
+        frameProcessor={fpEnabled ? frameProcessor : undefined}
+        onError={(e) => {
+          // Si el fallo es del frame processor (worklets no disponibles), NO
+          // matamos la cámara: la desactivamos y re-renderizamos sin guía en
+          // vivo para que el usuario igual pueda capturar.
+          const msg = `${e.code ?? ""} ${e.message ?? ""}`.toLowerCase()
+          if (fpEnabled && (msg.includes("frame") || msg.includes("worklet"))) {
+            setFpEnabled(false)
+          } else {
+            setCameraError(e.message)
+          }
+        }}
       />
 
       {/* ── Top bar ── */}
@@ -238,21 +263,32 @@ export default function CameraCapture({
           <HintChip icon="sunny-outline" label="Buena iluminación" />
         </View>
 
-        {/* ── Barra de distancia dinámica ── */}
-        <View style={styles.distanceBar}>
-          <Text style={styles.distanceLabel}>CERCA</Text>
-          <View style={styles.distanceTrack}>
-            <Animated.View
-              style={[
-                styles.distanceIndicator,
-                { backgroundColor: hintColor },
-                indicatorStyle,
-              ]}
-            />
+        {/* ── Barra de distancia dinámica (solo si el sensor entrega datos) ── */}
+        {fpEnabled && guidanceLive ? (
+          <>
+            <View style={styles.distanceBar}>
+              <Text style={styles.distanceLabel}>CERCA</Text>
+              <View style={styles.distanceTrack}>
+                <Animated.View
+                  style={[
+                    styles.distanceIndicator,
+                    { backgroundColor: hintColor },
+                    indicatorStyle,
+                  ]}
+                />
+              </View>
+              <Text style={styles.distanceLabel}>LEJOS</Text>
+            </View>
+            <Text style={[styles.hintText, { color: hintColor }]}>{hintLabel}</Text>
+          </>
+        ) : (
+          <View style={styles.staticGuide}>
+            <Ionicons name="resize-outline" size={14} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.staticGuideText}>
+              Mantén la cámara a 1–2 m de la basura
+            </Text>
           </View>
-          <Text style={styles.distanceLabel}>LEJOS</Text>
-        </View>
-        <Text style={[styles.hintText, { color: hintColor }]}>{hintLabel}</Text>
+        )}
 
         <Text style={styles.bottomHint}>
           {isReady
@@ -382,6 +418,13 @@ const styles = StyleSheet.create({
   },
   hintText: {
     fontSize: 12, fontWeight: "700", letterSpacing: 0.3, marginBottom: 10,
+  },
+  staticGuide: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginBottom: 10, marginTop: 2,
+  },
+  staticGuideText: {
+    color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600",
   },
   bottomHint: {
     color: "rgba(255,255,255,0.55)", fontSize: 13,
