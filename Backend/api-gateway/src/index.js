@@ -195,6 +195,40 @@ app.post("/api/auth/forgot-password",  forgotPasswordLimiter, ...forwardPost(`${
 app.post("/api/auth/verify-reset-otp", passwordResetLimiter,  ...forwardPost(`${AUTH_SERVICE_URL}/api/auth/verify-reset-otp`))
 app.post("/api/auth/reset-password",   passwordResetLimiter,  ...forwardPost(`${AUTH_SERVICE_URL}/api/auth/reset-password`))
 
+// Cambio de contraseña — requiere JWT válido. Debe ir ANTES del proxy general
+// /api/auth para que Express lo capture aquí y no en el proxy sin autenticación.
+// El gateway inyecta x-user-id para que el auth-service no necesite re-validar el JWT.
+app.post(
+  "/api/auth/change-password",
+  verifyToken,
+  parseJson,
+  async (req, res) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), FORWARD_TIMEOUT_MS)
+    try {
+      const upstream = await fetch(`${AUTH_SERVICE_URL}/api/auth/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type":    "application/json",
+          "X-Internal-Token": INTERNAL_TOKEN,
+          "x-user-id":       req.user.id,
+        },
+        body: JSON.stringify(req.body),
+        signal: controller.signal,
+      })
+      const data = await upstream.json()
+      res.status(upstream.status).json(data)
+    } catch (err) {
+      if (err.name === "AbortError") {
+        return res.status(504).json({ message: "Gateway Timeout" })
+      }
+      res.status(502).json({ message: "Error de conexión con el servicio" })
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+)
+
 // Login / Refresh / Logout para cualquier tipo de usuario
 app.use("/api/auth", authLimiter, createProxyMiddleware({
   target: AUTH_SERVICE_URL,

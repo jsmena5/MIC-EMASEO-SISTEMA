@@ -42,3 +42,22 @@ export const logoutRequest = async (refreshToken: string) => {
     body: JSON.stringify({ refreshToken })
   });
 };
+
+export const changePasswordRequest = async (
+  currentPassword: string,
+  newPassword: string,
+  token: string,
+): Promise<void> => {
+  const res = await fetch(`${API_URL}/auth/change-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.message ?? "Error al cambiar la contraseña")
+  }
+};

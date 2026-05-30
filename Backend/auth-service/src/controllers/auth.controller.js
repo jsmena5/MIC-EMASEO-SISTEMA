@@ -394,6 +394,77 @@ export const resetPassword = async (req, res) => {
   }
 }
 
+// ─── Change Password (autenticado) ───────────────────────────────────────────
+// Requiere token válido. El gateway inyecta x-user-id tras verificar el JWT.
+// Verifica la contraseña actual antes de actualizar y revoca todos los refresh
+// tokens activos para invalidar sesiones abiertas en otros dispositivos.
+
+export const changePassword = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  const { currentPassword, newPassword } = req.body
+
+  if (!userId) {
+    return res.status(401).json({ message: "No autenticado" })
+  }
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: "Contraseña actual y nueva son requeridas" })
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: "La nueva contraseña debe ser diferente a la actual" })
+  }
+
+  const pwCheck = validatePassword(newPassword)
+  if (!pwCheck.valid) {
+    return res.status(400).json({ message: pwCheck.message })
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT password_hash FROM app_auth.users WHERE id = $1 AND estado = 'ACTIVO'`,
+      [userId]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Usuario no encontrado" })
+    }
+
+    const { password_hash } = result.rows[0]
+    const validResult = await pool.query(
+      `SELECT $1 = crypt($2, $1) AS valid`,
+      [password_hash, currentPassword]
+    )
+
+    if (!validResult.rows[0].valid) {
+      return res.status(400).json({ message: "La contraseña actual es incorrecta" })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(
+        `UPDATE app_auth.users SET password_hash = crypt($1, gen_salt('bf', $3)), updated_at = NOW() WHERE id = $2`,
+        [newPassword, userId, BCRYPT_ROUNDS]
+      )
+      // Revocar todos los refresh tokens activos — el usuario deberá re-autenticarse
+      await client.query(
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
+        [userId]
+      )
+      await client.query("COMMIT")
+    } catch (txError) {
+      await client.query("ROLLBACK")
+      throw txError
+    } finally {
+      client.release()
+    }
+
+    res.json({ message: "Contraseña actualizada correctamente" })
+  } catch (error) {
+    console.error("[changePassword]", error)
+    res.status(500).json({ message: "Error al cambiar la contraseña" })
+  }
+}
+
 // ─── Logout ──────────────────────────────────────────────────────────────────
 // Revoca el refresh token en la BD. El access token expira solo (15 min).
 
