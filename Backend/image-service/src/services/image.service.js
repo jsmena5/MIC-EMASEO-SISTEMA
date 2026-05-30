@@ -105,7 +105,7 @@ function createHttpError(message, httpStatus, cause = null) {
 //   decisionAutomatica — Código estructurado de la razón de fallo (siempre ERROR_TECNICO aquí).
 
 async function markIncidentAsFailed(incidentId, reason, logError, { s3Key = null, decisionAutomatica = "ERROR_TECNICO" } = {}) {
-  const imageUrl = s3Key ? `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}` : null
+  const imageUrl = s3Key ? `${S3_PUBLIC_URL}/${s3Key}` : null
   try {
     await pool.query(
       `UPDATE incidents.incidents
@@ -153,7 +153,7 @@ async function uploadPendingImage(incidentId, buffer, logError) {
 // silenciosamente sin error; eso es el comportamiento correcto.
 
 async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
-  const imageUrl = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
+  const imageUrl = `${S3_PUBLIC_URL}/${s3Key}`
 
   await retry(
     async () => {
@@ -242,7 +242,7 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
   const isAmbiguous = confianza === null || confianza < AUTO_REJECT_CONFIDENCE
   const nuevoEstado = isAmbiguous ? "EN_REVISION" : "DESCARTADO"
   const decision    = isAmbiguous ? "REVISION_REQUERIDA" : "RECHAZO_CONFIABLE"
-  const imageUrl    = `${S3_PUBLIC_URL}/${BUCKET}/${s3Key}`
+  const imageUrl    = `${S3_PUBLIC_URL}/${s3Key}`
   const notaFallo   = `ML no detectó residuos${
     confianza !== null
       ? ` (confianza: ${(confianza * 100).toFixed(1)} %)`
