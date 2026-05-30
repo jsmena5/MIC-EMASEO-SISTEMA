@@ -21,6 +21,7 @@ import { getMyIncidents, Incident } from "../services/image.service"
 import { getPendingReports, PendingReport } from "../services/offlineQueue.service"
 import { useNetwork } from "../contexts/NetworkContext"
 import { colors } from "../theme/colors"
+import { toPublicMediaUrl } from "../utils/mediaUrl"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Historial">
 
@@ -94,9 +95,9 @@ function ReportCard({ item, index, onPress }: CardProps) {
       <TouchableOpacity activeOpacity={0.82} onPress={onPress} style={styles.card}>
         {/* Thumbnail */}
         <View style={styles.thumbWrap}>
-          {item.image_url && !imgError ? (
+          {toPublicMediaUrl(item.image_url) && !imgError ? (
             <Image
-              source={{ uri: item.image_url }}
+              source={{ uri: toPublicMediaUrl(item.image_url)! }}
               style={styles.thumbImage}
               resizeMode="cover"
               onError={() => setImgError(true)}

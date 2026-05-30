@@ -86,7 +86,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // Global network listener — flushes queue when coming back online
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
-      const connected = state.isConnected === true && state.isInternetReachable !== false
+      // isInternetReachable probes a Google endpoint blocked by some EC carriers → false negatives.
+      // Trust the OS-level connection flag; real server errors are handled by the upload/retry flow.
+      const connected = state.isConnected !== false
       setIsConnected(connected)
 
       if (connected && wasOfflineRef.current) {

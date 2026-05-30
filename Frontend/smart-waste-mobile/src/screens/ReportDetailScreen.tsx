@@ -17,6 +17,7 @@ import { RootStackParamList } from "../navigation/AppNavigator"
 import { Incident } from "../services/image.service"
 import { ESTADO_CONFIG, NIVEL_COLOR, formatDate } from "./HistorialScreen"
 import { colors } from "../theme/colors"
+import { toPublicMediaUrl } from "../utils/mediaUrl"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReportDetail">
 
@@ -143,9 +144,9 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
         </View>
 
         {/* ── Foto de la incidencia ──────────────────────────────────── */}
-        {incident.image_url && !imgError ? (
+        {toPublicMediaUrl(incident.image_url) && !imgError ? (
           <Image
-            source={{ uri: incident.image_url }}
+            source={{ uri: toPublicMediaUrl(incident.image_url)! }}
             style={styles.image}
             resizeMode="cover"
             onError={() => setImgError(true)}

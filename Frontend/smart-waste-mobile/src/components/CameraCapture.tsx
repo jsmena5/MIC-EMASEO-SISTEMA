@@ -18,7 +18,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from "react-native-reanimated"
-import { Camera, useCameraPermission, type CameraDevice } from "react-native-vision-camera"
+import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera"
 
 import { colors } from "../theme/colors"
 import type { DistanceHint } from "../types/incident"
@@ -70,9 +70,10 @@ export default function CameraCapture({
   const [capturing, setCapturing]   = useState(false)
   const [hint, setHint]             = useState<DistanceHint>("TOO_FAR")
   const [hintLabel, setHintLabel]   = useState(HINT_LABEL.TOO_FAR)
-  const [device, setDevice]         = useState<CameraDevice | undefined>()
+  const [cameraError, setCameraError] = useState<string | null>(null)
 
   const { hasPermission, requestPermission } = useCameraPermission()
+  const device = useCameraDevice("back")
 
   // Posición animada del indicador de distancia
   const indicatorX = useSharedValue(HINT_POSITION.TOO_FAR)
@@ -81,14 +82,6 @@ export default function CameraCapture({
   useEffect(() => {
     if (!hasPermission) requestPermission()
   }, [hasPermission, requestPermission])
-
-  // ── Obtener la cámara trasera disponible ──
-  useEffect(() => {
-    Camera.getAvailableCameraDevices().then((devices) => {
-      const back = devices.find((d) => d.position === "back")
-      setDevice(back)
-    })
-  }, [])
 
   // ── Ref para acceder al hint actual desde el timer sin recrearlo ──
   const hintRef = useRef<DistanceHint>("TOO_FAR")
@@ -178,6 +171,20 @@ export default function CameraCapture({
     )
   }
 
+  if (cameraError) {
+    return (
+      <View style={styles.permissionContainer}>
+        <Ionicons name="camera-outline" size={48} color="rgba(255,255,255,0.4)" />
+        <Text style={[styles.permissionText, { marginTop: 12 }]}>
+          No se pudo iniciar la cámara. Cierra y vuelve a abrir la pantalla.
+        </Text>
+        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 8 }}>
+          {cameraError}
+        </Text>
+      </View>
+    )
+  }
+
   return (
     <View style={StyleSheet.absoluteFill}>
       <Camera
@@ -187,7 +194,7 @@ export default function CameraCapture({
         isActive
         photo
         frameProcessor={frameProcessor}
-        pixelFormat="rgb"
+        onError={(e) => setCameraError(e.message)}
       />
 
       {/* ── Top bar ── */}

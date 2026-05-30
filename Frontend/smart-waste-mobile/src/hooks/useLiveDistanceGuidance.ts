@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { Dimensions } from 'react-native'
 import { useFrameProcessor } from 'react-native-vision-camera'
-import { runOnJS, useSharedValue } from 'react-native-worklets-core'
+import { useRunOnJS, useSharedValue } from 'react-native-worklets-core'
 
 import type { DistanceHint } from '../types/incident'
 
@@ -50,8 +50,11 @@ export function useLiveDistanceGuidance(
   // Tiempo del último update (ms, worklet shared value para acceso thread-safe)
   const lastUpdateMs = useSharedValue(0)
 
-  // Estabilizar la referencia del callback para que el worklet no se recree en cada render
-  const stableOnUpdate = useCallback(onUpdate, [onUpdate])
+  // useRunOnJS creates a worklet-callable wrapper that hops back to the JS thread
+  const callOnJS = useRunOnJS(
+    (hint: DistanceHint, coverage: number) => { onUpdate(hint, coverage) },
+    [onUpdate],
+  )
 
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet'
@@ -113,11 +116,11 @@ export function useLiveDistanceGuidance(
         hint = 'OPTIMAL'
       }
 
-      runOnJS(stableOnUpdate)(hint, coverage)
+      callOnJS(hint, coverage)
     } catch {
       // Silenciar errores en el worklet — no afectan la UI
     }
-  }, [stableOnUpdate, lastUpdateMs])
+  }, [callOnJS, lastUpdateMs])
 
   return frameProcessor
 }

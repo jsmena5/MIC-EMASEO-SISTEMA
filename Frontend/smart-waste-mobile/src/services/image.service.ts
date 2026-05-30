@@ -1,4 +1,5 @@
 import api from "../utils/api"
+import { toPublicMediaUrl } from "../utils/mediaUrl"
 import type {
   AnalysisIncidentEstado,
   DistanceHint,
@@ -88,7 +89,11 @@ export type Incident = Omit<
 
 export const getMyIncidents = async (): Promise<Incident[]> => {
   const res = await api.get("/incidents/me")
-  return res.data.incidents
+  const incidents: Incident[] = res.data.incidents
+  return incidents.map((inc) => ({
+    ...inc,
+    image_url: toPublicMediaUrl(inc.image_url),
+  }))
 }
 
 // Submits the image and returns immediately with a task_id (HTTP 202).
