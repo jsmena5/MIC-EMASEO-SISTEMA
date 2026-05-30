@@ -539,13 +539,24 @@ export default function ScanScreen() {
 
         stopPolling()
 
+        if (status.estado === "DESCARTADO") {
+          setPollProgress(0)
+          setPhase("idle")
+          Alert.alert(
+            "Sin acumulación detectada",
+            "La imagen analizada no muestra una acumulación de basura detectable. Asegúrate de enfocar bien los residuos y vuelve a intentarlo.",
+            [{ text: "Tomar otra foto", onPress: retake }],
+          )
+          return
+        }
+
         if (status.estado === "FALLIDO") {
           setPollProgress(0)
           setPhase("idle")
           Alert.alert(
-            "Sin residuos detectados",
-            status.message ?? "No se detectaron residuos en la imagen. Intenta con otra foto.",
-            [{ text: "OK", onPress: retake }],
+            "Error en el análisis",
+            "Hubo un problema técnico al analizar la imagen. Intenta de nuevo en unos momentos.",
+            [{ text: "Reintentar", onPress: retake }],
           )
           return
         }
@@ -577,6 +588,11 @@ export default function ScanScreen() {
             "No fue posible consultar el estado del análisis. Puedes revisarlo en tu historial más tarde.",
             [
               {
+                text: "Cancelar",
+                style: "cancel",
+                onPress: retake,
+              },
+              {
                 text: "Ver historial",
                 onPress: async () => {
                   if (savedTaskId) {
@@ -606,7 +622,10 @@ export default function ScanScreen() {
           Alert.alert(
             "Error de conexión",
             `No se pudo obtener el estado del análisis (intento ${pollRetryRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
-            [{ text: "Reintentar", onPress: () => startPolling(taskId, lat, lng, imageUri) }],
+            [
+              { text: "Cancelar", style: "cancel", onPress: retake },
+              { text: "Reintentar", onPress: () => startPolling(taskId, lat, lng, imageUri) },
+            ],
           )
         }
       } finally {

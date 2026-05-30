@@ -42,7 +42,8 @@ export interface AnalysisResult {
 // Discriminated union for GET /image/status/:taskId responses
 export type TaskStatusResponse =
   | { task_id: string; estado: "PROCESANDO"; message: string }
-  | { task_id: string; estado: "FALLIDO"; message: string; nota_fallo: string | null }
+  | { task_id: string; estado: "FALLIDO";    message: string; nota_fallo: string | null }
+  | { task_id: string; estado: "DESCARTADO"; message?: string; decision_automatica?: string | null }
   | (AnalysisResult & { task_id: string })
 
 // Immediate 202 response from POST /image/analyze
@@ -222,8 +223,8 @@ export const waitForAnalysisResult = async (
       throw new TaskAnalysisFailedError(taskId, status.message)
     }
 
-    if (status.estado !== "PROCESANDO") {
-      return status
+    if (status.estado === "DESCARTADO" || status.estado !== "PROCESANDO") {
+      return status as AnalysisResult & { task_id: string }
     }
 
     if (Date.now() - startedAt >= timeoutMs) {

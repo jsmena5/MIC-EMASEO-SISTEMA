@@ -39,6 +39,7 @@ export default function AnalyzingOverlay({
     <View style={styles.root}>
       <View style={styles.backdrop} />
 
+      {/* Center: spinner + label + progress */}
       <View style={styles.content}>
         <ActivityIndicator size="large" color="#fff" />
         <Text style={styles.label}>{label}</Text>
@@ -50,7 +51,10 @@ export default function AnalyzingOverlay({
             </View>
           </View>
         )}
+      </View>
 
+      {/* Bottom: action buttons with breathing room */}
+      <View style={styles.bottomActions}>
         {onBackground && canBackground && (
           <TouchableOpacity style={styles.backgroundBtn} onPress={onBackground} activeOpacity={0.75}>
             <Ionicons name="arrow-back-circle-outline" size={18} color="#fff" />
@@ -79,11 +83,19 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.65)",
   },
-  // Give the content a fixed width so the progress bar has a known parent dimension.
   content: {
     width: "76%",
     alignItems: "center",
     gap: 14,
+  },
+  bottomActions: {
+    position: "absolute",
+    bottom: 60,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 32,
   },
   label: {
     color: "#fff",

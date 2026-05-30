@@ -1,4 +1,4 @@
-import React, { Component, useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import {
   View,
   Text,
@@ -7,8 +7,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
+  Linking,
 } from "react-native"
-import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps"
 import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import * as Location from "expo-location"
@@ -20,19 +20,6 @@ import { colors } from "../theme/colors"
 import { toPublicMediaUrl } from "../utils/mediaUrl"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReportDetail">
-
-// Error boundary para capturar crashes nativos de MapView en ciertos Android
-class MapErrorBoundary extends Component<
-  { children: React.ReactNode; fallback: React.ReactNode },
-  { crashed: boolean }
-> {
-  state = { crashed: false }
-  static getDerivedStateFromError() { return { crashed: true } }
-  componentDidCatch() {}
-  render() {
-    return this.state.crashed ? this.props.fallback : this.props.children
-  }
-}
 
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleDateString("es-EC", {
@@ -89,38 +76,34 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── Mapa (cabecera visual) ─────────────────────────────────── */}
+        {/* ── Ubicación ──────────────────────────────────────────────── */}
         {hasCoords ? (
-          <MapErrorBoundary
-            fallback={
-              <View style={[styles.map, styles.mapFallback]}>
-                <Ionicons name="map-outline" size={40} color={colors.gray400} />
-                <Text style={styles.mapFallbackText}>{`${lat!.toFixed(5)}, ${lon!.toFixed(5)}`}</Text>
-              </View>
+          <TouchableOpacity
+            style={styles.mapCard}
+            activeOpacity={0.75}
+            onPress={() =>
+              Linking.openURL(
+                `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`,
+              )
             }
           >
-            <MapView
-              style={styles.map}
-              provider={PROVIDER_DEFAULT}
-              initialRegion={{
-                latitude: lat!,
-                longitude: lon!,
-                latitudeDelta: 0.004,
-                longitudeDelta: 0.004,
-              }}
-              scrollEnabled={false}
-              zoomEnabled={false}
-              rotateEnabled={false}
-              pitchEnabled={false}
-              toolbarEnabled={false}
-            >
-              <Marker coordinate={{ latitude: lat!, longitude: lon! }} />
-            </MapView>
-          </MapErrorBoundary>
+            <View style={styles.mapCardLeft}>
+              <View style={styles.mapPin}>
+                <Ionicons name="location" size={22} color={colors.primary} />
+              </View>
+              <View>
+                <Text style={styles.mapCardTitle}>Ver ubicación</Text>
+                <Text style={styles.mapCardCoords}>{`${lat!.toFixed(5)}, ${lon!.toFixed(5)}`}</Text>
+              </View>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.primary} />
+          </TouchableOpacity>
         ) : (
-          <View style={[styles.map, styles.mapFallback]}>
-            <Ionicons name="map-outline" size={40} color={colors.gray400} />
-            <Text style={styles.mapFallbackText}>Ubicación no disponible</Text>
+          <View style={[styles.mapCard, { opacity: 0.5 }]}>
+            <Ionicons name="map-outline" size={22} color={colors.gray400} />
+            <Text style={[styles.mapCardTitle, { color: colors.gray400, marginLeft: 10 }]}>
+              Ubicación no disponible
+            </Text>
           </View>
         )}
 
@@ -298,20 +281,47 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
 
-  // Map
-  map: {
-    width: "100%",
-    height: 200,
+  // Location card (replaces MapView)
+  mapCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surface,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 4,
+    borderRadius: 14,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
-  mapFallback: {
-    backgroundColor: colors.gray100,
+  mapCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  mapPin: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryLight,
     justifyContent: "center",
     alignItems: "center",
-    gap: 10,
   },
-  mapFallbackText: {
-    fontSize: 13,
+  mapCardTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: colors.primary,
+    marginBottom: 2,
+  },
+  mapCardCoords: {
+    fontSize: 11,
     color: colors.textTertiary,
+    fontFamily: "monospace",
   },
 
   // Address
