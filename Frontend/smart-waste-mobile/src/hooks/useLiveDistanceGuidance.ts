@@ -78,23 +78,35 @@ export function useLiveDistanceGuidance(
       const buffer = frame.toArrayBuffer()
       const pixels = new Uint8Array(buffer)
 
-      // Detectar stride (bytes por píxel) según pixelFormat
-      // VisionCamera típicamente entrega 'rgb' (3 bytes) o 'rgba'/'bgra' (4 bytes)
-      const bpp = buffer.byteLength / (FW * FH) > 3.5 ? 4 : 3
+      // Detect pixel format by bytes-per-pixel ratio:
+      //   YUV_420 (NV12/NV21):  ~1.5  bytes/px  → Y plane is first FW*FH bytes at stride 1
+      //   RGB:                   3     bytes/px
+      //   RGBA/BGRA:             4     bytes/px
+      const bytesPerPixel = buffer.byteLength / (FW * FH)
+      const isYuv = bytesPerPixel < 2.5
+      const stride = isYuv ? 1 : (bytesPerPixel > 3.5 ? 4 : 3)
 
       let edgeCount = 0
       let totalSampled = 0
 
       for (let y = startY; y < endY - STEP; y += STEP) {
         for (let x = startX; x < endX - STEP; x += STEP) {
-          const idx  = (y * FW + x) * bpp
-          const idxR = (y * FW + x + STEP) * bpp       // píxel derecho
-          const idxB = ((y + STEP) * FW + x) * bpp     // píxel inferior
+          let L: number, LR: number, LB: number
 
-          // Luminancia ≈ 0.299R + 0.587G + 0.114B (aproximación entera para velocidad)
-          const L  = (77 * pixels[idx]  + 150 * pixels[idx + 1]  + 29 * pixels[idx + 2])  >> 8
-          const LR = (77 * pixels[idxR] + 150 * pixels[idxR + 1] + 29 * pixels[idxR + 2]) >> 8
-          const LB = (77 * pixels[idxB] + 150 * pixels[idxB + 1] + 29 * pixels[idxB + 2]) >> 8
+          if (isYuv) {
+            // Y channel is luminance directly; no multiplication needed
+            L  = pixels[y * FW + x]
+            LR = pixels[y * FW + x + STEP]
+            LB = pixels[(y + STEP) * FW + x]
+          } else {
+            const idx  = (y * FW + x) * stride
+            const idxR = (y * FW + x + STEP) * stride
+            const idxB = ((y + STEP) * FW + x) * stride
+            // Luminance ≈ 0.299R + 0.587G + 0.114B (integer approximation)
+            L  = (77 * pixels[idx]  + 150 * pixels[idx + 1]  + 29 * pixels[idx + 2])  >> 8
+            LR = (77 * pixels[idxR] + 150 * pixels[idxR + 1] + 29 * pixels[idxR + 2]) >> 8
+            LB = (77 * pixels[idxB] + 150 * pixels[idxB + 1] + 29 * pixels[idxB + 2]) >> 8
+          }
 
           const grad = (L - LR < 0 ? LR - L : L - LR) + (L - LB < 0 ? LB - L : L - LB)
           if (grad > EDGE_GRAD_THRESHOLD) edgeCount++

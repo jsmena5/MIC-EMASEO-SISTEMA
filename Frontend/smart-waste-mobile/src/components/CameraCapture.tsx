@@ -193,6 +193,7 @@ export default function CameraCapture({
         device={device}
         isActive
         photo
+        pixelFormat="yuv"
         frameProcessor={frameProcessor}
         onError={(e) => setCameraError(e.message)}
       />

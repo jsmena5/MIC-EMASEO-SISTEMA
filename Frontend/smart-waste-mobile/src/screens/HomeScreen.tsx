@@ -79,7 +79,7 @@ export default function HomeScreen({ navigation }: Props) {
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
 
-      {/* ── Banner análisis en curso ── */}
+      {/* ── Banner análisis en curso (flotante, parte inferior) ── */}
       {isAnalysisRunning && (
         <TouchableOpacity
           style={styles.analysisBanner}
@@ -87,7 +87,8 @@ export default function HomeScreen({ navigation }: Props) {
           activeOpacity={0.85}
         >
           <ActivityIndicator size="small" color="#fff" />
-          <Text style={styles.analysisBannerText}>Análisis en curso — toca para ver historial</Text>
+          <Text style={styles.analysisBannerText}>Analizando tu reporte...</Text>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
         </TouchableOpacity>
       )}
 
@@ -499,19 +500,28 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // Analysis background banner
+  // Analysis background banner — floating pill at the bottom
   analysisBanner: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     backgroundColor: colors.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    elevation: 8,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    zIndex: 10,
   },
   analysisBannerText: {
     color: "#fff",
     fontSize: 13,
-    fontWeight: "600",
-    flex: 1,
+    fontWeight: "700",
   },
 })

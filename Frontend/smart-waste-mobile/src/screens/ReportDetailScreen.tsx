@@ -137,7 +137,11 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
         ) : (
           <View style={[styles.image, styles.imageFallback]}>
             <Ionicons name="image-outline" size={52} color={colors.gray400} />
-            <Text style={styles.imageFallbackText}>Sin imagen disponible</Text>
+            <Text style={styles.imageFallbackText}>
+              {incident.estado === "PROCESANDO"
+                ? "Imagen disponible cuando termine el análisis"
+                : "Sin imagen disponible"}
+            </Text>
           </View>
         )}
 
@@ -165,7 +169,7 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
             />
           )}
 
-          {incident.prioridad && (
+          {incident.prioridad && incident.estado !== "PROCESANDO" && (
             <MetaRow
               icon="flag-outline"
               label="Prioridad"
