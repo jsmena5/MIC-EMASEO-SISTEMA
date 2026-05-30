@@ -82,6 +82,14 @@ export default function CameraCapture({
   const { hasPermission, requestPermission } = useCameraPermission()
   const device = useCameraDevice("back")
 
+  // Activación diferida de la cámara. En Android, montar la sesión de cámara en
+  // el mismo instante en que se concede el permiso (la Activity se está
+  // reconfigurando tras cerrar el diálogo de permisos) deja el preview en negro
+  // hasta el siguiente arranque. Esperar a tener permiso + device y diferir
+  // `isActive` ~350 ms deja que la superficie se estabilice antes de activar la
+  // cámara, eliminando el "negro en el primer intento".
+  const [camActive, setCamActive] = useState(false)
+
   // Posición animada del indicador de distancia
   const indicatorX = useSharedValue(HINT_POSITION.TOO_FAR)
 
@@ -89,6 +97,16 @@ export default function CameraCapture({
   useEffect(() => {
     if (!hasPermission) requestPermission()
   }, [hasPermission, requestPermission])
+
+  // ── Activar la cámara con un pequeño retraso una vez lista ──
+  useEffect(() => {
+    if (!hasPermission || !device) {
+      setCamActive(false)
+      return
+    }
+    const t = setTimeout(() => setCamActive(true), 350)
+    return () => clearTimeout(t)
+  }, [hasPermission, device])
 
   // ── Ref para acceder al hint actual desde el timer sin recrearlo ──
   const hintRef = useRef<DistanceHint>("TOO_FAR")
@@ -203,10 +221,11 @@ export default function CameraCapture({
   return (
     <View style={StyleSheet.absoluteFill}>
       <Camera
+        key={`cam-${device.id}`}
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         device={device}
-        isActive
+        isActive={camActive}
         photo
         pixelFormat="yuv"
         frameProcessor={fpEnabled ? frameProcessor : undefined}
