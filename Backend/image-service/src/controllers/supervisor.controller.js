@@ -254,9 +254,9 @@ export const getIncidentDetail = async (req, res) => {
 //   DESCARTADO  → PENDIENTE  (supervisor anula rechazo automático)
 
 export const cambiarEstado = async (req, res) => {
-  const { id }          = req.params
-  const { estado, observaciones } = req.body
-  const userId          = req.headers["x-user-id"]
+  const { id }                                          = req.params
+  const { estado, observaciones, cierre_lat, cierre_lon } = req.body
+  const userId                                          = req.headers["x-user-id"]
 
   if (!estado) return res.status(400).json({ error: "El campo 'estado' es requerido." })
 
@@ -264,10 +264,17 @@ export const cambiarEstado = async (req, res) => {
   try {
     await client.query("BEGIN")
 
-    // Leer estado actual
+    // Leer estado actual + distancia al punto de cierre si se provee GPS
     const { rows } = await client.query(
-      `SELECT estado FROM incidents.incidents WHERE id = $1 FOR UPDATE`,
-      [id],
+      `SELECT estado,
+              CASE WHEN $2::double precision IS NOT NULL
+                   THEN ST_Distance(
+                     ubicacion::geography,
+                     ST_SetSRID(ST_MakePoint($3::double precision, $2::double precision), 4326)::geography
+                   )
+                   ELSE NULL END AS distancia_cierre_m
+       FROM incidents.incidents WHERE id = $1 FOR UPDATE`,
+      [id, cierre_lat ?? null, cierre_lon ?? null],
     )
     if (!rows.length) {
       await client.query("ROLLBACK")
@@ -284,20 +291,49 @@ export const cambiarEstado = async (req, res) => {
       })
     }
 
+    // ── Validación de geocerca al cerrar ──────────────────────────────────────
+    let distanciaM = null
+    if (estado === "RESUELTA") {
+      if (cierre_lat == null || cierre_lon == null) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({
+          error: "Se requiere ubicación GPS (cierre_lat, cierre_lon) para marcar el incidente como RESUELTA.",
+        })
+      }
+
+      distanciaM = parseFloat(rows[0].distancia_cierre_m ?? 0)
+
+      const { rows: cfg } = await client.query(
+        "SELECT valor FROM operations.config WHERE clave = 'geofence_tolerancia_m'"
+      )
+      const tolerancia = parseFloat(cfg[0]?.valor ?? "10")
+
+      if (distanciaM > tolerancia) {
+        await client.query("ROLLBACK")
+        return res.status(422).json({
+          error: `Debes estar a menos de ${tolerancia} m del punto reportado para cerrarlo. Distancia actual: ${Math.round(distanciaM)} m.`,
+          distancia_m:  Math.round(distanciaM),
+          tolerancia_m: tolerancia,
+        })
+      }
+    }
+
     // Inyectar actor para que el trigger fn_log_status_change use el UUID del supervisor.
-    // set_config con is_local=true equivale a SET LOCAL pero acepta parámetros,
-    // eliminando el riesgo de inyección SQL por interpolación de strings.
     await client.query('SELECT set_config($1, $2, true)', ['app.current_user_id', userId])
 
     // El trigger fn_log_status_change crea la fila en status_history durante este UPDATE.
     await client.query(
-      `UPDATE incidents.incidents SET estado = $1, updated_at = NOW() WHERE id = $2`,
-      [estado, id],
+      `UPDATE incidents.incidents
+       SET estado              = $1,
+           updated_at          = NOW(),
+           cierre_lat          = COALESCE($3::double precision,  cierre_lat),
+           cierre_lon          = COALESCE($4::double precision,  cierre_lon),
+           cierre_distancia_m  = COALESCE($5::numeric,           cierre_distancia_m)
+       WHERE id = $2`,
+      [estado, id, cierre_lat ?? null, cierre_lon ?? null,
+       distanciaM != null ? distanciaM.toFixed(2) : null],
     )
 
-    // Agregar observaciones a la fila que el trigger acaba de insertar.
-    // Debe ejecutarse DESPUÉS del UPDATE anterior (el trigger escribe primero).
-    // Filtra por estado_nuevo = estado (el nuevo estado), no por estadoActual.
     if (observaciones) {
       await client.query(
         `UPDATE incidents.status_history SET observaciones = $1
@@ -312,7 +348,12 @@ export const cambiarEstado = async (req, res) => {
 
     await client.query("COMMIT")
 
-    return res.json({ message: `Incidente actualizado a ${estado}.`, incident_id: id, estado })
+    return res.json({
+      message:     `Incidente actualizado a ${estado}.`,
+      incident_id: id,
+      estado,
+      ...(distanciaM != null && { distancia_cierre_m: Math.round(distanciaM) }),
+    })
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {})
     console.error("[supervisor] cambiarEstado:", err.message)

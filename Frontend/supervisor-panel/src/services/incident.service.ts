@@ -252,10 +252,11 @@ export async function cambiarEstado(
   id: string,
   estado: IncidentEstado,
   observaciones?: string,
-): Promise<{ message: string; incident_id: string; estado: IncidentEstado }> {
+  gps?: { cierre_lat: number; cierre_lon: number },
+): Promise<{ message: string; incident_id: string; estado: IncidentEstado; distancia_cierre_m?: number }> {
   const res = await authenticatedFetch(`${API_URL}/supervisor/incidents/${id}/estado`, {
     method: 'PUT',
-    body:   JSON.stringify({ estado, observaciones }),
+    body:   JSON.stringify({ estado, observaciones, ...gps }),
   })
   return handleResponse(res, `cambiarEstado(${id} → ${estado})`)
 }
