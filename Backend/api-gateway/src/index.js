@@ -55,7 +55,10 @@ const MINIO_INTERNAL_URL  = process.env.MINIO_INTERNAL_URL
 // que req.ip refleje la IP real del cliente (no la del túnel).
 app.set("trust proxy", 1)
 
-const allowedOrigins = process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+const allowedOrigins = [
+  ...process.env.CORS_ORIGINS.split(",").map((o) => o.trim()),
+  "https://mic-emaseo-admin.pages.dev",  // panel administrador (Cloudflare Pages)
+]
 
 app.use(helmet())
 app.use(cors({
