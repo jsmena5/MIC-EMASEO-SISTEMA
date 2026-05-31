@@ -42,6 +42,7 @@ const _ReportDetailScreen       = lazy(() => import("../screens/ReportDetailScre
 const _EnvironmentalAwarenessScreen = lazy(() => import("../screens/EnvironmentalAwarenessScreen"))
 const _ManualScreen             = lazy(() => import("../screens/ManualScreen"))
 const _AlertsScreen             = lazy(() => import("../screens/AlertsScreen"))
+const _HelpScreen               = lazy(() => import("../screens/HelpScreen"))
 
 // ─── Fallback de carga ────────────────────────────────────────────────────────
 //
@@ -87,6 +88,7 @@ const ReportDetailScreen        = ws(_ReportDetailScreen)
 const EnvironmentalAwarenessScreen = ws(_EnvironmentalAwarenessScreen)
 const ManualScreen              = ws(_ManualScreen)
 const AlertsScreen              = ws(_AlertsScreen)
+const HelpScreen                = ws(_HelpScreen)
 
 // ─── Tipos de navegación ──────────────────────────────────────────────────────
 
@@ -110,6 +112,7 @@ export type RootStackParamList = {
   EnvironmentalAwareness: undefined
   Manual: undefined
   Alerts: undefined
+  Help: undefined
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>()
@@ -139,6 +142,7 @@ export default function AppNavigator() {
             <Stack.Screen name="EnvironmentalAwareness" component={EnvironmentalAwarenessScreen} />
             <Stack.Screen name="Manual"             component={ManualScreen} />
             <Stack.Screen name="Alerts"             component={AlertsScreen} />
+            <Stack.Screen name="Help"               component={HelpScreen} />
           </Stack.Group>
         ) : (
           // ── Grupo público (no autenticado) ────────────────────────────────

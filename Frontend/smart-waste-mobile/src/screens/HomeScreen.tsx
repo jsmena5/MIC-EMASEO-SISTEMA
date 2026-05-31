@@ -188,6 +188,13 @@ export default function HomeScreen({ navigation }: Props) {
             color="#D97706"
             onPress={() => navigation.navigate("Alerts")}
           />
+          <GridCard
+            icon="help-circle-outline"
+            label="Ayuda"
+            sublabel="Estados y FAQ"
+            color="#0891B2"
+            onPress={() => navigation.navigate("Help")}
+          />
         </Animated.View>
 
         {/* ── Info strip ── */}

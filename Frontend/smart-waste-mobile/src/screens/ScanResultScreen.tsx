@@ -1,5 +1,8 @@
-import React from "react"
-import { Image, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import React, { useState } from "react"
+import {
+  Image, Linking, Modal, Pressable, ScrollView,
+  StyleSheet, Text, TouchableOpacity, View,
+} from "react-native"
 import { useNavigation, useRoute } from "@react-navigation/native"
 import { Ionicons } from "@expo/vector-icons"
 import type { NativeStackNavigationProp, NativeStackScreenProps } from "@react-navigation/native-stack"
@@ -23,14 +26,42 @@ const NIVEL_LABELS: Record<string, string> = {
   CRITICO: "Acumulación Crítica",
 }
 
+const TIPO_LABELS: Record<string, string> = {
+  DOMESTICO:  "Doméstico",
+  ORGANICO:   "Orgánico",
+  RECICLABLE: "Reciclable",
+  ESCOMBROS:  "Escombros",
+  PELIGROSO:  "Peligroso",
+  MIXTO:      "Mixto",
+  OTRO:       "Otro",
+}
+
+const TOOLTIPS = {
+  detecciones:
+    "Número de objetos de basura que la IA identificó en la imagen. Más objetos suelen indicar mayor acumulación.",
+  confianza:
+    "Qué tan segura está la IA de su análisis. Por encima del 70 % se considera una detección confiable.",
+  prioridad:
+    "Urgencia de atención estimada por la IA según el volumen y tipo de residuo:\n\n• Baja — puede esperar\n• Media — atención próxima\n• Alta — requiere atención pronto\n• Crítica — atención inmediata",
+  mixto:
+    "La IA detectó varios tipos de residuos mezclados (plásticos, orgánicos, cartón, etc.) y no pudo determinar un tipo dominante. El equipo de recolección llevará los materiales adecuados.",
+  estado:
+    "Tu reporte fue recibido y está en cola para ser revisado por un supervisor. Puedes seguir el estado desde 'Mis Reportes'.",
+}
+
 export default function ScanResultScreen() {
   const navigation = useNavigation<NavProp>()
   const route = useRoute<Props["route"]>()
   const { result, latitude, longitude, imageUri } = route.params
 
+  const [tooltip, setTooltip] = useState<{ title: string; text: string } | null>(null)
+
   const color = NIVEL_COLORS[result.nivel_acumulacion] ?? "#6B7280"
   const label = NIVEL_LABELS[result.nivel_acumulacion] ?? result.nivel_acumulacion
   const shortId = result.incident_id.slice(-8).toUpperCase()
+
+  const tipoLabel = TIPO_LABELS[result.tipo_residuo] ?? result.tipo_residuo
+  const esMixto = result.tipo_residuo === "MIXTO"
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -41,7 +72,7 @@ export default function ScanResultScreen() {
         <Text style={styles.headerSub}>Reporte #{shortId}</Text>
       </View>
 
-      {/* Imagen analizada — muestra exactamente la región enviada al ML */}
+      {/* Imagen analizada */}
       {imageUri && (
         <View style={styles.capturedImageCard}>
           <Image
@@ -60,12 +91,12 @@ export default function ScanResultScreen() {
       {result.scale_penalty_applied && (
         <View style={styles.penaltyBanner}>
           <Text style={styles.penaltyText}>
-            ⚠️ Aviso: La foto parece tomada muy de cerca y la prioridad fue ajustada. Para la próxima, use el marco guía de la cámara.
+            ⚠️ La foto parece tomada muy de cerca y la prioridad fue ajustada. Para la próxima, usa el marco guía de la cámara.
           </Text>
         </View>
       )}
 
-      {/* Ubicación del reporte — card con link a Google Maps */}
+      {/* Ubicación */}
       <TouchableOpacity
         style={styles.mapCard}
         activeOpacity={0.75}
@@ -83,20 +114,44 @@ export default function ScanResultScreen() {
         <Ionicons name="open-outline" size={18} color={colors.primary} />
       </TouchableOpacity>
 
-      {/* Tarjetas de métricas */}
+      {/* Métricas principales con tooltips */}
       <View style={styles.grid}>
         <MetricCard label="Volumen estimado" value={`${result.volumen_estimado_m3} m³`} />
-        <MetricCard label="Prioridad"         value={result.prioridad} />
-        <MetricCard label="Detecciones"       value={String(result.num_detecciones)} />
-        <MetricCard label="Confianza"         value={`${Math.round(result.confianza * 100)}%`} />
+        <MetricCard
+          label="Prioridad"
+          value={result.prioridad}
+          onInfo={() => setTooltip({ title: "Prioridad", text: TOOLTIPS.prioridad })}
+        />
+        <MetricCard
+          label="Detecciones"
+          value={String(result.num_detecciones)}
+          onInfo={() => setTooltip({ title: "Detecciones", text: TOOLTIPS.detecciones })}
+        />
+        <MetricCard
+          label="Confianza"
+          value={`${Math.round(result.confianza * 100)}%`}
+          onInfo={() => setTooltip({ title: "Confianza", text: TOOLTIPS.confianza })}
+        />
       </View>
 
       {/* Detalles adicionales */}
       <View style={styles.detailsBox}>
-        <DetailRow label="Tipo de residuo"   value={result.tipo_residuo} />
-        <DetailRow label="Cobertura"          value={result.coverage_ratio != null ? `${Math.round(result.coverage_ratio * 100)}%` : "N/A"} />
-        <DetailRow label="Tiempo inferencia"  value={`${result.tiempo_inferencia_ms} ms`} />
-        <DetailRow label="Estado"             value="PENDIENTE — En cola para atención" />
+        <DetailRow
+          label="Tipo de residuo"
+          value={tipoLabel}
+          onInfo={esMixto ? () => setTooltip({ title: "Tipo Mixto", text: TOOLTIPS.mixto }) : undefined}
+        />
+        {result.coverage_ratio != null && (
+          <DetailRow
+            label="Cobertura de imagen"
+            value={`${Math.round(result.coverage_ratio * 100)}%`}
+          />
+        )}
+        <DetailRow
+          label="Estado"
+          value="PENDIENTE — En cola"
+          onInfo={() => setTooltip({ title: "Estado del reporte", text: TOOLTIPS.estado })}
+        />
       </View>
 
       {/* Acciones */}
@@ -114,27 +169,67 @@ export default function ScanResultScreen() {
         <Text style={styles.buttonSecondaryText}>Ir al inicio</Text>
       </TouchableOpacity>
 
+      {/* Tooltip modal */}
+      <Modal
+        visible={tooltip !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTooltip(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setTooltip(null)}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{tooltip?.title}</Text>
+            <Text style={styles.modalText}>{tooltip?.text}</Text>
+            <TouchableOpacity style={styles.modalClose} onPress={() => setTooltip(null)}>
+              <Text style={styles.modalCloseText}>Entendido</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
     </ScrollView>
   )
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+// ─── Componentes internos ────────────────────────────────────────────────────
+
+function MetricCard({
+  label, value, onInfo,
+}: { label: string; value: string; onInfo?: () => void }) {
   return (
     <View style={styles.card}>
       <Text style={styles.cardValue}>{value}</Text>
-      <Text style={styles.cardLabel}>{label}</Text>
+      <View style={styles.cardLabelRow}>
+        <Text style={styles.cardLabel}>{label}</Text>
+        {onInfo && (
+          <TouchableOpacity onPress={onInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="information-circle-outline" size={15} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   )
 }
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({
+  label, value, onInfo,
+}: { label: string; value: string; onInfo?: () => void }) {
   return (
     <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
+      <View style={styles.detailLabelRow}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        {onInfo && (
+          <TouchableOpacity onPress={onInfo} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="information-circle-outline" size={14} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
+      </View>
       <Text style={styles.detailValue}>{value}</Text>
     </View>
   )
 }
+
+// ─── Estilos ─────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {
@@ -222,10 +317,15 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: "#111827",
   },
+  cardLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
   cardLabel: {
     fontSize: 12,
     color: "#6B7280",
-    marginTop: 4,
     textAlign: "center",
   },
   detailsBox: {
@@ -243,9 +343,15 @@ const styles = StyleSheet.create({
   detailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
+  },
+  detailLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
   detailLabel: {
     color: "#6B7280",
@@ -326,5 +432,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
+  },
+  // Modal tooltip
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  modalCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 360,
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 10,
+  },
+  modalText: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  modalClose: {
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  modalCloseText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 15,
   },
 })

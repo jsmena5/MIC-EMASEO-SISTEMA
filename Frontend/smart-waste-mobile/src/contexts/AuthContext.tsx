@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { jwtDecode } from "jwt-decode"
 import { logoutUser } from "../services/auth.service"
+import axios from "axios"
+import { API_URL } from "../config/env"
 import { subscribeAuthSession } from "../utils/authSessionEvents"
 import { saveSecure, getSecure, deleteSecure } from "../utils/secureStorage"
 
@@ -76,8 +78,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setToken(stored)
             setUser(decoded)
           } else {
-            await deleteSecure("emaseo_access_token")
-            await deleteSecure("emaseo_refresh_token")
+            // Access token expirado — intentar refresh silencioso antes de pedir login
+            const refreshToken = await getSecure("emaseo_refresh_token")
+            if (refreshToken) {
+              try {
+                const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken })
+                await saveSecure("emaseo_access_token", data.token)
+                await saveSecure("emaseo_refresh_token", data.refreshToken)
+                const newDecoded = jwtDecode<DecodedToken>(data.token)
+                setToken(data.token)
+                setUser(newDecoded)
+              } catch {
+                await deleteSecure("emaseo_access_token")
+                await deleteSecure("emaseo_refresh_token")
+              }
+            } else {
+              await deleteSecure("emaseo_access_token")
+            }
           }
         }
       } catch {
