@@ -243,11 +243,17 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
   const nuevoEstado = isAmbiguous ? "EN_REVISION" : "DESCARTADO"
   const decision    = isAmbiguous ? "REVISION_REQUERIDA" : "RECHAZO_CONFIABLE"
   const imageUrl    = `${S3_PUBLIC_URL}/${s3Key}`
-  const notaFallo   = `ML no detectó residuos${
-    confianza !== null
-      ? ` (confianza: ${(confianza * 100).toFixed(1)} %)`
-      : " (confianza no disponible)"
-  }`
+  // Construir nota de auditoría con toda la info disponible de los gates
+  const motivoBase = mlResult.rechazo_motivo
+    ? `motivo: ${mlResult.rechazo_motivo}`
+    : "ML no detectó residuos"
+  const motivoLabel = mlResult.semantic_top_label
+    ? ` — top_label: ${mlResult.semantic_top_label}`
+    : ""
+  const motivoConf = confianza !== null
+    ? ` (confianza: ${(confianza * 100).toFixed(1)} %)`
+    : " (confianza no disponible)"
+  const notaFallo = `${motivoBase}${motivoLabel}${motivoConf}`
 
   await retry(
     async () => {
@@ -478,7 +484,38 @@ async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio 
       return
     }
 
-    // 7. Transacción atómica de cierre (incidente válido → PENDIENTE)
+    // 7. Gate semántico CLIP: el ML marcó has_waste=true pero con ambigüedad semántica.
+    //    requiere_revision=true significa que CLIP no pudo confirmar que sea basura real
+    //    (zona gris: podría ser personas + basura, escena compleja, etc.).
+    //    En ese caso se ruta a EN_REVISION para que un supervisor valide la decisión,
+    //    sin publicar ninguna prioridad automática. Se completa la clasificación por
+    //    bandas igual para que el supervisor tenga contexto (nivel, volumen).
+    if (mlResult.requiere_revision === true) {
+      const motivo = mlResult.rechazo_motivo ?? "verificacion_semantica_ambigua"
+      log(`⚠ Gate semántico (CLIP) ambiguo: requiere_revision=true motivo=${motivo} → EN_REVISION`)
+      try {
+        await finalizeNegativeCase(incidentId, pendingS3Key, {
+          ...mlResult,
+          has_waste: false,
+          // Forzar EN_REVISION (no DESCARTADO): confianza justo bajo el umbral de auto-rechazo
+          confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
+          rechazo_motivo: motivo,
+        }, logError)
+        log(`⚠ Incidente marcado EN_REVISION por gate semántico`)
+      } catch (dbErr) {
+        await markIncidentAsFailed(
+          incidentId,
+          `semantic-gate-revision: ${dbErr.message}`,
+          logError,
+          { s3Key: pendingS3Key }
+        )
+        logError(`✗ FALLIDO — Error registrando revisión semántica: ${dbErr.message}`)
+      }
+      return
+    }
+
+    // 8. Transacción atómica de cierre (incidente válido → PENDIENTE)
+    //    Solo llegamos aquí si has_waste=true Y CLIP confirmó basura real.
     try {
       await finalizeIncident(incidentId, pendingS3Key, mlResult, logError)
       log(`✓ Incidente finalizado — PENDIENTE prioridad=${mlResult.prioridad}`)

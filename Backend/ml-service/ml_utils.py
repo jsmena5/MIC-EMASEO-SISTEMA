@@ -353,6 +353,53 @@ def estimate_volume_midas(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Detección de desenfoque (blur) por varianza del Laplaciano
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_blur_score(image) -> float:
+    """Varianza del Laplaciano como indicador de nitidez.
+
+    Imágenes nítidas → muchos bordes afilados → alta varianza.
+    Imágenes borrosas → gradientes suaves → varianza baja.
+
+    Implementación sin OpenCV: aproxima el kernel Laplaciano 3×3 con numpy.diff
+    (dos pasadas de diferencias de segundo orden en filas y columnas), lo que es
+    equivalente a filtrar con [[0,1,0],[1,-4,1],[0,1,0]].
+
+    Args:
+        image: PIL.Image.Image en cualquier modo (se convierte a escala de grises).
+
+    Returns:
+        float ≥ 0.0 — varianza del Laplaciano sobre la imagen completa.
+        0.0 en caso de error o imagen demasiado pequeña (< 5×5 px).
+    """
+    try:
+        import numpy as np
+
+        gray = np.array(image.convert("L"), dtype=np.float32)
+        if gray.shape[0] < 5 or gray.shape[1] < 5:
+            return 0.0
+
+        # Laplaciano por diferencias de segundo orden:
+        #   d²f/dy² → diff(diff(gray, axis=0), axis=0)
+        #   d²f/dx² → diff(diff(gray, axis=1), axis=1)
+        # La suma aproxima el operador Laplaciano y preserva la dimensión.
+        lap_y = np.diff(gray, n=2, axis=0)   # (H-2, W)
+        lap_x = np.diff(gray, n=2, axis=1)   # (H, W-2)
+
+        # Ajustar dimensiones para sumar (usar la región interior común)
+        min_h = min(lap_y.shape[0], gray.shape[0] - 2)
+        min_w = min(lap_x.shape[1], gray.shape[1] - 2)
+        lap = lap_y[:min_h, :min_w] + lap_x[:min_h, :min_w]
+
+        return float(np.var(lap))
+
+    except Exception as exc:
+        logger.warning("[compute_blur_score] error → score=0.0: %s", exc)
+        return 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Guía de distancia en tiempo real (pre-check guidance mode)
 # ─────────────────────────────────────────────────────────────────────────────
 

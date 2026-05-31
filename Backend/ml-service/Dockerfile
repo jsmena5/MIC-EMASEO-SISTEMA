@@ -6,10 +6,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# ── Cache para torch.hub ───────────────────────────────────────────────────────
-# MiDaS y cualquier modelo futuro se almacenan aquí.
-# Configurar antes del pip install para que PyTorch use este path desde el inicio.
+# ── Caches para modelos ────────────────────────────────────────────────────────
+# MiDaS y modelos futuros vía torch.hub → TORCH_HOME
+# CLIP (open-clip-torch) usa HuggingFace Hub → HF_HOME
+# Configurar antes del pip install para que PyTorch/HF usen estos paths desde el inicio.
 ENV TORCH_HOME=/app/torch_cache
+ENV HF_HOME=/app/hf_cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
@@ -20,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --timeout=120 -r requirements.txt
 
-COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.py ./
+COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.py semantic_gate.py ./
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
@@ -28,7 +30,7 @@ COPY scripts/ ./scripts/
 RUN pip install --no-cache-dir "pytest>=8.0.0"
 
 # Directorios de datos (los volúmenes de producción los sobreescriben en runtime)
-RUN mkdir -p /app/uploads /app/torch_cache
+RUN mkdir -p /app/uploads /app/torch_cache /app/hf_cache
 
 # ── Pre-descarga MiDaS en build-time ──────────────────────────────────────────
 # Elimina la latencia de cold-start: el worker arranca con el modelo ya en caché.
@@ -44,6 +46,24 @@ try:
     print(f"[build] MiDaS pre-descargado en {cache}", flush=True)
 except Exception as e:
     print(f"[build] MiDaS offline ({e}) — se descargará en el primer uso", file=sys.stderr, flush=True)
+EOF
+
+# ── Pre-descarga CLIP (ViT-B/32) en build-time ────────────────────────────────
+# Gate semántico: distingue basura real de personas/interiores/pantallas.
+# Pesos ViT-B-32 + laion2b_s34b_b79k (~350 MB) quedan en /app/hf_cache.
+# Falla silenciosamente si no hay red (build offline) → se descargará en runtime.
+RUN python - <<'EOF'
+import os, sys
+try:
+    import open_clip
+    open_clip.create_model_and_transforms(
+        "ViT-B-32",
+        pretrained="laion2b_s34b_b79k",
+        cache_dir=os.environ.get("HF_HOME", "/app/hf_cache"),
+    )
+    print(f"[build] CLIP ViT-B-32 pre-descargado en {os.environ.get('HF_HOME', '/app/hf_cache')}", flush=True)
+except Exception as e:
+    print(f"[build] CLIP offline ({e}) — se descargará en el primer uso", file=sys.stderr, flush=True)
 EOF
 
 RUN groupadd --gid 1001 appgroup && \

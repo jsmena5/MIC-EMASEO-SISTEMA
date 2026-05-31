@@ -26,6 +26,17 @@ x-ml-env: &ml-env
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+  # ── Gate semántico CLIP ──────────────────────────────────────────────────────
+  # SEMANTIC_REJECT_THRESHOLD: imagen claramente NO es basura → DESCARTADO automático
+  # SEMANTIC_REVIEW_THRESHOLD: imagen probablemente es basura → PENDIENTE con prioridad
+  # Zona [REJECT, REVIEW): ambiguo → EN_REVISION para supervisor
+  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.30}"
+  SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.62}"
+  # ── Gate de calidad: blur y cobertura ────────────────────────────────────────
+  BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-80.0}"
+  MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
+  # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────────────────
+  HF_HOME: /app/hf_cache
 
 services:
 
@@ -239,6 +250,7 @@ services:
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
+      - hf_cache:/app/hf_cache  # pesos CLIP ViT-B/32 (~350 MB) — persisten entre reinicios
     depends_on:
       redis:
         condition: service_healthy
@@ -283,6 +295,7 @@ services:
 volumes:
   redis_data:
   shared_uploads:
+  hf_cache:   # pesos CLIP ViT-B/32 pre-descargados en build; persisten entre reinicios del worker
 
 networks:
   emaseo_network:

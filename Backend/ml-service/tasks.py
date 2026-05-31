@@ -14,8 +14,10 @@ from ml_utils import (
     coverage_union         as _coverage_union,
     is_clustered           as _is_clustered,
     compute_garbage_score  as _compute_garbage_score,
+    compute_blur_score     as _compute_blur_score,
     estimate_volume_midas  as _estimate_volume_midas,
 )
+from semantic_gate import verify_is_garbage as _verify_is_garbage, warm_up_clip as _warm_up_clip
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,23 @@ GARBAGE_SCORE_HARD_FLOOR = 0.20
 # Si MiDaS falla o la imagen es inválida, se usa el volumen interpolado por banda.
 USE_MIDAS_VOLUME = os.environ.get("USE_MIDAS_VOLUME", "false").lower() == "true"
 
+# ── Gate de calidad de imagen: desenfoque ─────────────────────────────────────
+# Varianza del Laplaciano mínima para aceptar la imagen como utilizable.
+# Fotos muy borrosas generan detecciones poco confiables independientemente de
+# la confianza del modelo. Umbral calibrado para imágenes de 640 px:
+#   · Foto nítida de calle: varianza ~800-2000
+#   · Foto ligeramente movida: ~200-400
+#   · Foto muy borrosa/desenfocada: <100
+# Configurable vía BLUR_VARIANCE_MIN; 0 = desactiva el gate de blur.
+BLUR_VARIANCE_MIN = float(os.environ.get("BLUR_VARIANCE_MIN", "80.0"))
+
+# ── Gate de cobertura mínima global ───────────────────────────────────────────
+# Coverage ratio mínimo de la unión de bboxes para que el resultado sea válido.
+# Filtra detecciones de basura diminuta/lejana donde la estimación de volumen
+# y prioridad no es confiable. 3% del frame ≈ objeto de ~90×90 px en 640p.
+# Configurable vía MIN_COVERAGE_UNION; 0 = desactiva el gate de cobertura.
+MIN_COVERAGE_UNION = float(os.environ.get("MIN_COVERAGE_UNION", "0.03"))
+
 _model = None
 
 
@@ -138,11 +157,18 @@ def _get_model():
 
 @signals.worker_init.connect
 def _preload_model_on_startup(**kwargs):
-    """Pre-carga el modelo al arrancar el worker (no en el primer request).
-    Garantiza que la VRAM esté ocupada antes de que llegue la primera tarea,
-    eliminando la latencia de cold-start bajo carga."""
+    """Pre-carga todos los modelos al arrancar el worker (no en el primer request).
+
+    Carga en orden:
+      1. RT-DETR-L  — detector de residuos principal
+      2. CLIP ViT-B/32 — gate semántico para filtrar falsos positivos
+
+    Garantiza que todos los modelos estén en memoria antes de que llegue la
+    primera tarea, eliminando latencia de cold-start bajo carga.
+    """
     if not DUMMY_MODE:
         _get_model()
+        _warm_up_clip()
 
 
 @celery.task(
@@ -238,6 +264,31 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         img_area      = img_w * img_h
         min_bbox_area = img_area * MIN_BBOX_AREA_RATIO
 
+        # ── Gate 0: desenfoque (blur) ─────────────────────────────────────────
+        # Verificación rápida (~2 ms) antes de invocar al detector.
+        # Una imagen muy borrosa hace que RT-DETR produzca bboxes poco confiables;
+        # es mejor pedir al usuario que reenvíe una foto nítida (EN_REVISION).
+        if BLUR_VARIANCE_MIN > 0:
+            blur_score = _compute_blur_score(img)
+            if blur_score < BLUR_VARIANCE_MIN:
+                logger.info(
+                    "[run_inference] Rechazo por blur_score=%.1f < umbral=%.1f "
+                    "(imagen demasiado borrosa) → has_waste=false",
+                    blur_score, BLUR_VARIANCE_MIN,
+                )
+                return {
+                    "success":              True,
+                    "has_waste":            False,
+                    "message":              "Imagen rechazada: demasiado borrosa o desenfocada",
+                    "confianza":            0.40,  # < AUTO_REJECT_CONFIDENCE → EN_REVISION
+                    "blur_score":           round(blur_score, 2),
+                    "rechazo_motivo":       "image_too_blurry",
+                    "tiempo_inferencia_ms": 0,
+                    "modelo_nombre":        Path(os.environ.get("ML_MODEL_PATH", "rtdetr_l_best.pt")).name,
+                }
+        else:
+            blur_score = None  # gate desactivado
+
         model   = _get_model()
         t_start = time.time()
         results = model.predict(img, conf=NMS_CONF, iou=NMS_IOU, verbose=False)
@@ -285,6 +336,29 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         dominant_class  = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
         tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
 
+        # ── Gate 1: cobertura mínima global ──────────────────────────────────────
+        # Filtra detecciones demasiado pequeñas/lejanas donde el volumen y la
+        # prioridad estimados no son confiables. Un objeto que ocupa < 3% del frame
+        # está demasiado lejos para ser evaluado correctamente.
+        if MIN_COVERAGE_UNION > 0 and coverage_ratio < MIN_COVERAGE_UNION:
+            logger.info(
+                "[run_inference] Rechazo por coverage_ratio=%.4f < umbral=%.3f "
+                "(objeto demasiado pequeño/lejano) → has_waste=false",
+                coverage_ratio, MIN_COVERAGE_UNION,
+            )
+            return {
+                "success":              True,
+                "has_waste":            False,
+                "message":              "Detección demasiado pequeña — acércate al objeto",
+                "confianza":            0.45,  # < AUTO_REJECT_CONFIDENCE → EN_REVISION
+                "coverage_ratio":       coverage_ratio,
+                "num_detecciones":      num_detecciones,
+                "rechazo_motivo":       "coverage_below_floor",
+                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
+                "tiempo_inferencia_ms": tiempo_ms,
+                "modelo_nombre":        model_name,
+            }
+
         # ── Garbage score: probabilidad de textura de basura real ────────────────
         # score < GARBAGE_SCORE_THRESHOLD → objeto liso (funda, bolso, botella).
         # score ≥ GARBAGE_SCORE_THRESHOLD → textura caótica → probable residuo.
@@ -309,11 +383,73 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
                 "message":              "Imagen rechazada: sin señales de basura (textura/color/posición)",
                 "confianza":            confianza,
                 "garbage_score":        garbage_score,
+                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
                 "num_detecciones":      num_detecciones,
                 "rechazo_motivo":       "garbage_score_below_hard_floor",
                 "tiempo_inferencia_ms": tiempo_ms,
                 "modelo_nombre":        model_name,
             }
+
+        # ── Gate 2: verificación semántica CLIP ───────────────────────────────────
+        # Comprueba si la imagen contiene basura real o un falso positivo semántico
+        # (personas, interiores, pantallas, vehículos, etc.) que el detector confunde.
+        #
+        # El detector RT-DETR solo aprendió basura + calles vacías como negativo.
+        # CLIP fue entrenado con cientos de millones de fotos; sabe qué es una persona,
+        # un interior, una pantalla — y los diferencia de un montón de basura.
+        #
+        # Política de decisión:
+        #   garbage_prob < REJECT  → claramente no-basura → DESCARTADO (confianza alta)
+        #   REJECT ≤ prob < REVIEW → ambiguo → EN_REVISION (confianza baja, needs_review)
+        #   prob ≥ REVIEW          → basura confirmada → flujo normal → PENDIENTE
+        semantic = _verify_is_garbage(img)
+        garbage_prob      = semantic["garbage_prob"]
+        semantic_top      = semantic["top_label"]
+        semantic_error    = semantic["error"]
+
+        if semantic_error:
+            logger.warning(
+                "[run_inference] CLIP falló (%s) — fail-open: marcando requiere_revision=True",
+                semantic_error,
+            )
+
+        if not semantic["is_garbage"] and not semantic["needs_review"]:
+            # Claramente NO es basura — confianza alta para que el backend lo DESCARTE
+            # automáticamente (confianza ≥ AUTO_REJECT_CONFIDENCE → RECHAZO_CONFIABLE)
+            auto_reject_conf = float(os.environ.get("ML_AUTO_REJECT_CONFIDENCE", "0.70"))
+            reported_conf = round(max(auto_reject_conf, 1.0 - (garbage_prob or 0.0)), 4)
+            logger.info(
+                "[run_inference] CLIP rechaza: garbage_prob=%.3f < reject=%.2f "
+                "top='%s' → DESCARTADO (conf=%.3f)",
+                garbage_prob or 0.0, semantic["is_garbage"], semantic_top, reported_conf,
+            )
+            return {
+                "success":              True,
+                "has_waste":            False,
+                "message":              f"Imagen rechazada por verificación semántica: {semantic_top}",
+                "confianza":            reported_conf,
+                "garbage_prob":         garbage_prob,
+                "garbage_score":        garbage_score,
+                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
+                "num_detecciones":      num_detecciones,
+                "rechazo_motivo":       "semantic_gate_not_garbage",
+                "semantic_top_label":   semantic_top,
+                "tiempo_inferencia_ms": tiempo_ms,
+                "modelo_nombre":        model_name,
+            }
+
+        # Ambigüedad semántica → marcar para revisión humana, pero continuar
+        # calculando la clasificación por bandas para dar contexto al supervisor.
+        requiere_revision = semantic["needs_review"]
+        if requiere_revision:
+            logger.info(
+                "[run_inference] CLIP dudoso: garbage_prob=%.3f en zona ambigua "
+                "(reject=%.2f, review=%.2f) top='%s' → requiere_revision=True",
+                garbage_prob or 0.0,
+                float(os.environ.get("SEMANTIC_REJECT_THRESHOLD", "0.30")),
+                float(os.environ.get("SEMANTIC_REVIEW_THRESHOLD", "0.62")),
+                semantic_top,
+            )
 
         # ── Paso 1: effective_ratio base ─────────────────────────────────────────
         # det_factor logarítmico: evita saturar en 1.0 con solo 3 cajas (antes lineal).
@@ -406,7 +542,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             if midas_vol is not None:
                 metricas["volumen"] = round(min(20.0, midas_vol), 2)
 
-        return {
+        result = {
             "success":               True,
             "has_waste":             True,
             "nivel_acumulacion":     metricas["nivel"],
@@ -420,9 +556,21 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             "scale_penalty_applied": scale_penalty_applied,
             "detections_clustered":  clustered,
             "garbage_score":         garbage_score,
+            # ── Campos de trazabilidad de los gates ────────────────────────────
+            "garbage_prob":          garbage_prob,
+            "semantic_top_label":    semantic_top,
+            "blur_score":            round(blur_score, 2) if blur_score is not None else None,
             "tiempo_inferencia_ms":  tiempo_ms,
             "modelo_nombre":         model_name,
         }
+
+        # Si CLIP marcó ambigüedad, añadir flag para que el backend rute a EN_REVISION.
+        # La clasificación por bandas se completa igual para darle contexto al supervisor.
+        if requiere_revision:
+            result["requiere_revision"] = True
+            result["rechazo_motivo"]    = "verificacion_semantica_ambigua"
+
+        return result
 
     except SoftTimeLimitExceeded as exc:
         # Inferencia colgada: limpiar la imagen antes de reintentar / ir a DLQ
