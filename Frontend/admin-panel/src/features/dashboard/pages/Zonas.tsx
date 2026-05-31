@@ -57,7 +57,7 @@ function AssignModal({
     try {
       await updateZona(zona.id, {
         nombre,
-        descripcion: desc || null,
+        descripcion: desc || undefined,
         supervisor_id: supId || null,
         activa,
       })
