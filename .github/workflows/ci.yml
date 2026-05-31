@@ -51,7 +51,7 @@ jobs:
       - run: pip install pytest
       - run: pytest -q || echo "No tests yet"
 
-  # ── Frontend supervisor panel: typecheck + build ─────────────────────────────
+  # ── Frontend supervisor panel: lint + test + build ───────────────────────────
   supervisor-panel:
     name: frontend / supervisor-panel
     runs-on: ubuntu-latest
@@ -67,6 +67,29 @@ jobs:
           cache-dependency-path: Frontend/supervisor-panel/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run lint --if-present
+      - run: npm test
+      - name: Build
+        env:
+          VITE_API_URL: https://api.example.com/api
+        run: npm run build
+
+  # ── Frontend admin panel: lint + test + build ─────────────────────────────
+  admin-panel:
+    name: frontend / admin-panel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Frontend/admin-panel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/admin-panel/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint --if-present
+      - run: npm test
       - name: Build
         env:
           VITE_API_URL: https://api.example.com/api
@@ -96,7 +119,7 @@ jobs:
   docker:
     name: docker / ${{ matrix.target }}
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [backend, ml-service, supervisor-panel]
+    needs: [backend, ml-service, supervisor-panel, admin-panel]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -114,6 +137,9 @@ jobs:
             context: Backend/ml-service
           - target: supervisor-panel
             context: Frontend/supervisor-panel
+            build-arg: VITE_API_URL=https://api.example.com/api
+          - target: admin-panel
+            context: Frontend/admin-panel
             build-arg: VITE_API_URL=https://api.example.com/api
     steps:
       - uses: actions/checkout@v4

@@ -6,6 +6,7 @@ import { ActivityIndicator, View } from "react-native"
 
 import { useAuth } from "../contexts/AuthContext"
 import { AnalysisProvider } from "../contexts/AnalysisContext"
+import ErrorBoundary from "../components/ErrorBoundary"
 import { navigationRef } from "../utils/navigationService"
 import type { AnalysisResult, Incident } from "../services/image.service"
 
@@ -122,6 +123,7 @@ export default function AppNavigator() {
 
   return (
     <AnalysisProvider>
+    <ErrorBoundary>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isLoading ? (
@@ -159,6 +161,7 @@ export default function AppNavigator() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+    </ErrorBoundary>
     </AnalysisProvider>
   )
 }

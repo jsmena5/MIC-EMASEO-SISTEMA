@@ -112,14 +112,36 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
 
         if (status.estado === "FALLIDO") {
           Alert.alert(
-            "Análisis completado",
-            "El servidor no detectó residuos en la imagen enviada.",
-            [{ text: "OK" }],
+            "Error en el análisis",
+            "Hubo un problema técnico al analizar la imagen. Intenta nuevamente más tarde.",
+            [{ text: "Entendido" }],
+          )
+          return
+        }
+
+        if (status.estado === "DESCARTADO") {
+          Alert.alert(
+            "Sin acumulación detectada",
+            "La imagen analizada no muestra una acumulación de basura detectable.",
+            [{ text: "Entendido" }],
           )
           return
         }
 
         const result = status as AnalysisResult
+
+        // Salvaguarda: solo navegamos si realmente hay un incidente creado.
+        // Sin esto, un payload inesperado (sin incident_id) haría que
+        // ScanResultScreen lance una excepción en render → pantalla negra.
+        if (!result.incident_id) {
+          Alert.alert(
+            "Análisis finalizado",
+            "El reporte se procesó pero no se pudo abrir el detalle. Revísalo en tu historial.",
+            [{ text: "Entendido" }],
+          )
+          return
+        }
+
         Alert.alert(
           "¡Análisis listo!",
           "Tu reporte fue procesado exitosamente. ¿Deseas ver el resultado?",
