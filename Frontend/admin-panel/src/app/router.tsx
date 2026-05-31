@@ -6,6 +6,7 @@ import Home from "../features/dashboard/pages/Home"
 import Supervisores from "../features/dashboard/pages/Supervisores"
 import Zonas from "../features/dashboard/pages/Zonas"
 import Configuracion from "../features/dashboard/pages/Configuracion"
+import FeedbackIA from "../features/dashboard/pages/FeedbackIA"
 
 export const router = createBrowserRouter([
   { path: "/",  element: <LoginPage /> },
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
           { path: "supervisores", element: <Supervisores /> },
           { path: "zonas",        element: <Zonas /> },
           { path: "configuracion", element: <Configuracion /> },
+          { path: "ia",           element: <FeedbackIA /> },
         ],
       },
     ],

@@ -2,13 +2,14 @@ import { NavLink } from "react-router-dom"
 import { useEffect, useState, type ReactNode } from "react"
 
 const navigation = [
-  { to: "/dashboard/home",         label: "Inicio",        iconKind: "home"       as const },
-  { to: "/dashboard/supervisores", label: "Supervisores",  iconKind: "users"      as const },
-  { to: "/dashboard/zonas",        label: "Zonas",         iconKind: "map"        as const },
-  { to: "/dashboard/configuracion", label: "Configuración", iconKind: "settings"  as const },
+  { to: "/dashboard/home",          label: "Inicio",        iconKind: "home"     as const },
+  { to: "/dashboard/supervisores",  label: "Supervisores",  iconKind: "users"    as const },
+  { to: "/dashboard/zonas",         label: "Zonas",         iconKind: "map"      as const },
+  { to: "/dashboard/ia",            label: "Modelo IA",     iconKind: "ia"       as const },
+  { to: "/dashboard/configuracion", label: "Configuración", iconKind: "settings" as const },
 ]
 
-type IconKind = "home" | "users" | "map" | "settings"
+type IconKind = "home" | "users" | "map" | "ia" | "settings"
 
 function SidebarIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, ReactNode> = {
@@ -32,6 +33,12 @@ function SidebarIcon({ kind }: { kind: IconKind }) {
         <path d="M9 18l-5 2V6l5-2 6 2 5-2v14l-5 2z" />
         <path d="M9 4v14" />
         <path d="M15 6v14" />
+      </>
+    ),
+    ia: (
+      <>
+        <path d="M12 2a4 4 0 0 1 4 4c0 1.5-.8 2.8-2 3.5V11h2a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1v1a3 3 0 0 1-6 0v-1H7a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2h2V9.5A4 4 0 0 1 12 2z" />
+        <path d="M9 13h.01M15 13h.01" />
       </>
     ),
     settings: (
