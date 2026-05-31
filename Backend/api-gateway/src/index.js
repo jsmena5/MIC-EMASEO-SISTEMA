@@ -62,6 +62,8 @@ app.use(cors({
   origin: (origin, cb) => {
     // Sin origin → petición server-to-server o herramienta CLI → permitir
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    // Permitir cualquier origen localhost para desarrollo local contra producción
+    if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
     cb(new Error(`CORS: origen no permitido — ${origin}`))
   },
   credentials: true,
