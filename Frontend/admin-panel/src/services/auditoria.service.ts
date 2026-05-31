@@ -17,7 +17,7 @@ export interface ImagenAuditoria {
   etiqueta:                      ImageAuditLabel
   comentario:                    string | null
   etiquetado_at:                 string | null
-  etiquetado_por_email:          string | null
+  etiquetado_por_id:             string | null
 }
 
 export interface ListImagenesResponse {

@@ -95,8 +95,8 @@ function ImageCard({
         <div className="mt-1.5 flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full" style={{ background: cfg.dot }} />
           <span className="text-[11px] font-semibold" style={{ color: cfg.color }}>{cfg.label}</span>
-          {img.etiquetado_por_email && (
-            <span className="text-[10px] text-slate-400 truncate">· {img.etiquetado_por_email.split("@")[0]}</span>
+          {img.etiquetado_por_id && (
+            <span className="text-[10px] text-slate-400 truncate">· etiquetado</span>
           )}
         </div>
       </div>

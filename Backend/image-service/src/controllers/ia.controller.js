@@ -53,11 +53,10 @@ export const listarImagenes = async (req, res) => {
          COALESCE(ia.etiqueta, 'PENDIENTE') AS etiqueta,
          ia.comentario,
          ia.etiquetado_at,
-         u.email AS etiquetado_por_email
+         ia.etiquetado_por AS etiquetado_por_id
        FROM incidents.incidents i
        JOIN ai.analysis_results ar ON ar.incident_id = i.id
        LEFT JOIN ai.image_audit  ia ON ia.incident_id = i.id
-       LEFT JOIN app_auth.users   u ON u.id = ia.etiquetado_por
        ${WHERE}
        ORDER BY i.created_at DESC
        LIMIT $${idx++} OFFSET $${idx++}`,
@@ -156,18 +155,17 @@ export const iaEstadisticas = async (_req, res) => {
     const { rows: ultimasCorrecciones } = await pool.query(`
       SELECT
         ar.incident_id,
-        ar.nivel_acumulacion          AS nivel_ml,
-        ar.tipo_residuo               AS tipo_ml,
+        ar.nivel_acumulacion            AS nivel_ml,
+        ar.tipo_residuo                 AS tipo_ml,
         ar.confianza,
         ar.nivel_acumulacion_supervisor AS nivel_real,
         ar.tipo_residuo_supervisor      AS tipo_real,
         ar.nota_supervision,
         ar.supervisado_at,
-        u.email                         AS supervisor_email,
+        ar.supervisado_por              AS supervisor_id,
         i.imagen_auditoria_url          AS image_url
       FROM ai.analysis_results ar
-      JOIN incidents.incidents i  ON i.id  = ar.incident_id
-      JOIN app_auth.users u       ON u.id  = ar.supervisado_por
+      JOIN incidents.incidents i ON i.id = ar.incident_id
       WHERE ar.ia_fue_correcta = FALSE
       ORDER BY ar.supervisado_at DESC
       LIMIT 25
@@ -194,19 +192,17 @@ export const iaDataset = async (_req, res) => {
     const { rows } = await pool.query(`
       SELECT
         ar.incident_id,
-        i.imagen_auditoria_url                AS image_url,
-        ar.detecciones                        AS detecciones_ml,
-        ar.nivel_acumulacion                  AS nivel_ml,
-        ar.tipo_residuo                       AS tipo_ml,
+        i.imagen_auditoria_url                          AS image_url,
+        ar.detecciones                                  AS detecciones_ml,
+        ar.nivel_acumulacion                            AS nivel_ml,
+        ar.tipo_residuo                                 AS tipo_ml,
         ar.confianza,
-        ar.coverage_ratio,
-        ar.volumen_estimado_m3,
         ar.ia_fue_correcta,
-        ar.nivel_acumulacion_supervisor       AS nivel_correcto,
-        ar.tipo_residuo_supervisor            AS tipo_correcto,
+        ar.nivel_acumulacion_supervisor                 AS nivel_correcto,
+        ar.tipo_residuo_supervisor                      AS tipo_correcto,
         ar.nota_supervision,
         ar.supervisado_at,
-        i.created_at                          AS incidente_created_at
+        i.created_at                                    AS incidente_created_at
       FROM ai.analysis_results ar
       JOIN incidents.incidents i ON i.id = ar.incident_id
       WHERE ar.supervisado_por IS NOT NULL

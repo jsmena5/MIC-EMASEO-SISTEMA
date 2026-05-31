@@ -157,7 +157,7 @@ function CorreccionesList({ rows }: { rows: Correccion[] }) {
               <p className="mt-1 text-xs text-slate-600 line-clamp-2">{c.nota_supervision}</p>
             )}
             <div className="mt-1 text-[10px] text-slate-400">
-              {c.supervisor_email} · {fmtTime(c.supervisado_at)}
+              {fmtTime(c.supervisado_at)}
             </div>
           </div>
         </li>

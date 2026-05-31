@@ -31,7 +31,7 @@ export interface Correccion {
   tipo_real:      string | null
   nota_supervision: string | null
   supervisado_at: string
-  supervisor_email: string
+  supervisor_id:  string
   image_url:      string | null
 }
 
