@@ -158,7 +158,7 @@ export const getIncidentDetail = async (req, res) => {
          z.id AS zona_id, z.nombre AS zona_nombre, z.codigo AS zona_codigo,
          c.nombre || ' ' || c.apellido AS ciudadano_nombre,
          c.cedula AS ciudadano_cedula,
-         u.email AS ciudadano_email,
+         NULL::TEXT AS ciudadano_email,
          ii.image_url,
          ar.modelo_nombre, ar.tipo_residuo, ar.nivel_acumulacion,
          ar.volumen_estimado_m3, ar.confianza, ar.detecciones,
@@ -166,15 +166,13 @@ export const getIncidentDetail = async (req, res) => {
          ar.nivel_acumulacion_supervisor, ar.tipo_residuo_supervisor,
          ar.ia_fue_correcta, ar.nota_supervision,
          ar.supervisado_por, ar.supervisado_at,
-         su.username AS supervisado_por_username,
+         NULL::TEXT AS supervisado_por_username,
          jsonb_array_length(ar.detecciones) AS num_detecciones
        FROM incidents.incidents i
        LEFT JOIN operations.zones z       ON z.id = i.zona_id
        LEFT JOIN public.ciudadanos c      ON c.user_id = i.reportado_por
-       LEFT JOIN app_auth.users u             ON u.id = i.reportado_por
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar   ON ar.incident_id = i.id
-       LEFT JOIN app_auth.users su            ON su.id = ar.supervisado_por
        WHERE i.id = $1`,
       [id],
     )
@@ -185,10 +183,9 @@ export const getIncidentDetail = async (req, res) => {
     const { rows: historial } = await pool.query(
       `SELECT
          sh.estado_anterior, sh.estado_nuevo, sh.observaciones, sh.created_at,
-         COALESCE(op.nombre || ' ' || op.apellido, u.username) AS actor,
-         u.rol AS actor_rol
+         COALESCE(op.nombre || ' ' || op.apellido, sh.cambiado_por::TEXT) AS actor,
+         NULL::TEXT AS actor_rol
        FROM incidents.status_history sh
-       JOIN app_auth.users u ON u.id = sh.cambiado_por
        LEFT JOIN operations.operarios op ON op.user_id = sh.cambiado_por
        WHERE sh.incident_id = $1
        ORDER BY sh.created_at ASC`,
@@ -217,11 +214,11 @@ export const getIncidentDetail = async (req, res) => {
          af.comentario,
          af.created_at,
          af.updated_at,
-         u.username AS reportado_por_username,
-         u.rol      AS reportado_por_rol
+         af.reportado_por AS reportado_por_id,
+         NULL::TEXT AS reportado_por_username,
+         NULL::TEXT AS reportado_por_rol
        FROM ai.analysis_feedback af
-       JOIN ai.analysis_results ar ON ar.id  = af.analysis_result_id
-       JOIN app_auth.users u            ON u.id  = af.reportado_por
+       JOIN ai.analysis_results ar ON ar.id = af.analysis_result_id
        WHERE ar.incident_id = $1
        ORDER BY af.created_at DESC`,
       [id],
@@ -386,14 +383,12 @@ export const asignarIncidente = async (req, res) => {
       })
     }
 
-    // Verificar que el operario exista y esté activo
+    // Verificar que el operario exista
     const { rows: op } = await pool.query(
-      `SELECT o.user_id FROM operations.operarios o
-       JOIN app_auth.users u ON u.id = o.user_id
-       WHERE o.user_id = $1 AND u.estado = 'ACTIVO'`,
+      `SELECT o.user_id FROM operations.operarios o WHERE o.user_id = $1`,
       [operario_id],
     )
-    if (!op.length) return res.status(404).json({ error: "Operario no encontrado o inactivo." })
+    if (!op.length) return res.status(404).json({ error: "Operario no encontrado." })
 
     const { rows } = await pool.query(
       `INSERT INTO incidents.assignments
@@ -604,10 +599,8 @@ export const listOperarios = async (req, res) => {
          z.nombre AS zona_nombre,
          COUNT(a.id) FILTER (WHERE a.completada = FALSE) AS asignaciones_activas
        FROM operations.operarios o
-       JOIN app_auth.users u ON u.id = o.user_id
        LEFT JOIN operations.zones z ON z.id = o.zona_id
        LEFT JOIN incidents.assignments a ON a.operario_id = o.user_id
-       WHERE u.rol = 'OPERARIO' AND u.estado = 'ACTIVO'
        GROUP BY o.user_id, o.nombre, o.apellido, o.cedula, o.cargo, o.telefono, z.nombre
        ORDER BY o.nombre`,
     )
@@ -649,7 +642,7 @@ export const mapaZonas = async (req, res) => {
           z.id,
           z.codigo,
           z.nombre,
-          u.username                 AS supervisor_nombre,
+          NULL::TEXT                 AS supervisor_nombre,
           ST_AsGeoJSON(z.geom)::json AS geometry,
           COUNT(i.id) FILTER (
             WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
@@ -671,10 +664,9 @@ export const mapaZonas = async (req, res) => {
             WHERE i.created_at >= NOW() - INTERVAL '24 hours'
           ) AS ultimas_24h
         FROM operations.zones z
-        LEFT JOIN app_auth.users u ON u.id = z.supervisor_id
         LEFT JOIN incidents.incidents i ON i.zona_id = z.id
         WHERE z.activa = TRUE
-        GROUP BY z.id, z.codigo, z.nombre, u.username
+        GROUP BY z.id, z.codigo, z.nombre
         ORDER BY z.nombre
       `)
 
