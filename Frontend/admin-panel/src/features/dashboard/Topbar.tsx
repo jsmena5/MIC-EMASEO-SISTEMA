@@ -7,6 +7,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/supervisores":  "Gestión de supervisores",
   "/dashboard/zonas":         "Gestión de zonas",
   "/dashboard/ia":            "Calidad del modelo IA",
+  "/dashboard/auditoria":     "Auditoría de imágenes R2",
   "/dashboard/configuracion": "Configuración del sistema",
 }
 
