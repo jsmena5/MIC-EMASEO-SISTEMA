@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit"
 import userRoutes from "./routes/user.routes.js"
 import operariosRoutes from "./routes/operarios.routes.js"
 import supervisorRoutes from "./routes/supervisor.routes.js"
+import zoneRoutes from "./routes/zone.routes.js"
 import { internalAuth } from "./middleware/internalAuth.middleware.js"
 import { requestId } from "./middleware/requestId.middleware.js"
 import { logger } from "./utils/logger.js"
@@ -45,6 +46,7 @@ app.use("/api/users/register", registerLimiter)
 app.use("/api/users", userRoutes)
 app.use("/api/users", operariosRoutes)
 app.use("/api/users", supervisorRoutes)
+app.use("/api/users", zoneRoutes)
 
 
 app.listen(3000, () => {
