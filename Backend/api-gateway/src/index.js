@@ -209,9 +209,11 @@ app.post(
       const upstream = await fetch(`${AUTH_SERVICE_URL}/api/auth/change-password`, {
         method: "POST",
         headers: {
-          "Content-Type":    "application/json",
-          "X-Internal-Token": INTERNAL_TOKEN,
-          "x-user-id":       req.user.id,
+          "Content-Type":      "application/json",
+          "X-Internal-Token":  INTERNAL_TOKEN,
+          "x-user-id":         req.user.id,
+          "x-forwarded-for":   req.ip,
+          "x-user-agent":      req.headers["user-agent"] ?? "",
         },
         body: JSON.stringify(req.body),
         signal: controller.signal,

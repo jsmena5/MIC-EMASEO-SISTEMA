@@ -90,7 +90,7 @@ export type Incident = Omit<
 
 export const getMyIncidents = async (): Promise<Incident[]> => {
   const res = await api.get("/incidents/me")
-  const incidents: Incident[] = res.data.incidents
+  const incidents: Incident[] = Array.isArray(res.data?.incidents) ? res.data.incidents : []
   return incidents.map((inc) => ({
     ...inc,
     image_url: toPublicMediaUrl(inc.image_url),

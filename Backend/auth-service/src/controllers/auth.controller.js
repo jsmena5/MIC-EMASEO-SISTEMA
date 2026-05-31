@@ -6,6 +6,20 @@ import { validatePassword } from "../utils/passwordValidator.js"
 
 const PASSWORD_RESET_OTP_TTL_MIN = 15
 
+async function logAuthEvent(req, accion, userId, extra = {}) {
+  try {
+    const ip = req.headers["x-forwarded-for"] ?? req.ip ?? null
+    const ua = req.headers["x-user-agent"] ?? req.headers["user-agent"] ?? null
+    await pool.query(
+      `INSERT INTO audit.audit_log (actor_id, actor_ip, accion, schema_name, table_name, row_pk, diff)
+       VALUES ($1, $2::inet, $3, 'app_auth', 'users', $4, $5)`,
+      [userId ?? null, ip, accion, userId ?? null, JSON.stringify({ user_agent: ua, ...extra })]
+    )
+  } catch {
+    // No bloquear el flujo de auth si el audit falla
+  }
+}
+
 // Access token de vida corta: con refresh token podemos usar ventanas pequeñas
 const ACCESS_TOKEN_TTL       = process.env.JWT_EXPIRES_IN || "15m"
 const REFRESH_TOKEN_TTL_DAYS = 7
@@ -94,6 +108,8 @@ export const login = async (req, res) => {
     )
 
     const refreshToken = await issueRefreshToken(user.id)
+
+    await logAuthEvent(req, "LOGIN", user.id, { email: user.email, rol: user.rol })
 
     res.json({ token, refreshToken })
 
@@ -387,6 +403,8 @@ export const resetPassword = async (req, res) => {
       client.release()
     }
 
+    await logAuthEvent(req, "RESET_PASSWORD", user.id, { email: email.toLowerCase().trim() })
+
     res.json({ message: "Contraseña actualizada correctamente", token, refreshToken: rawRefreshToken })
   } catch (error) {
     console.error("[resetPassword]", error)
@@ -457,6 +475,8 @@ export const changePassword = async (req, res) => {
     } finally {
       client.release()
     }
+
+    await logAuthEvent(req, "CHANGE_PASSWORD", userId)
 
     res.json({ message: "Contraseña actualizada correctamente" })
   } catch (error) {
