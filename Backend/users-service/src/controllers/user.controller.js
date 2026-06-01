@@ -313,11 +313,16 @@ export const setPassword = async (req, res) => {
     )
     const user = userResult.rows[0]
 
-    // 2. Crear perfil en public.ciudadanos
+    // 2. Crear perfil en public.ciudadanos (incluye datos demográficos del registro)
     await client.query(
-      `INSERT INTO public.ciudadanos (user_id, nombre, apellido, segundo_nombre, segundo_apellido, cedula)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [user.id, nombre, apellido, segundo_nombre ?? null, segundo_apellido ?? null, cedula]
+      `INSERT INTO public.ciudadanos
+         (user_id, nombre, apellido, segundo_nombre, segundo_apellido, cedula, telefono, fecha_nacimiento, sexo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        user.id, nombre, apellido,
+        segundo_nombre ?? null, segundo_apellido ?? null, cedula,
+        telefono ?? null, fecha_nacimiento ?? null, sexo ?? null,
+      ]
     )
 
     await client.query(

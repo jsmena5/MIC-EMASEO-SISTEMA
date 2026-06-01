@@ -57,12 +57,11 @@ app.set("trust proxy", 1)
 
 const allowedOrigins = [
   ...process.env.CORS_ORIGINS.split(",").map((o) => o.trim()),
-  "https://mic-emaseo-admin.pages.dev",      // panel administrador (Cloudflare Pages)
-  "https://mic-emaseo-panel.pages.dev",      // panel supervisor (Cloudflare Pages)
+  "https://mic-emaseo-admin.pages.dev",     // panel administrador (Cloudflare Pages)
+  "https://mic-emaseo-panel.pages.dev",     // panel supervisor (Cloudflare Pages)
 ]
 
-app.use(helmet())
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
     // Sin origin → petición server-to-server o herramienta CLI → permitir
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
@@ -71,7 +70,12 @@ app.use(cors({
     cb(new Error(`CORS: origen no permitido — ${origin}`))
   },
   credentials: true,
-}))
+  optionsSuccessStatus: 204,
+}
+
+app.use(helmet())
+app.use(cors(corsOptions))
+app.options("*", cors(corsOptions))
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"))
 app.use(requestId)
 app.use(globalLimiter)

@@ -60,6 +60,24 @@ describe('registerUser — OTP hashing', () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
+  // Registro válido con el formato actual (4 campos de nombre + demográficos)
+  const VALID_BODY = {
+    primer_nombre:    'Ana',
+    segundo_nombre:   'Maria',
+    primer_apellido:  'Garcia',
+    segundo_apellido: 'Lopez',
+    telefono:         '0991234567',
+    fecha_nacimiento: '1990-01-01',
+    sexo:             'Femenino',
+    cedula:           '1700000001',
+    email:            'ana@test.com',
+  };
+
+  // Posición de otp_code en el INSERT de pending_registrations (0-indexed):
+  // nombre, apellido, segundo_nombre, segundo_apellido, cedula, telefono,
+  // fecha_nacimiento, sexo, email, otp_code → índice 9
+  const OTP_HASH_IDX = 9;
+
   it('almacena el OTP hasheado (SHA-256, 64 hex chars) y no en claro', async () => {
     const client = makeClient();
     pool.connect.mockResolvedValue(client);
@@ -69,19 +87,11 @@ describe('registerUser — OTP hashing', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
 
-    const req = {
-      body: {
-        nombre: 'Ana',
-        apellido: 'Garcia',
-        cedula: '1700000001',
-        email: 'ana@test.com',
-      },
-    };
-    await registerUser(req, mockRes());
+    await registerUser({ body: { ...VALID_BODY } }, mockRes());
 
     // La segunda llamada a client.query es el INSERT (ON CONFLICT DO UPDATE)
     const insertArgs = client.query.mock.calls[1];
-    const otpCodeParam = insertArgs[1][4]; // $5 = otp_code (hash)
+    const otpCodeParam = insertArgs[1][OTP_HASH_IDX];
 
     // Debe ser un hash SHA-256 de 64 caracteres hexadecimales
     expect(otpCodeParam).toMatch(/^[0-9a-f]{64}$/);
@@ -97,10 +107,8 @@ describe('registerUser — OTP hashing', () => {
       client.query
         .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] });
-      await registerUser({
-        body: { nombre: 'Ana', apellido: 'G', cedula: '1700000001', email: 'ana@test.com' },
-      }, mockRes());
-      return client.query.mock.calls[1][1][4]; // otpHash
+      await registerUser({ body: { ...VALID_BODY } }, mockRes());
+      return client.query.mock.calls[1][1][OTP_HASH_IDX]; // otpHash
     };
 
     const hash1 = await makeRegistration();
