@@ -31,12 +31,28 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN)
   const inputs = useRef<(TextInput | null)[]>([])
 
+  // Evita setState tras desmontar (cancelar durante una petición en vuelo)
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
+
   // Temporizador de reenvío
   useEffect(() => {
     if (countdown <= 0) return
     const timer = setTimeout(() => setCountdown((c) => c - 1), 1000)
     return () => clearTimeout(timer)
   }, [countdown])
+
+  const handleCancel = () => {
+    if (loading || resending) return  // no cancelar a mitad de una petición
+    Alert.alert(
+      "Cancelar registro",
+      "¿Seguro que deseas salir? Perderás el progreso del registro.",
+      [
+        { text: "Seguir registrando", style: "cancel" },
+        { text: "Sí, cancelar", style: "destructive", onPress: () => navigation.navigate("Login") },
+      ],
+    )
+  }
 
   const handleDigitChange = (value: string, index: number) => {
     const digit = value.replace(/[^0-9]/g, "").slice(-1)
@@ -63,11 +79,13 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     try {
       setLoading(true)
       await verifyOtp({ email, otp })
+      if (!mountedRef.current) return
       navigation.navigate("SetPassword", { email })
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.message || "Código incorrecto")
+      if (!mountedRef.current) return
+      Alert.alert("Error", err?.response?.data?.message || "Código incorrecto. Verifica e intenta de nuevo.")
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -75,14 +93,16 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     try {
       setResending(true)
       await registerUser(registrationData)
+      if (!mountedRef.current) return
       setDigits(["", "", "", "", "", ""])
       setCountdown(RESEND_COOLDOWN)
       inputs.current[0]?.focus()
       Alert.alert("Código enviado", `Revisa tu correo: ${email}`)
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código")
+      if (!mountedRef.current) return
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código. Revisa tu conexión.")
     } finally {
-      setResending(false)
+      if (mountedRef.current) setResending(false)
     }
   }
 
@@ -180,7 +200,7 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
 
         <LinkButton
           label="Cancelar registro"
-          onPress={() => navigation.navigate("Login")}
+          onPress={handleCancel}
           style={{ marginTop: 16 }}
           accessibilityHint="Abandona el proceso de registro y vuelve al inicio de sesión"
         />

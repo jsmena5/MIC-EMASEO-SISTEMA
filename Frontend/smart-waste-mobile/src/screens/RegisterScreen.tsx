@@ -1,5 +1,5 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import React, { useRef, useState, useCallback, memo } from "react"
+import React, { useRef, useState, useCallback, useEffect, memo } from "react"
 import {
   Alert,
   Animated,
@@ -220,6 +220,10 @@ export default function RegisterScreen({ navigation }: Props) {
   const [errors,  setErrors]  = useState<ErrorType>({})
   const [loading, setLoading] = useState(false)
 
+  // Evita setState tras desmontar (si el usuario cancela durante una petición en vuelo)
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
+
   const apellidosRef       = useRef<TextInput>(null)
   const fechaNacimientoRef = useRef<TextInput>(null)
   const telefonoRef        = useRef<TextInput>(null)
@@ -290,10 +294,12 @@ export default function RegisterScreen({ navigation }: Props) {
         email:            form.email.trim().toLowerCase(),
       }
       const res = await registerUser(payload)
+      if (!mountedRef.current) return
       const { email, emailSent } = res.data
       if (!emailSent && __DEV__) console.warn("[Register] SMTP no envió el correo")
       navigation.navigate("OtpVerification", { email, registrationData: payload })
     } catch (err: any) {
+      if (!mountedRef.current) return
       const serverMsg = err?.response?.data?.message
       // Email/cédula ya registrado → mostrarlo en el campo email para guiar al usuario
       if (serverMsg?.toLowerCase().includes("registrado") || serverMsg?.toLowerCase().includes("email")) {
@@ -307,7 +313,7 @@ export default function RegisterScreen({ navigation }: Props) {
         )
       }
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 

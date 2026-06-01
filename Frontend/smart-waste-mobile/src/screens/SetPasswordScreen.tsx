@@ -1,7 +1,7 @@
 // src/screens/SetPasswordScreen.tsx
 import { MaterialIcons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import React, { useState } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -32,6 +32,10 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
   const [showConfirm, setShowConfirm]  = useState(false)
   const [loading, setLoading]          = useState(false)
 
+  // Evita setState tras desmontar (cancelar durante la creación de cuenta)
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
+
   const validate = (): string | null => {
     if (password.length < 6) return "La contraseña debe tener al menos 6 caracteres"
     if (password !== confirm) return "Las contraseñas no coinciden"
@@ -45,6 +49,7 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
     try {
       setLoading(true)
       await setPassword({ email, password })
+      if (!mountedRef.current) return
       // Cuenta creada — navegar a Login para que el usuario inicie sesión.
       // El Alert no cancelable evita que en Android se descarte tocando fuera.
       Alert.alert(
@@ -57,10 +62,23 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
         { cancelable: false },
       )
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.message || "No se pudo crear la cuenta")
+      if (!mountedRef.current) return
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo crear la cuenta. Revisa tu conexión e intenta de nuevo.")
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
+  }
+
+  const handleCancel = () => {
+    if (loading) return  // no cancelar mientras se está creando la cuenta
+    Alert.alert(
+      "Cancelar registro",
+      "¿Seguro que deseas salir? Perderás el progreso del registro.",
+      [
+        { text: "Seguir registrando", style: "cancel" },
+        { text: "Sí, cancelar", style: "destructive", onPress: () => navigation.navigate("Login") },
+      ],
+    )
   }
 
   return (
@@ -158,7 +176,7 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
 
         <LinkButton
           label="Cancelar registro"
-          onPress={() => navigation.navigate("Login")}
+          onPress={handleCancel}
           style={{ marginTop: 16 }}
           accessibilityHint="Abandona el proceso de registro y vuelve al inicio de sesión"
         />
