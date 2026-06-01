@@ -11,7 +11,7 @@
 # =============================================================================
 
 # API Gateway — único punto de entrada del backend
-api.tu-dominio.ec {
+micemaseo.duckdns.org {
 	encode zstd gzip
 
 	# Cabeceras de seguridad básicas (Helmet ya cubre la mayoría, pero las
@@ -34,20 +34,18 @@ api.tu-dominio.ec {
 }
 
 # Supervisor panel — si lo despliegas en el mismo VPS (en lugar de Vercel/Pages)
-panel.tu-dominio.ec {
-	encode zstd gzip
-
-	# El container del panel (nginx) escucha en 127.0.0.1:8080.
-	# Levántalo con: docker run -d -p 127.0.0.1:8080:80 ghcr.io/tu-org/supervisor-panel:latest
-	reverse_proxy 127.0.0.1:8080
-
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-		X-Content-Type-Options    nosniff
-		X-Frame-Options           DENY
-		Referrer-Policy           strict-origin-when-cross-origin
-	}
-}
+# panel.tu-dominio.ec {
+# 	encode zstd gzip
+# 	# Descomenta si despliegas los paneles en el VPS (no en Cloudflare Pages).
+# 	# El container del panel (nginx) escucha en 127.0.0.1:8080.
+# 	reverse_proxy 127.0.0.1:8080
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+# 		X-Content-Type-Options    nosniff
+# 		X-Frame-Options           DENY
+# 		Referrer-Policy           strict-origin-when-cross-origin
+# 	}
+# }
 
 # Imágenes desde R2 con dominio propio (opcional — alternativa: usar el
 # subdomain custom de Cloudflare R2 directamente con TLS automático).

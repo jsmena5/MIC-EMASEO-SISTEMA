@@ -70,7 +70,7 @@ jobs:
       - run: npm test
       - name: Build
         env:
-          VITE_API_URL: https://api.example.com/api
+          VITE_API_URL: https://micemaseo.duckdns.org/api
         run: npm run build
 
   # ── Frontend admin panel: lint + test + build ─────────────────────────────
@@ -92,7 +92,7 @@ jobs:
       - run: npm test
       - name: Build
         env:
-          VITE_API_URL: https://api.example.com/api
+          VITE_API_URL: https://micemaseo.duckdns.org/api
         run: npm run build
 
   # ── Frontend smart-waste-mobile: typecheck ───────────────────────────────────
@@ -137,10 +137,10 @@ jobs:
             context: Backend/ml-service
           - target: supervisor-panel
             context: Frontend/supervisor-panel
-            build-arg: VITE_API_URL=https://api.example.com/api
+            build-arg: VITE_API_URL=https://micemaseo.duckdns.org/api
           - target: admin-panel
             context: Frontend/admin-panel
-            build-arg: VITE_API_URL=https://api.example.com/api
+            build-arg: VITE_API_URL=https://micemaseo.duckdns.org/api
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

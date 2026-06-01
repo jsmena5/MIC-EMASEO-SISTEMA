@@ -57,7 +57,8 @@ app.set("trust proxy", 1)
 
 const allowedOrigins = [
   ...process.env.CORS_ORIGINS.split(",").map((o) => o.trim()),
-  "https://mic-emaseo-admin.pages.dev",  // panel administrador (Cloudflare Pages)
+  "https://mic-emaseo-admin.pages.dev",      // panel administrador (Cloudflare Pages)
+  "https://mic-emaseo-panel.pages.dev",      // panel supervisor (Cloudflare Pages)
 ]
 
 app.use(helmet())
