@@ -143,15 +143,51 @@ _NEGATIVE_PROMPTS = [
     "a building facade with no trash",
     "clothing or fabric close-up",
     "a person in outdoor clothing",
-    # ── Electrónicos e interiores — falsos positivos frecuentes ──────────────
+    # ── Electrónicos e interiores ─────────────────────────────────────────────
     "a laptop computer on a desk",
     "a closed laptop on a table",
     "electronic devices on a work surface",
     "a computer keyboard and mouse",
     "office equipment on a desk",
     "a smartphone or tablet on a table",
-    "food on a plate or table",
     "objects on a wooden table indoors",
+    # ── Cielo y naturaleza ────────────────────────────────────────────────────
+    "a blue sky with clouds",
+    "clouds in the sky",
+    "trees and green vegetation",
+    "grass and plants in a park",
+    "a park with trees and no garbage",
+    "green leaves and branches",
+    "mountains or landscape scenery",
+    "a river or water stream",
+    "a garden with flowers and plants",
+    # ── Ropa y accesorios ─────────────────────────────────────────────────────
+    "clothing hanging on a hanger or rack",
+    "a shirt or jacket worn by a person",
+    "folded clothes on a surface",
+    "a backpack or bag being worn",
+    "shoes or footwear on the ground",
+    # ── Comida y utensilios ───────────────────────────────────────────────────
+    "food on a plate or table",
+    "a meal being served",
+    "a thermos or water bottle",
+    "a cup or mug on a table",
+    "kitchen utensils and cookware",
+    "fruits and vegetables on a surface",
+    "a market stall with fresh produce",
+    # ── Mobiliario y objetos del hogar ────────────────────────────────────────
+    "furniture in a clean room",
+    "a sofa or chair indoors",
+    "a bed or bedroom interior",
+    "a bathroom or kitchen interior",
+    "household appliances on a counter",
+    "books on a shelf or table",
+    "papers and notebooks on a desk",
+    # ── Vía pública limpia ────────────────────────────────────────────────────
+    "clean pavement or sidewalk with no garbage",
+    "an empty road with no trash",
+    "a clean public square or plaza",
+    "a crosswalk on a clean street",
 ]
 
 # ── Cache global del modelo CLIP ──────────────────────────────────────────────
