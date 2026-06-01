@@ -205,7 +205,8 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
             mlResult.volumen_estimado_m3,
             mlResult.confianza,
             JSON.stringify(mlResult.detecciones),
-            mlResult.tiempo_inferencia_ms,
+            // Constraint chk_inferencia_positiva: NULL o > 0 (nunca 0)
+            mlResult.tiempo_inferencia_ms > 0 ? mlResult.tiempo_inferencia_ms : null,
           ]
         )
 
@@ -306,7 +307,10 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
               mlResult.volumen_estimado_m3 ?? null,
               confianza ?? 0,
               JSON.stringify(mlResult.detecciones ?? []),
-              mlResult.tiempo_inferencia_ms ?? null,
+              // El constraint chk_inferencia_positiva exige NULL o > 0. El ML
+              // devuelve 0 cuando rechaza temprano (p. ej. blur), así que
+              // normalizamos 0 → NULL para no violar el constraint.
+              mlResult.tiempo_inferencia_ms > 0 ? mlResult.tiempo_inferencia_ms : null,
             ]
           )
         }
