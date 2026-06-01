@@ -1,4 +1,4 @@
-const normalizeApiUrl = (value: string) => value.replace(/\/+$/, "")
+const normalizeApiUrl = (value: string) => value.replace(/\/+$/, "").trim()
 
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
 
