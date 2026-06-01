@@ -34,9 +34,7 @@ const CARD_ENTERING = FadeInDown.duration(400).springify()
 
 // ─── Validaciones ─────────────────────────────────────────────────────────────
 
-// Apellidos: una sola palabra, letras + guiones (sin espacios — en Ecuador nunca llevan)
-const RE_APELLIDO = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ][a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\-]*$/
-// Nombres: una o dos palabras (nombre compuesto), sin números ni símbolos
+// Cada palabra de nombre/apellido: solo letras (con tildes y ñ)
 const RE_PALABRA  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const RE_TELEFONO = /^(?:\+?5939[0-9]{8}|09[0-9]{8})$/
@@ -58,24 +56,18 @@ const validarCedula = (cedula: string): boolean => {
   return dig === parseInt(cedula[9])
 }
 
-function validarNombreField(v: string, label: string, required = true): string | undefined {
+// Valida un campo de "nombres" o "apellidos" que admite 1 o 2 palabras.
+// Ej: "Juan Carlos" / "Pérez Torres" / "María". Cada palabra ≥2 letras, solo letras.
+function validarDosPalabras(v: string, label: string): string | undefined {
   const trimmed = v.trim()
-  if (!trimmed) return required ? `El ${label} es requerido` : undefined
-  if (trimmed.length > 30) return `El ${label} no puede superar 30 caracteres`
+  if (!trimmed) return `${label} es requerido`
+  if (trimmed.length > 60) return `${label} no puede superar 60 caracteres`
   const words = trimmed.split(/\s+/)
-  if (words.length > 2) return `El ${label} no puede tener más de 2 palabras`
+  if (words.length > 2) return `${label}: máximo dos palabras`
   for (const word of words) {
-    if (word.length < 2)          return `Cada palabra del ${label} debe tener al menos 2 letras`
-    if (!RE_PALABRA.test(word))   return `El ${label} solo puede contener letras`
+    if (word.length < 2)        return `Cada palabra de ${label} debe tener al menos 2 letras`
+    if (!RE_PALABRA.test(word)) return `${label} solo puede contener letras`
   }
-}
-
-function validarApellidoField(v: string, label: string, required = true): string | undefined {
-  const trimmed = v.trim()
-  if (!trimmed) return required ? `El ${label} es requerido` : undefined
-  if (trimmed.length < 2)  return `El ${label} debe tener al menos 2 caracteres`
-  if (trimmed.length > 30) return `El ${label} no puede superar 30 caracteres`
-  if (!RE_APELLIDO.test(trimmed)) return `El ${label} debe ser una sola palabra (sin espacios)`
 }
 
 function validarTelefonoField(v: string, label: string): string | undefined {
@@ -86,16 +78,16 @@ function validarTelefonoField(v: string, label: string): string | undefined {
 
 function validarFechaNacimientoField(v: string, label: string): string | undefined {
   const trimmed = v.trim()
-  if (!trimmed) return `El ${label} es requerido`
+  if (!trimmed) return `La ${label} es requerida`
   const date = new Date(trimmed)
-  if (Number.isNaN(date.getTime())) return `El ${label} no es válida`
+  if (Number.isNaN(date.getTime())) return `La ${label} no es válida`
   const ageYears = (Date.now() - date.getTime()) / (365.25 * 24 * 3600 * 1000)
-  if (ageYears < 13 || ageYears > 120) return `El ${label} debe estar entre 13 y 120 años`
+  if (ageYears < 13 || ageYears > 120) return `La ${label} debe estar entre 13 y 120 años`
 }
 
 // ─── Campos del formulario ────────────────────────────────────────────────────
 
-type FormField = "primer_nombre" | "segundo_nombre" | "primer_apellido" | "segundo_apellido" | "fecha_nacimiento" | "sexo" | "telefono" | "cedula" | "email"
+type FormField = "nombres" | "apellidos" | "fecha_nacimiento" | "sexo" | "telefono" | "cedula" | "email"
 type FormType  = Record<FormField, string>
 type ErrorType = Partial<Record<FormField, string>>
 
@@ -221,17 +213,14 @@ function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
 
 export default function RegisterScreen({ navigation }: Props) {
   const [form, setForm] = useState<FormType>({
-    primer_nombre: "", segundo_nombre: "",
-    primer_apellido: "", segundo_apellido: "",
+    nombres: "", apellidos: "",
     fecha_nacimiento: "", sexo: "", telefono: "",
     cedula: "", email: "",
   })
   const [errors,  setErrors]  = useState<ErrorType>({})
   const [loading, setLoading] = useState(false)
 
-  const segundoNombreRef   = useRef<TextInput>(null)
-  const primerApellidoRef  = useRef<TextInput>(null)
-  const segundoApellidoRef = useRef<TextInput>(null)
+  const apellidosRef       = useRef<TextInput>(null)
   const fechaNacimientoRef = useRef<TextInput>(null)
   const telefonoRef        = useRef<TextInput>(null)
   const cedulaRef          = useRef<TextInput>(null)
@@ -246,31 +235,25 @@ export default function RegisterScreen({ navigation }: Props) {
   }, [])
 
   // Handlers estables (memo funciona)
-  const hPrimerNombre    = useCallback((v: string) => handleChange("primer_nombre",    v), [handleChange])
-  const hSegundoNombre   = useCallback((v: string) => handleChange("segundo_nombre",   v), [handleChange])
-  const hPrimerApellido  = useCallback((v: string) => handleChange("primer_apellido",  v), [handleChange])
-  const hSegundoApellido = useCallback((v: string) => handleChange("segundo_apellido", v), [handleChange])
+  const hNombres         = useCallback((v: string) => handleChange("nombres",          v), [handleChange])
+  const hApellidos       = useCallback((v: string) => handleChange("apellidos",        v), [handleChange])
   const hFechaNacimiento = useCallback((v: string) => handleChange("fecha_nacimiento", v), [handleChange])
-  const hSexo            = useCallback((v: string) => handleChange("sexo", v), [handleChange])
-  const hTelefono        = useCallback((v: string) => handleChange("telefono", v), [handleChange])
+  const hSexo            = useCallback((v: string) => handleChange("sexo",             v), [handleChange])
+  const hTelefono        = useCallback((v: string) => handleChange("telefono",         v), [handleChange])
   const hCedula          = useCallback((v: string) => handleChange("cedula",           v), [handleChange])
   const hEmail           = useCallback((v: string) => handleChange("email",            v), [handleChange])
 
   const validate = (): ErrorType | null => {
     const e: ErrorType = {}
 
-    const ep1 = validarNombreField(form.primer_nombre,   "primer nombre")
-    const es2 = validarNombreField(form.segundo_nombre, "segundo nombre")
-    const ep2 = validarApellidoField(form.primer_apellido,  "primer apellido")
-    const ep3 = validarApellidoField(form.segundo_apellido, "segundo apellido")
+    const en = validarDosPalabras(form.nombres,   "Los nombres")
+    const ea = validarDosPalabras(form.apellidos, "Los apellidos")
     const efn = validarFechaNacimientoField(form.fecha_nacimiento, "fecha de nacimiento")
     const esx = form.sexo ? undefined : "El sexo es requerido"
     const etl = validarTelefonoField(form.telefono, "celular")
 
-    if (ep1) e.primer_nombre    = ep1
-    if (es2) e.segundo_nombre   = es2
-    if (ep2) e.primer_apellido  = ep2
-    if (ep3) e.segundo_apellido = ep3
+    if (en) e.nombres   = en
+    if (ea) e.apellidos = ea
     if (efn) e.fecha_nacimiento = efn
     if (esx) e.sexo = esx
     if (etl) e.telefono = etl
@@ -292,11 +275,14 @@ export default function RegisterScreen({ navigation }: Props) {
     buttonScale.value = withSequence(withSpring(0.96), withSpring(1))
     try {
       setLoading(true)
+      // Separar "Juan Carlos" → primer/segundo nombre; "Pérez Torres" → primer/segundo apellido
+      const [primerNombre, segundoNombre = ""]     = form.nombres.trim().split(/\s+/)
+      const [primerApellido, segundoApellido = ""] = form.apellidos.trim().split(/\s+/)
       const payload: PreRegisterUser = {
-        primer_nombre:    form.primer_nombre.trim(),
-        segundo_nombre:   form.segundo_nombre.trim(),
-        primer_apellido:  form.primer_apellido.trim(),
-        segundo_apellido: form.segundo_apellido.trim(),
+        primer_nombre:    primerNombre,
+        segundo_nombre:   segundoNombre,
+        primer_apellido:  primerApellido,
+        segundo_apellido: segundoApellido,
         fecha_nacimiento: form.fecha_nacimiento.trim(),
         sexo:             form.sexo as PreRegisterUser["sexo"],
         telefono:         form.telefono.trim(),
@@ -346,53 +332,28 @@ export default function RegisterScreen({ navigation }: Props) {
             <ProgressBar currentStep={1} totalSteps={3} />
           </View>
 
-          {/* ── Nombres ── */}
-          <Text style={styles.groupLabel}>Nombres</Text>
+          {/* ── Nombres y apellidos ── */}
+          <Text style={styles.groupLabel}>Datos personales</Text>
           <AnimatedInput
-            label="Primer nombre"
-            value={form.primer_nombre}
-            error={errors.primer_nombre}
-            placeholder="Ej: Juan o María José"
-            onChangeText={hPrimerNombre}
+            label="Nombres"
+            value={form.nombres}
+            error={errors.nombres}
+            placeholder="Ej: Juan Carlos"
+            onChangeText={hNombres}
             returnKeyType="next"
-            onSubmitEditing={() => segundoNombreRef.current?.focus()}
-            hint="Solo letras, máx. 2 palabras"
+            onSubmitEditing={() => apellidosRef.current?.focus()}
+            hint="Tus dos nombres (o uno), tal como en tu cédula"
           />
           <AnimatedInput
-            label="Segundo nombre"
-            value={form.segundo_nombre}
-            error={errors.segundo_nombre}
-            placeholder="Ej: Carlos"
-            onChangeText={hSegundoNombre}
-            inputRef={segundoNombreRef}
-            returnKeyType="next"
-            onSubmitEditing={() => primerApellidoRef.current?.focus()}
-            optional
-          />
-
-          {/* ── Apellidos ── */}
-          <Text style={styles.groupLabel}>Apellidos</Text>
-          <AnimatedInput
-            label="Primer apellido"
-            value={form.primer_apellido}
-            error={errors.primer_apellido}
-            placeholder="Ej: Pérez"
-            onChangeText={hPrimerApellido}
-            inputRef={primerApellidoRef}
-            returnKeyType="next"
-            onSubmitEditing={() => segundoApellidoRef.current?.focus()}
-            hint="Apellido paterno, una sola palabra"
-          />
-          <AnimatedInput
-            label="Segundo apellido"
-            value={form.segundo_apellido}
-            error={errors.segundo_apellido}
-            placeholder="Ej: Torres"
-            onChangeText={hSegundoApellido}
-            inputRef={segundoApellidoRef}
+            label="Apellidos"
+            value={form.apellidos}
+            error={errors.apellidos}
+            placeholder="Ej: Pérez Torres"
+            onChangeText={hApellidos}
+            inputRef={apellidosRef}
             returnKeyType="next"
             onSubmitEditing={() => fechaNacimientoRef.current?.focus()}
-            hint="Apellido materno, una sola palabra"
+            hint="Tus dos apellidos (o uno), tal como en tu cédula"
           />
 
           {/* ── Información personal ── */}
