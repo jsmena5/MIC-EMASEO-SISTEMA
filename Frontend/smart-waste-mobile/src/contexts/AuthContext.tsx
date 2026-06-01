@@ -33,6 +33,19 @@ export interface DecodedToken {
   exp: number
 }
 
+// La app móvil es EXCLUSIVA para ciudadanos. Supervisores/admins/operarios
+// usan los paneles web; sus cuentas no deben iniciar sesión aquí.
+const ROL_APP = "CIUDADANO"
+
+/** Error lanzado cuando un usuario no-ciudadano intenta entrar a la app móvil. */
+export class RolNoPermitidoError extends Error {
+  code = "ROL_NO_PERMITIDO"
+  constructor() {
+    super("Esta aplicación es solo para ciudadanos. Si eres personal de EMASEO, ingresa desde el panel web.")
+    this.name = "RolNoPermitidoError"
+  }
+}
+
 interface AuthContextType {
   user: DecodedToken | null
   token: string | null
@@ -74,7 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const stored = await getSecure("emaseo_access_token")
         if (stored) {
           const decoded = jwtDecode<DecodedToken>(stored)
-          if (decoded.exp * 1000 > Date.now()) {
+          if (decoded.rol !== ROL_APP) {
+            // Sesión de un no-ciudadano (p. ej. supervisor que entró antes del fix) → descartar
+            await deleteSecure("emaseo_access_token")
+            await deleteSecure("emaseo_refresh_token")
+          } else if (decoded.exp * 1000 > Date.now()) {
             setToken(stored)
             setUser(decoded)
           } else {
@@ -125,6 +142,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const decoded = jwtDecode<DecodedToken>(sessionToken)
+        if (decoded.rol !== ROL_APP) {
+          setToken(null)
+          setUser(null)
+          return
+        }
         setToken(sessionToken)
         setUser(decoded)
       } catch {
@@ -136,6 +158,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (newToken: string) => {
     const decoded = jwtDecode<DecodedToken>(newToken)
+    if (decoded.rol !== ROL_APP) {
+      // loginUser ya guardó los tokens — limpiarlos para no dejar sesión a medias
+      await deleteSecure("emaseo_access_token")
+      await deleteSecure("emaseo_refresh_token")
+      throw new RolNoPermitidoError()
+    }
     await saveSecure("emaseo_access_token", newToken)
     setToken(newToken)
     setUser(decoded)

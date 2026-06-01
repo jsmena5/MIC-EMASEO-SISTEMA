@@ -116,7 +116,10 @@ export default function LoginScreen({ navigation }: Props) {
       await login(res.data.token)
     } catch (err: any) {
       const status = err?.response?.status
-      if (!err?.response) {
+      if (err?.code === "ROL_NO_PERMITIDO") {
+        // Credenciales válidas pero el rol no es ciudadano → la app es solo para ciudadanos
+        setServerError(err.message)
+      } else if (!err?.response) {
         setServerError("Sin conexión. Verifica tu internet e inténtalo de nuevo.")
       } else if (status === 401 || status === 403) {
         setServerError("El correo o la contraseña no son válidos.")
