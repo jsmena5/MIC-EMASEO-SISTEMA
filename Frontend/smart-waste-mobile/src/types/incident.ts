@@ -81,6 +81,8 @@ export interface IncidentBase {
   descripcion: string | null
   created_at: string
   image_url: string | null
+  /** URL de imagen preservada por el ML para incidentes EN_REVISION/DESCARTADO/FALLIDO */
+  imagen_auditoria_url?: string | null
   nivel_acumulacion: NivelAcum | null
   tipo_residuo: TipoResiduo | null
   confianza: number | null

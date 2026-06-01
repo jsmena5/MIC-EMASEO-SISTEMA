@@ -128,6 +128,15 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
+        if (status.estado === "EN_REVISION") {
+          Alert.alert(
+            "Reporte en revisión",
+            "La IA no pudo determinar con certeza si hay basura en la imagen. Un supervisor revisará tu reporte y recibirás una notificación con la decisión. Puedes ver el estado en tu historial.",
+            [{ text: "Entendido" }],
+          )
+          return
+        }
+
         const result = status as AnalysisResult
 
         // Salvaguarda: solo navegamos si realmente hay un incidente creado.

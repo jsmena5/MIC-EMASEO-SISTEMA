@@ -93,7 +93,7 @@ export const getMyIncidents = async (): Promise<Incident[]> => {
   const incidents: Incident[] = Array.isArray(res.data?.incidents) ? res.data.incidents : []
   return incidents.map((inc) => ({
     ...inc,
-    image_url: toPublicMediaUrl(inc.image_url),
+    image_url: toPublicMediaUrl(inc.image_url ?? inc.imagen_auditoria_url),
   }))
 }
 
