@@ -74,8 +74,10 @@ const corsOptions = {
 }
 
 app.use(helmet())
+// cors() como middleware global ya responde el preflight OPTIONS automáticamente.
+// NO usar app.options("*", ...) — en Express 5 (path-to-regexp 8) el patrón "*"
+// es inválido y rompe el manejo de rutas, bloqueando todo preflight con error CORS.
 app.use(cors(corsOptions))
-app.options("*", cors(corsOptions))
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"))
 app.use(requestId)
 app.use(globalLimiter)
