@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { listImagenes, etiquetarImagen } from "../../../services/auditoria.service"
 import type { ImagenAuditoria, ImageAuditLabel } from "../../../services/auditoria.service"
+import { toPublicMediaUrl } from "../../../shared/api/mediaUrl"
 
 // ─── Constantes visuales ──────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ function ImageCard({
 }) {
   const [saving, setSaving] = useState(false)
   const cfg = ETIQUETA_CFG[img.etiqueta]
+  const imageUrl = toPublicMediaUrl(img.image_url)
 
   const handleLabel = async (etiqueta: ImageAuditLabel) => {
     if (saving || img.etiqueta === etiqueta) return
@@ -39,9 +41,9 @@ function ImageCard({
          style={{ borderColor: cfg.color + "40" }}>
       {/* Image */}
       <div className="relative bg-slate-100" style={{ height: 160 }}>
-        {img.image_url ? (
+        {imageUrl ? (
           <img
-            src={img.image_url}
+            src={imageUrl}
             alt="Evidencia"
             className="h-full w-full object-cover"
             onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
@@ -186,6 +188,15 @@ export default function AuditoriaR2() {
           Clasifica las imágenes de incidentes para el reentrenamiento del modelo IA.
           {!loading && ` · ${pagination.total} imágenes en total`}
         </p>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600">
+          <span className="font-bold text-slate-700">¿Para qué sirve esto?</span> Tu veredicto
+          alimenta la mejora del filtro IA y la curación del dataset.
+          <span className="font-semibold text-green-700"> Válida</span>: la foto sí muestra basura
+          y es buena para entrenar. <span className="font-semibold text-amber-700">Dudosa</span>:
+          ambigua, revisar luego. <span className="font-semibold text-red-700">Excluir</span>: no
+          sirve (no es basura, borrosa o duplicada) — estas son las que más ayudan a que la IA
+          deje de equivocarse.
+        </div>
       </div>
 
       {/* Stats */}

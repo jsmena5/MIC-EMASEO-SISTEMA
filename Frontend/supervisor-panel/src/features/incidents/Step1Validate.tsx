@@ -1,6 +1,8 @@
 import { useState } from "react"
 import type { IncidentDetail } from "../../services/incident.service"
 import { cambiarEstado } from "../../services/incident.service"
+import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
+import InfoTooltip from "../../shared/components/InfoTooltip"
 import { DECISION_STYLE, ESTADO_STYLE, fmtPercent, palette } from "./styles"
 
 export default function Step1Validate({
@@ -14,8 +16,9 @@ export default function Step1Validate({
   const [discarding, setDiscarding] = useState(false)
   const [motivo, setMotivo] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [imgFailed, setImgFailed] = useState(false)
 
-  const imageUrl = detail.image_url ?? detail.imagen_auditoria_url
+  const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const decision = detail.decision_automatica ? DECISION_STYLE[detail.decision_automatica] : null
   const status   = ESTADO_STYLE[detail.estado] ?? { bg: "#E2E8F0", text: palette.muted }
 
@@ -45,8 +48,13 @@ export default function Step1Validate({
     <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
       {/* Imagen grande */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-900">
-        {imageUrl ? (
-          <img src={imageUrl} alt="Incidente" className="aspect-[4/3] h-full w-full object-contain" />
+        {imageUrl && !imgFailed ? (
+          <img
+            src={imageUrl}
+            alt="Incidente"
+            className="aspect-[4/3] h-full w-full object-contain"
+            onError={() => setImgFailed(true)}
+          />
         ) : (
           <div className="flex aspect-[4/3] items-center justify-center text-sm text-slate-300">
             Sin imagen disponible
@@ -61,12 +69,14 @@ export default function Step1Validate({
             {detail.estado.replace("_", " ")}
           </span>
           {decision && (
-            <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: decision.bg, color: decision.text }}>
+            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: decision.bg, color: decision.text }}>
               IA: {decision.label}
+              <InfoTooltip text="Decisión automática de la IA: 'Incidente válido' = confía que hay basura; 'Rechazo confiable' = confía que NO hay basura; 'Revisión requerida' = es ambiguo y debe decidir un humano." />
             </span>
           )}
-          <span className="text-xs text-slate-500" title="Confianza del modelo en su decisión">
+          <span className="inline-flex items-center gap-1 text-xs text-slate-500">
             Confianza IA {fmtPercent(detail.confianza_decision ?? detail.confianza)}
+            <InfoTooltip text="Qué tan segura está la IA en su decisión, según la detección del modelo sobre la foto. 0% significa que no detectó residuos en la imagen; por eso el caso pasa a revisión manual." />
           </span>
         </div>
 

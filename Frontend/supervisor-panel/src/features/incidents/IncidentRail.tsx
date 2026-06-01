@@ -1,8 +1,9 @@
 import type { IncidentListItem, SortOrder } from "../../services/incident.service"
+import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import { DECISION_STYLE, ESTADO_STYLE, PRIORIDAD_STYLE, fmtDate, fmtPercent, palette } from "./styles"
 
 function buildImageUrl(item: Pick<IncidentListItem, "image_url" | "imagen_auditoria_url">) {
-  return item.image_url ?? item.imagen_auditoria_url
+  return toPublicMediaUrl(item.image_url ?? item.imagen_auditoria_url)
 }
 
 export default function IncidentRail({
@@ -74,7 +75,12 @@ export default function IncidentRail({
                 >
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-100">
                     {imageUrl
-                      ? <img src={imageUrl} alt="" className="h-full w-full object-cover" />
+                      ? <img
+                          src={imageUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none" }}
+                        />
                       : <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-400">Sin foto</div>}
                   </div>
                   <div className="grid min-w-0 flex-1 gap-1">
