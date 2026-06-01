@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react"
 
 const navigation = [
   { to: "/dashboard/home",          label: "Inicio",        iconKind: "home"     as const },
-  { to: "/dashboard/supervisores",  label: "Supervisores",  iconKind: "users"    as const },
+  { to: "/dashboard/supervisores",  label: "Cuentas",       iconKind: "users"    as const },
   { to: "/dashboard/zonas",         label: "Zonas",         iconKind: "map"      as const },
   { to: "/dashboard/ia",            label: "Modelo IA",     iconKind: "ia"       as const },
   { to: "/dashboard/auditoria",     label: "Auditoría R2",  iconKind: "gallery"  as const },

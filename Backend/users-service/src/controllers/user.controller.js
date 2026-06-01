@@ -13,6 +13,14 @@ const generateOpaqueToken = () => crypto.randomBytes(64).toString("hex")
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
+// ─── Helper para generar contraseña temporal ──────────────────────────────────
+const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$"
+function tempPassword(len = 12) {
+  return Array.from({ length: len }, () =>
+    CHARS[crypto.randomInt(CHARS.length)]
+  ).join("")
+}
+
 // ─── Helpers de validación ────────────────────────────────────────────────────
 
 const RE_NOMBRE    = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]+$/
@@ -400,6 +408,136 @@ export const updateProfile = async (req, res) => {
   } catch (err) {
     console.error("[users-controller] updateProfile:", err.message)
     return res.status(500).json({ message: "Error al actualizar el perfil." })
+  }
+}
+
+// ============================================================================
+// GET /api/users/ciudadanos  — Lista paginada de ciudadanos (ADMIN)
+// Query: page, limit, search, estado
+// ============================================================================
+export const listCiudadanos = async (req, res) => {
+  const { search = "", estado = "", page = 1, limit = 20 } = req.query
+  const pageNum  = Math.max(1, Number(page))
+  const pageSize = Math.min(50, Math.max(1, Number(limit)))
+  const offset   = (pageNum - 1) * pageSize
+
+  const conditions = ["u.rol = 'CIUDADANO'"]
+  const params     = []
+
+  if (search?.trim()) {
+    params.push(`%${search.trim().toLowerCase()}%`)
+    conditions.push(
+      `(LOWER(c.nombre) LIKE $${params.length}
+       OR LOWER(c.apellido) LIKE $${params.length}
+       OR LOWER(u.email) LIKE $${params.length})`
+    )
+  }
+  if (estado) {
+    params.push(estado)
+    conditions.push(`u.estado = $${params.length}`)
+  }
+
+  const where = "WHERE " + conditions.join(" AND ")
+
+  try {
+    const [{ rows }, { rows: countRows }] = await Promise.all([
+      pool.query(
+        `SELECT
+           u.id,
+           c.nombre          AS primer_nombre,
+           c.segundo_nombre,
+           c.apellido        AS primer_apellido,
+           c.segundo_apellido,
+           u.email,
+           u.estado,
+           u.ultimo_login,
+           u.created_at,
+           CASE WHEN length(c.cedula) = 10
+             THEN substring(c.cedula,1,3)||'****'||substring(c.cedula,8)
+             ELSE '**********' END AS cedula_masked,
+           (SELECT COUNT(*) FROM incidents.incidents i WHERE i.reportado_por = u.id) AS total_reportes
+         FROM app_auth.users u
+         JOIN public.ciudadanos c ON c.user_id = u.id
+         ${where}
+         ORDER BY u.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, pageSize, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS total
+         FROM app_auth.users u
+         JOIN public.ciudadanos c ON c.user_id = u.id
+         ${where}`,
+        params
+      ),
+    ])
+
+    const total = parseInt(countRows[0].total, 10)
+    return res.json({
+      ciudadanos: rows,
+      pagination: { total, page: pageNum, limit: pageSize, pages: Math.ceil(total / pageSize) },
+    })
+  } catch (err) {
+    console.error("[users-controller] listCiudadanos:", err.message)
+    return res.status(500).json({ message: "Error al obtener ciudadanos." })
+  }
+}
+
+// ============================================================================
+// PUT /api/users/ciudadanos/:id/estado  — Cambiar estado de ciudadano (ADMIN)
+// Body: { estado: 'ACTIVO' | 'INACTIVO' | 'SUSPENDIDO' }
+// ============================================================================
+export const updateCiudadanoEstado = async (req, res) => {
+  const { id }     = req.params
+  const { estado } = req.body
+
+  const ESTADOS_VALIDOS = ["ACTIVO", "INACTIVO", "SUSPENDIDO"]
+  if (!ESTADOS_VALIDOS.includes(estado))
+    return res.status(400).json({ message: `Estado inválido. Opciones: ${ESTADOS_VALIDOS.join(", ")}` })
+
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE app_auth.users SET estado = $1, updated_at = NOW()
+       WHERE id = $2 AND rol = 'CIUDADANO'`,
+      [estado, id]
+    )
+    if (!rowCount) return res.status(404).json({ message: "Ciudadano no encontrado." })
+    return res.json({ message: "Estado actualizado.", id, estado })
+  } catch (err) {
+    console.error("[users-controller] updateCiudadanoEstado:", err.message)
+    return res.status(500).json({ message: "Error al actualizar estado." })
+  }
+}
+
+// ============================================================================
+// POST /api/users/ciudadanos/:id/reset-password  — Genera contraseña temporal (ADMIN)
+// Devuelve la contraseña en claro para que el admin la comparta con el ciudadano.
+// ============================================================================
+export const resetCiudadanoPassword = async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM app_auth.users WHERE id = $1 AND rol = 'CIUDADANO'`,
+      [id]
+    )
+    if (!rowCount) return res.status(404).json({ message: "Ciudadano no encontrado." })
+
+    const nuevaPassword = tempPassword(12)
+    await pool.query(
+      `UPDATE app_auth.users
+       SET password_hash = crypt($1, gen_salt('bf', $2)), updated_at = NOW()
+       WHERE id = $3`,
+      [nuevaPassword, BCRYPT_ROUNDS, id]
+    )
+
+    return res.json({
+      message:      "Contraseña restablecida. Compártela con el ciudadano de forma segura.",
+      nueva_password: nuevaPassword,
+    })
+  } catch (err) {
+    console.error("[users-controller] resetCiudadanoPassword:", err.message)
+    return res.status(500).json({ message: "Error al restablecer contraseña." })
   }
 }
 
