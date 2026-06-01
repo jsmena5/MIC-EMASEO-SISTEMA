@@ -37,11 +37,10 @@
       ]
     },
     "web": {
-      "output": "single-page",
+      "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-location",
         {
