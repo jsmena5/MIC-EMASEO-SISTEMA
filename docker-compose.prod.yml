@@ -30,8 +30,8 @@ x-ml-env: &ml-env
   # SEMANTIC_REJECT_THRESHOLD: imagen claramente NO es basura → DESCARTADO automático
   # SEMANTIC_REVIEW_THRESHOLD: imagen probablemente es basura → PENDIENTE con prioridad
   # Zona [REJECT, REVIEW): ambiguo → EN_REVISION para supervisor
-  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.30}"
-  SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.62}"
+  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
+  SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
   # ── Gate de calidad: blur y cobertura ────────────────────────────────────────
   BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-80.0}"
   MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"

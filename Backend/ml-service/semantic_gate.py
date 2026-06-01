@@ -97,6 +97,7 @@ CLIP_CACHE_DIR:   str  = os.environ.get("HF_HOME", "/app/hf_cache")
 #     no requiere reentrenar ni redesplegar el modelo.
 
 _POSITIVE_PROMPTS = [
+    # ── English: street accumulation ──────────────────────────────────────────
     "a pile of garbage on the street",
     "trash and waste dumped on a sidewalk",
     "accumulated garbage bags on the road",
@@ -106,7 +107,21 @@ _POSITIVE_PROMPTS = [
     "organic waste and food scraps dumped outside",
     "mixed trash pile on urban ground",
     "construction debris and rubble on pavement",
-    "hazardous waste and chemical containers discarded",
+    "garbage bags left on the sidewalk curb",
+    "plastic bags and trash scattered on a street corner",
+    "household waste dumped near a building entrance",
+    "waste bags and trash next to a wall on the street",
+    # ── Spanish: basura en vía pública Ecuador / Latinoamérica ───────────────
+    "basura acumulada en la calle",
+    "fundas de basura tiradas en la acera",
+    "desechos y desperdicios en la vía pública",
+    "basura doméstica frente a una casa",
+    "montón de basura en la esquina de una calle",
+    "residuos sólidos acumulados en la vereda",
+    "bolsas de basura amontonadas en la calle",
+    "escombros y basura en la calzada",
+    "desperdicios orgánicos tirados en el suelo",
+    "basura mezclada junto a una pared o reja",
 ]
 
 _NEGATIVE_PROMPTS = [
@@ -118,14 +133,14 @@ _NEGATIVE_PROMPTS = [
     "a person with a bag or purse",
     "an indoor room or office",
     "furniture inside a house",
-    "a clean empty street",
-    "a wall or fence",
+    "a clean empty street with no trash",
+    "a wall or fence with no garbage",
     "a car or vehicle on the road",
     "a pet or animal",
     "a garden or park with plants",
     "a selfie or portrait photo",
     "a photo of a screen or monitor",
-    "a building facade",
+    "a building facade with no trash",
     "clothing or fabric close-up",
     "a person in outdoor clothing",
 ]
