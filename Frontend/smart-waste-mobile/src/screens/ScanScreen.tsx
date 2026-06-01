@@ -278,6 +278,24 @@ export default function ScanScreen() {
     }
   }
 
+  // Cancela el envío de la imagen mientras está en curso (fase "uploading").
+  // Aborta la subida y devuelve al usuario al estado de revisión (puede reintentar,
+  // tomar otra foto o cancelar). Sin esto el botón quedaba "congelado" en 100%.
+  const handleCancelUpload = () => {
+    abortControllerRef.current?.abort()
+    setPhase("idle")
+    setUploadProgress(0)
+    setIsSlowMessage(false)
+  }
+
+  // Sale del flujo de captura/reporte y vuelve al inicio.
+  const handleCancelToHome = () => {
+    abortControllerRef.current?.abort()
+    stopPolling()
+    retake()
+    navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+  }
+
   // Transfiere el polling al AnalysisContext y libera la pantalla.
   const handleSendToBackground = () => {
     const taskId = currentTaskIdRef.current
@@ -378,7 +396,10 @@ export default function ScanScreen() {
           Alert.alert(
             "No detectamos basura",
             "La imagen no parece mostrar acumulación de residuos. Acerca la cámara al lugar correcto e inténtalo de nuevo.",
-            [{ text: "Entendido" }],
+            [
+              { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
+              { text: "Tomar otra foto", onPress: retake },
+            ],
           )
           return
         }
@@ -541,7 +562,10 @@ export default function ScanScreen() {
           Alert.alert(
             "Sin acumulación detectada",
             "La imagen analizada no muestra una acumulación de basura detectable. Asegúrate de enfocar bien los residuos y vuelve a intentarlo.",
-            [{ text: "Tomar otra foto", onPress: retake }],
+            [
+              { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
+              { text: "Tomar otra foto", onPress: retake },
+            ],
           )
           return
         }
@@ -552,7 +576,10 @@ export default function ScanScreen() {
           Alert.alert(
             "Error en el análisis",
             "Hubo un problema técnico al analizar la imagen. Intenta de nuevo en unos momentos.",
-            [{ text: "Reintentar", onPress: retake }],
+            [
+              { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
+              { text: "Reintentar", onPress: retake },
+            ],
           )
           return
         }
@@ -682,8 +709,6 @@ export default function ScanScreen() {
             confirmando visualmente al usuario qué área se enviará al ML.     */}
         {!showOverlay && <CapturedFrameOverlay />}
 
-        <View style={styles.reviewGradient} />
-
         <Animated.View entering={SlideInUp.duration(380).springify()} style={styles.reviewCard}>
           <View style={styles.reviewHandle} />
 
@@ -759,15 +784,38 @@ export default function ScanScreen() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.retakeBtn}
-            onPress={retake}
-            disabled={isActive}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
-            <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
-          </TouchableOpacity>
+          {phase === "uploading" ? (
+            /* Durante el envío: permitir cancelar la subida (no dejar al usuario varado) */
+            <TouchableOpacity
+              style={styles.cancelUploadBtn}
+              onPress={handleCancelUpload}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close-circle-outline" size={20} color={colors.critico} />
+              <Text style={styles.cancelUploadBtnText}>Cancelar envío</Text>
+            </TouchableOpacity>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={styles.retakeBtn}
+                onPress={retake}
+                disabled={isActive}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelLink}
+                onPress={handleCancelToHome}
+                disabled={isActive}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelLinkText}>Cancelar</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </Animated.View>
 
         <AnalyzingOverlay
@@ -842,10 +890,6 @@ const styles = StyleSheet.create({
   backLinkText: { color: colors.primary, fontSize: 15 },
 
   reviewContainer: { flex: 1, backgroundColor: "#000" },
-  reviewGradient: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    height: "55%", backgroundColor: "rgba(0,0,0,0.72)",
-  },
   reviewCard: {
     position: "absolute", bottom: 0, left: 0, right: 0,
     backgroundColor: colors.surface,
@@ -891,6 +935,19 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: colors.gray200,
   },
   retakeBtnText: { color: colors.textSecondary, fontWeight: "600", fontSize: 15 },
+
+  cancelUploadBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, paddingVertical: 14, borderRadius: 14,
+    borderWidth: 1.5, borderColor: "#FECACA", backgroundColor: "#FFF5F5",
+  },
+  cancelUploadBtnText: { color: colors.critico, fontWeight: "700", fontSize: 15 },
+
+  cancelLink: {
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: 12, marginTop: 4,
+  },
+  cancelLinkText: { color: colors.textTertiary, fontWeight: "600", fontSize: 14 },
 
   pendingBanner: {
     position: "absolute", bottom: 16, left: 16, right: 16,
