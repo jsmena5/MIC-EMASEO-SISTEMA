@@ -855,10 +855,18 @@ export const getMyIncidents = async (req, res) => {
            ii.image_url,
            ar.nivel_acumulacion, ar.volumen_estimado_m3, ar.tipo_residuo,
            ar.confianza,
-           jsonb_array_length(ar.detecciones) AS num_detecciones
+           jsonb_array_length(ar.detecciones) AS num_detecciones,
+           -- Motivo de rechazo para mostrar al ciudadano cuando el incidente es RECHAZADA
+           sh.motivo_rechazo, sh.observaciones AS observaciones_rechazo
          FROM incidents.incidents i
          LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
          LEFT JOIN ai.analysis_results ar ON ar.incident_id = i.id
+         LEFT JOIN LATERAL (
+           SELECT motivo_rechazo, observaciones
+           FROM incidents.status_history
+           WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+           ORDER BY created_at DESC LIMIT 1
+         ) sh ON TRUE
          WHERE i.reportado_por = $1
          ORDER BY i.created_at DESC
          LIMIT $2 OFFSET $3`,

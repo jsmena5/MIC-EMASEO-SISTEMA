@@ -18,6 +18,7 @@ import { Incident } from "../services/image.service"
 import { ESTADO_CONFIG, NIVEL_COLOR, formatDate } from "./HistorialScreen"
 import { colors } from "../theme/colors"
 import { toPublicMediaUrl } from "../utils/mediaUrl"
+import { MOTIVO_RECHAZO_LABEL, type MotivoRechazo } from "../types/incident"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReportDetail">
 
@@ -203,6 +204,25 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
               <View style={styles.divider} />
               <Text style={styles.descLabel}>Descripción</Text>
               <Text style={styles.descText}>{incident.descripcion}</Text>
+            </>
+          ) : null}
+
+          {/* Motivo de rechazo — visible al ciudadano cuando el supervisor rechaza */}
+          {incident.estado === "RECHAZADA" && incident.motivo_rechazo ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.rechazoCard}>
+                <Ionicons name="information-circle-outline" size={18} color="#B45309" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rechazoTitle}>Motivo del rechazo</Text>
+                  <Text style={styles.rechazoText}>
+                    {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo as MotivoRechazo]}
+                  </Text>
+                  {incident.observaciones_rechazo ? (
+                    <Text style={styles.rechazoObs}>"{incident.observaciones_rechazo}"</Text>
+                  ) : null}
+                </View>
+              </View>
             </>
           ) : null}
         </View>
@@ -438,5 +458,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 21,
+  },
+  rechazoCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+  rechazoTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#92400E",
+    marginBottom: 2,
+  },
+  rechazoText: {
+    fontSize: 13,
+    color: "#78350F",
+    lineHeight: 18,
+  },
+  rechazoObs: {
+    fontSize: 12,
+    color: "#92400E",
+    fontStyle: "italic",
+    marginTop: 4,
   },
 })

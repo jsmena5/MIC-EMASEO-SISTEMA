@@ -251,12 +251,15 @@ export async function getIncidentDetail(id: string): Promise<IncidentDetail> {
 export async function cambiarEstado(
   id: string,
   estado: IncidentEstado,
-  observaciones?: string,
+  extra?: { motivo_rechazo?: import('../types/incident').MotivoRechazo; observaciones?: string } | string,
   gps?: { cierre_lat: number; cierre_lon: number },
 ): Promise<{ message: string; incident_id: string; estado: IncidentEstado; distancia_cierre_m?: number }> {
+  const body = typeof extra === 'string'
+    ? { estado, observaciones: extra, ...gps }
+    : { estado, ...extra, ...gps }
   const res = await authenticatedFetch(`${API_URL}/supervisor/incidents/${id}/estado`, {
     method: 'PUT',
-    body:   JSON.stringify({ estado, observaciones, ...gps }),
+    body:   JSON.stringify(body),
   })
   return handleResponse(res, `cambiarEstado(${id} → ${estado})`)
 }

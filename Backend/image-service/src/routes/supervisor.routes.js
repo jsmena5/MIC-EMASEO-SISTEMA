@@ -9,7 +9,7 @@ import {
   listOperarios,
   mapaZonas,
 } from "../controllers/supervisor.controller.js"
-import { iaEstadisticas, iaDataset, listarImagenes, etiquetarImagen } from "../controllers/ia.controller.js"
+import { iaEstadisticas, iaDataset, listarImagenes, etiquetarImagen, hardExamples } from "../controllers/ia.controller.js"
 
 const router = Router()
 
@@ -23,6 +23,7 @@ router.get("/zonas/estadisticas",         estadisticasZonas)
 router.get("/operarios",                  listOperarios)
 router.get("/ia/estadisticas",                          iaEstadisticas)
 router.get("/ia/dataset",                               iaDataset)
+router.get("/ia/hard-examples",                         hardExamples)
 router.get("/ia/imagenes",                              listarImagenes)
 router.put("/ia/imagenes/:incident_id/etiqueta",        etiquetarImagen)
 

@@ -182,7 +182,7 @@ export const getIncidentDetail = async (req, res) => {
     // Historial de estados
     const { rows: historial } = await pool.query(
       `SELECT
-         sh.estado_anterior, sh.estado_nuevo, sh.observaciones, sh.created_at,
+         sh.estado_anterior, sh.estado_nuevo, sh.observaciones, sh.motivo_rechazo, sh.created_at,
          COALESCE(op.nombre || ' ' || op.apellido, sh.cambiado_por::TEXT) AS actor,
          NULL::TEXT AS actor_rol
        FROM incidents.status_history sh
@@ -252,10 +252,16 @@ export const getIncidentDetail = async (req, res) => {
 
 export const cambiarEstado = async (req, res) => {
   const { id }                                          = req.params
-  const { estado, observaciones, cierre_lat, cierre_lon } = req.body
-  const userId                                          = req.headers["x-user-id"]
+  const { estado, observaciones, motivo_rechazo, cierre_lat, cierre_lon } = req.body
+  const userId = req.headers["x-user-id"]
+
+  const MOTIVOS_VALIDOS = ["NO_ES_BASURA", "MUY_LEJOS_PEQUENO", "IMAGEN_BORROSA", "DUPLICADO", "OTRO"]
 
   if (!estado) return res.status(400).json({ error: "El campo 'estado' es requerido." })
+  if (estado === "RECHAZADA" && !motivo_rechazo)
+    return res.status(400).json({ error: "El campo 'motivo_rechazo' es requerido al rechazar." })
+  if (motivo_rechazo && !MOTIVOS_VALIDOS.includes(motivo_rechazo))
+    return res.status(400).json({ error: `motivo_rechazo inválido. Valores aceptados: ${MOTIVOS_VALIDOS.join(", ")}.` })
 
   const client = await pool.connect()
   try {
@@ -331,15 +337,22 @@ export const cambiarEstado = async (req, res) => {
        distanciaM != null ? distanciaM.toFixed(2) : null],
     )
 
-    if (observaciones) {
+    if (observaciones || motivo_rechazo) {
+      const sets = []
+      const vals = []
+      let idx = 1
+      if (observaciones)  { sets.push(`observaciones = $${idx++}`);  vals.push(observaciones) }
+      if (motivo_rechazo) { sets.push(`motivo_rechazo = $${idx++}`); vals.push(motivo_rechazo) }
+      vals.push(id, estado)
       await client.query(
-        `UPDATE incidents.status_history SET observaciones = $1
-         WHERE incident_id = $2 AND estado_nuevo = $3
+        `UPDATE incidents.status_history
+         SET ${sets.join(", ")}
+         WHERE incident_id = $${idx++} AND estado_nuevo = $${idx++}
            AND created_at = (
              SELECT MAX(created_at) FROM incidents.status_history
-             WHERE incident_id = $2 AND estado_nuevo = $3
+             WHERE incident_id = $${idx - 2} AND estado_nuevo = $${idx - 1}
            )`,
-        [observaciones, id, estado],
+        vals,
       )
     }
 

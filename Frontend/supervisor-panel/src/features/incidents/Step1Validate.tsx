@@ -3,7 +3,10 @@ import type { IncidentDetail } from "../../services/incident.service"
 import { cambiarEstado } from "../../services/incident.service"
 import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import InfoTooltip from "../../shared/components/InfoTooltip"
+import { type MotivoRechazo, MOTIVO_RECHAZO_LABEL } from "../../types/incident"
 import { DECISION_STYLE, ESTADO_STYLE, fmtPercent, palette } from "./styles"
+
+const MOTIVOS = Object.entries(MOTIVO_RECHAZO_LABEL) as [MotivoRechazo, string][]
 
 export default function Step1Validate({
   detail, onAdvance, onRefresh,
@@ -14,7 +17,8 @@ export default function Step1Validate({
 }) {
   const [saving, setSaving] = useState(false)
   const [discarding, setDiscarding] = useState(false)
-  const [motivo, setMotivo] = useState("")
+  const [motivoRechazo, setMotivoRechazo] = useState<MotivoRechazo | "">("")
+  const [observaciones, setObservaciones] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [imgFailed, setImgFailed] = useState(false)
 
@@ -28,14 +32,17 @@ export default function Step1Validate({
   const iaSugiereDescarte = detail.decision_automatica === "RECHAZO_CONFIABLE"
 
   const handleDescartar = async () => {
-    if (!motivo.trim()) {
-      setError("Debes indicar por qué se descarta el reporte.")
+    if (!motivoRechazo) {
+      setError("Selecciona un motivo de rechazo.")
       return
     }
     setSaving(true)
     setError(null)
     try {
-      await cambiarEstado(detail.id, "RECHAZADA", motivo.trim())
+      await cambiarEstado(detail.id, "RECHAZADA", {
+        motivo_rechazo: motivoRechazo,
+        observaciones: observaciones.trim() || undefined,
+      })
       onRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo descartar.")
@@ -113,32 +120,53 @@ export default function Step1Validate({
               ].join(" ")}
             >
               <div className="text-sm font-extrabold text-red-700">✕ No es real / descartar</div>
-              <div className="mt-1 text-xs text-slate-600">Rechaza el reporte con un motivo escrito.</div>
+              <div className="mt-1 text-xs text-slate-600">Rechaza el reporte con un motivo.</div>
               {iaSugiereDescarte && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-red-600">Sugerido por IA</div>}
             </button>
           </div>
         ) : (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-            <label className="text-xs font-bold uppercase tracking-wider text-red-700">
-              Motivo de descarte
-            </label>
-            <textarea
-              rows={3}
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-              placeholder="Explica brevemente por qué no procede este reporte."
-              className="mt-2 w-full rounded-lg border border-red-200 bg-white p-2 text-sm outline-none focus:border-red-400"
-            />
-            {error && <div className="mt-2 text-xs font-semibold text-red-700">{error}</div>}
-            <div className="mt-3 flex justify-end gap-2">
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 grid gap-3">
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-red-700">
+                Motivo de rechazo <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={motivoRechazo}
+                onChange={(e) => { setMotivoRechazo(e.target.value as MotivoRechazo | ""); setError(null) }}
+                className="mt-1.5 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400"
+              >
+                <option value="">— Selecciona un motivo —</option>
+                {MOTIVOS.map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </div>
+
+            {motivoRechazo === "OTRO" && (
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-red-700">
+                  Observaciones
+                </label>
+                <textarea
+                  rows={2}
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  placeholder="Describe brevemente el motivo."
+                  className="mt-1.5 w-full rounded-lg border border-red-200 bg-white p-2 text-sm outline-none focus:border-red-400"
+                />
+              </div>
+            )}
+
+            {error && <div className="text-xs font-semibold text-red-700">{error}</div>}
+            <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setDiscarding(false); setMotivo(""); setError(null) }}
+                onClick={() => { setDiscarding(false); setMotivoRechazo(""); setObservaciones(""); setError(null) }}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
                 Cancelar
               </button>
               <button
-                disabled={saving}
+                disabled={saving || !motivoRechazo}
                 onClick={handleDescartar}
                 className="rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-50"
               >

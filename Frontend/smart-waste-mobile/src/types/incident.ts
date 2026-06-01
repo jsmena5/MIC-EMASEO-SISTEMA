@@ -56,6 +56,23 @@ export type TipoResiduo =
   | 'MIXTO'
   | 'OTRO'
 
+/** Motivo estructurado de rechazo (mapea 1:1 a causas del pipeline IA). */
+export type MotivoRechazo =
+  | 'NO_ES_BASURA'
+  | 'MUY_LEJOS_PEQUENO'
+  | 'IMAGEN_BORROSA'
+  | 'DUPLICADO'
+  | 'OTRO'
+
+/** Labels en español para mostrar al ciudadano. */
+export const MOTIVO_RECHAZO_LABEL: Record<MotivoRechazo, string> = {
+  NO_ES_BASURA:       'No se detectó basura en la imagen',
+  MUY_LEJOS_PEQUENO:  'La acumulación estaba muy lejos o era muy pequeña para analizarla',
+  IMAGEN_BORROSA:     'La imagen estaba borrosa o de baja calidad',
+  DUPLICADO:          'Este reporte ya fue registrado anteriormente',
+  OTRO:               'Motivo indicado por el supervisor',
+}
+
 /** Campos compartidos entre la vista del ciudadano (mobile) y el supervisor (web). */
 export interface IncidentBase {
   id: string
@@ -70,4 +87,6 @@ export interface IncidentBase {
   num_detecciones: number | null
   latitud?: number | null
   longitud?: number | null
+  motivo_rechazo?: MotivoRechazo | null
+  observaciones_rechazo?: string | null
 }

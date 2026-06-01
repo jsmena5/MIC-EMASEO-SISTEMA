@@ -217,3 +217,92 @@ export const iaDataset = async (_req, res) => {
     return res.status(500).json({ error: "Error al exportar dataset" })
   }
 }
+
+// ─── GET /api/supervisor/ia/hard-examples ────────────────────────────────────
+// Exporta imágenes de "hard examples" para active learning.
+//
+// Vía 2 de la estrategia de reentrenamiento: en vez de etiquetar las 5k imágenes,
+// se anotan solo los casos donde la IA se equivocó (ia_fue_correcta=false) o es
+// ambigua (confianza baja o ia_fue_correcta IS NULL + EN_REVISION).
+// Esos son los de mayor valor para reentrenar RT-DETR con bounding boxes.
+//
+// También incluye rechazos manuales por motivo: "NO_ES_BASURA" → falsos positivos
+// del detector; "MUY_LEJOS_PEQUENO" → casos donde el gate de cobertura era correcto.
+//
+// Query params:
+//   limit      (default 200, max 1000)
+//   min_confianza (default 0.0) — filtrar por confianza máxima del modelo
+//   solo_incorrectos (true/false, default false) — solo ia_fue_correcta=false
+
+export const hardExamples = async (req, res) => {
+  const limit           = Math.min(1000, Math.max(1, parseInt(req.query.limit ?? "200")))
+  const minConfianza    = parseFloat(req.query.min_confianza ?? "0")
+  const soloIncorrectos = req.query.solo_incorrectos === "true"
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         i.id              AS incident_id,
+         i.estado,
+         i.imagen_auditoria_url AS image_url,
+         i.created_at,
+         ar.nivel_acumulacion                            AS nivel_ia,
+         ar.tipo_residuo                                 AS tipo_ia,
+         ar.confianza,
+         ar.decision_automatica,
+         ar.ia_fue_correcta,
+         ar.nivel_acumulacion_supervisor                 AS nivel_correcto,
+         ar.tipo_residuo_supervisor                      AS tipo_correcto,
+         ar.nota_supervision,
+         -- Motivo del rechazo manual más reciente (si existe)
+         sh.motivo_rechazo,
+         sh.observaciones AS observaciones_rechazo,
+         -- Señal de prioridad para anotación: cuánto se aleja el nivel supervisado del IA
+         CASE
+           WHEN ar.ia_fue_correcta = FALSE THEN 'IA_INCORRECTA'
+           WHEN i.estado = 'EN_REVISION' AND ar.ia_fue_correcta IS NULL THEN 'AMBIGUO'
+           WHEN sh.motivo_rechazo = 'NO_ES_BASURA' THEN 'FALSO_POSITIVO'
+           WHEN sh.motivo_rechazo = 'MUY_LEJOS_PEQUENO' THEN 'COBERTURA_BAJA'
+           ELSE 'BAJA_CONFIANZA'
+         END AS prioridad_anotacion
+       FROM incidents.incidents i
+       JOIN ai.analysis_results ar ON ar.incident_id = i.id
+       LEFT JOIN LATERAL (
+         SELECT motivo_rechazo, observaciones
+         FROM incidents.status_history
+         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+         ORDER BY created_at DESC LIMIT 1
+       ) sh ON TRUE
+       WHERE i.imagen_auditoria_url IS NOT NULL
+         AND ar.confianza <= $1
+         AND (
+           $2 = FALSE
+           OR ar.ia_fue_correcta = FALSE
+           OR (i.estado = 'EN_REVISION' AND ar.ia_fue_correcta IS NULL)
+           OR sh.motivo_rechazo IN ('NO_ES_BASURA', 'MUY_LEJOS_PEQUENO')
+         )
+       ORDER BY
+         CASE WHEN ar.ia_fue_correcta = FALSE THEN 0
+              WHEN sh.motivo_rechazo IS NOT NULL THEN 1
+              ELSE 2 END,
+         ar.confianza ASC
+       LIMIT $3`,
+      [soloIncorrectos ? 1.0 : (minConfianza > 0 ? minConfianza : 1.0), soloIncorrectos, limit],
+    )
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="emaseo_hard_examples_${new Date().toISOString().slice(0,10)}.json"`,
+    )
+    res.setHeader("Content-Type", "application/json")
+    return res.json({
+      total:         rows.length,
+      generado_at:   new Date().toISOString(),
+      instrucciones: "Importar en Label Studio / Roboflow / CVAT. Anotar bounding boxes para reentrenar RT-DETR-L. Priorizar prioridad_anotacion=IA_INCORRECTA y FALSO_POSITIVO.",
+      hard_examples: rows,
+    })
+  } catch (err) {
+    console.error("[ia] hardExamples:", err.message)
+    return res.status(500).json({ error: "Error al exportar hard examples" })
+  }
+}
