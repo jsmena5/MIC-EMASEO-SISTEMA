@@ -9,12 +9,14 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 
 ARG VITE_API_URL
-ENV VITE_API_URL=${VITE_API_URL}
 
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY . .
+RUN if [ -n "$VITE_API_URL" ]; then \
+      echo "VITE_API_URL=$VITE_API_URL" > .env.production; \
+    fi
 RUN npm run build
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────

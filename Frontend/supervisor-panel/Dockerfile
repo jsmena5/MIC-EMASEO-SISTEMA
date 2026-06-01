@@ -8,15 +8,19 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
-# Necesario en build time para que Vite inyecte la URL del API en el bundle.
-# Pasar con: docker build --build-arg VITE_API_URL=https://api.tu-dominio.ec/api
+# VITE_API_URL se lee de .env.production por defecto.
+# Si se pasa --build-arg VITE_API_URL=..., sobreescribe .env.production.
 ARG VITE_API_URL
-ENV VITE_API_URL=${VITE_API_URL}
 
 COPY package*.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY . .
+# Solo inyectar el ARG en .env.production si fue pasado explícitamente;
+# de lo contrario Vite usa el .env.production del repo.
+RUN if [ -n "$VITE_API_URL" ]; then \
+      echo "VITE_API_URL=$VITE_API_URL" > .env.production; \
+    fi
 RUN npm run build
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────

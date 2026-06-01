@@ -36,7 +36,7 @@ export interface IncidentListResponse {
 }
 
 export const getEstadisticasZonas = async (): Promise<{ zonas: ZonaStats[] }> => {
-  const res = await authenticatedFetch(`${API_URL}/supervisor/estadisticas`)
+  const res = await authenticatedFetch(`${API_URL}/supervisor/zonas/estadisticas`)
   if (!res.ok) throw new Error("Error al obtener estadísticas")
   return res.json()
 }
