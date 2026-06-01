@@ -23,6 +23,7 @@ import { useAuth } from "../contexts/AuthContext"
 import { useAnalysis } from "../contexts/AnalysisContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
+import ProfileBottomSheet from "../components/ProfileBottomSheet"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">
 
@@ -31,7 +32,7 @@ const { width: SW } = Dimensions.get("window")
 export default function HomeScreen({ navigation }: Props) {
   const { user, logout } = useAuth()
   const { isAnalysisRunning } = useAnalysis()
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
 
   const displayName = user?.nombre ?? "Usuario"
   const role = user?.rol ?? "ciudadano"
@@ -50,29 +51,12 @@ export default function HomeScreen({ navigation }: Props) {
     opacity: headerOpacity.value,
   }))
 
-  const handleLogout = () => {
-    // Evitar abrir el diálogo si ya se está cerrando sesión
-    if (isLoggingOut) return
-
-    Alert.alert("Cerrar sesión", "¿Estás seguro que deseas salir?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Salir",
-        style: "destructive",
-        onPress: async () => {
-          setIsLoggingOut(true)
-          try {
-            await logout()
-            // AppNavigator cambia automáticamente al grupo público cuando
-            // token = null (gracias a navigationKey en Stack.Group), lo que
-            // resetea el historial sin necesidad de navigation.reset().
-          } catch {
-            Alert.alert("Error", "No se pudo cerrar sesión. Intenta de nuevo.")
-            setIsLoggingOut(false)
-          }
-        },
-      },
-    ])
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch {
+      Alert.alert("Error", "No se pudo cerrar sesión. Intenta de nuevo.")
+    }
   }
 
   return (
@@ -109,15 +93,11 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
 
           <TouchableOpacity
-            style={[styles.avatarCircle, isLoggingOut && styles.avatarCircleDisabled]}
-            onPress={handleLogout}
-            disabled={isLoggingOut}
+            style={styles.avatarCircle}
+            onPress={() => setShowProfile(true)}
             activeOpacity={0.8}
           >
-            {isLoggingOut
-              ? <ActivityIndicator size="small" color="#fff" />
-              : <Text style={styles.avatarText}>{initial}</Text>
-            }
+            <Text style={styles.avatarText}>{initial}</Text>
           </TouchableOpacity>
         </View>
 
@@ -189,9 +169,9 @@ export default function HomeScreen({ navigation }: Props) {
             onPress={() => navigation.navigate("Alerts")}
           />
           <GridCard
-            icon="help-circle-outline"
-            label="Ayuda"
-            sublabel="Estados y FAQ"
+            icon="information-circle-outline"
+            label="Estados"
+            sublabel="Guía de reportes"
             color="#0891B2"
             onPress={() => navigation.navigate("Help")}
           />
@@ -204,25 +184,13 @@ export default function HomeScreen({ navigation }: Props) {
             Las fotos incluyen automáticamente tu ubicación GPS para gestionar las incidencias.
           </Text>
         </Animated.View>
-
-        {/* ── Logout ── */}
-        <Animated.View entering={FadeInDown.delay(650).duration(400)}>
-          <TouchableOpacity
-            style={[styles.logoutBtn, isLoggingOut && styles.logoutBtnDisabled]}
-            onPress={handleLogout}
-            activeOpacity={0.8}
-            disabled={isLoggingOut}
-          >
-            {isLoggingOut
-              ? <ActivityIndicator size="small" color={colors.error} />
-              : <Ionicons name="log-out-outline" size={18} color={colors.error} />
-            }
-            <Text style={[styles.logoutText, isLoggingOut && styles.logoutTextMuted]}>
-              {isLoggingOut ? "Cerrando sesión..." : "Cerrar sesión"}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
       </ScrollView>
+
+      <ProfileBottomSheet
+        visible={showProfile}
+        onClose={() => setShowProfile(false)}
+        onLogout={handleLogout}
+      />
     </View>
   )
 }
@@ -339,9 +307,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
-  },
-  avatarCircleDisabled: {
-    opacity: 0.6,
   },
   avatarText: {
     color: "#fff",
@@ -480,31 +445,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     lineHeight: 19,
-  },
-
-  // Logout
-  logoutBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.gray200,
-    backgroundColor: colors.surface,
-  },
-  logoutBtnDisabled: {
-    opacity: 0.55,
-  },
-  logoutText: {
-    color: colors.error,
-    fontWeight: "600",
-    fontSize: 15,
-  },
-  logoutTextMuted: {
-    color: colors.error,
-    opacity: 0.7,
   },
 
   // Analysis background banner — floating pill at the bottom

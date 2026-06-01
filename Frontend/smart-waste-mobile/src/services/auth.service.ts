@@ -30,6 +30,9 @@ export const resetPassword = async (data: PasswordResetData) => {
   return res
 }
 
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  api.post("/auth/change-password", { currentPassword, newPassword })
+
 // Notifica al backend para revocar el refresh token y limpia el almacenamiento local.
 // Si el backend falla igual limpiamos (el token expirará solo en 7 días).
 export const logoutUser = async () => {
