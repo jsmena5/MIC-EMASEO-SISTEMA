@@ -14,12 +14,20 @@
 | **API backend** | https://micemaseo.duckdns.org | Contabo VPS + Docker + Caddy + Let's Encrypt |
 | **Panel supervisor** | https://mic-emaseo-panel.pages.dev | Cloudflare Pages (Vite build estático) |
 | **Panel administrador** | https://mic-emaseo-admin.pages.dev | Cloudflare Pages (Vite build estático) |
-| **APK móvil (Android)** | Generado vía EAS Build (`eas build:list`) | React Native + Expo SDK 54 |
-| **Base de datos** | Supabase managed (región `sa-east-1`, São Paulo) | PostgreSQL 17 + PostGIS + pgcrypto |
+| **APK móvil (Android)** | https://expo.dev/artifacts/eas/aYi21mysRrWCotkogndt2L.apk | React Native + Expo SDK 54 · canal `preview` |
+| **Base de datos** | Supabase managed (región `sa-east-1`, São Paulo) | PostgreSQL 18 + PostGIS + pgcrypto |
 | **Almacenamiento de imágenes** | Cloudflare R2 — bucket `emaseo-incidents` | S3-compatible |
 | **DNS** | DuckDNS — `micemaseo.duckdns.org` (cron de auto-update en el VPS) | Free dynamic DNS |
+| **ERD base de datos** | [`ERD.png`](ERD.png) en la raíz del repo | Diagrama entidad-relación completo |
 
 **Costo mensual operativo:** ~$5.40 USD (solo Contabo VPS 10). Supabase, R2, Pages, DuckDNS y EAS están dentro de planes gratuitos.
+
+> **Sobre los dos schemas `auth` en Supabase:**
+> Al abrir el proyecto en pgAdmin o en el dashboard de Supabase se ven **dos** schemas de autenticación:
+> - **`auth`** — es el sistema GoTrue de Supabase (viene en *todo* proyecto Supabase, no se puede eliminar). **Este proyecto NO lo usa.**
+> - **`app_auth`** — es el sistema de autenticación construido a medida para este proyecto: JWT propio, roles CIUDADANO/OPERARIO/SUPERVISOR/ADMIN, refresh tokens, OTP, auditoría LOPDP.
+>
+> El sistema se apoya en Supabase **únicamente como motor PostgreSQL + PostGIS**; no usa Supabase Auth, Data API ni Realtime.
 
 ---
 
@@ -408,7 +416,7 @@ Step3Assign    → Seleccionar operario; al marcar RESUELTA:
 ## 7. Esquema de base de datos
 
 **Motor dev:** PostgreSQL 16 + PostGIS 3.4 + pgcrypto (Docker).
-**Motor prod:** PostgreSQL 17 + PostGIS + pgcrypto (Supabase managed, sa-east-1).
+**Motor prod:** PostgreSQL 18 + PostGIS + pgcrypto (Supabase managed, sa-east-1).
 
 ### 7.1 Schemas
 
