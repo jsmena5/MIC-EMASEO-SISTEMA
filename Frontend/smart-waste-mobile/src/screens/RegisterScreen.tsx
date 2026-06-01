@@ -1,4 +1,3 @@
-// src/screens/RegisterScreen.tsx
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useRef, useState, useCallback, memo } from "react"
 import {
@@ -29,107 +28,83 @@ import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">
 
-// FIX 1: Objeto de animación estable fuera del componente.
-// Si se crea inline (dentro del render), Reanimated recibe una referencia nueva
-// en cada re-render y puede re-disparar la animación de entrada → flickering.
 const CARD_ENTERING = FadeInDown.duration(400).springify()
 
-// Algoritmo módulo 10 del Registro Civil del Ecuador
+// ─── Validaciones ─────────────────────────────────────────────────────────────
+
+const RE_NOMBRE   = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]+$/
+const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 const validarCedula = (cedula: string): boolean => {
   if (!/^\d{10}$/.test(cedula)) return false
   const provincia = parseInt(cedula.substring(0, 2))
   if (provincia < 1 || provincia > 24) return false
   if (parseInt(cedula[2]) >= 6) return false
-  const coeficientes = [2, 1, 2, 1, 2, 1, 2, 1, 2]
+  const coefs = [2, 1, 2, 1, 2, 1, 2, 1, 2]
   let suma = 0
   for (let i = 0; i < 9; i++) {
-    let val = parseInt(cedula[i]) * coeficientes[i]
+    let val = parseInt(cedula[i]) * coefs[i]
     if (val >= 10) val -= 9
     suma += val
   }
-  const residuo = suma % 10
-  const digitoCalculado = residuo === 0 ? 0 : 10 - residuo
-  return digitoCalculado === parseInt(cedula[9])
+  const dig = suma % 10 === 0 ? 0 : 10 - (suma % 10)
+  return dig === parseInt(cedula[9])
 }
 
-type FormField = "nombre" | "apellido" | "cedula" | "email"
-type FormType = Record<FormField, string>
+function validarNombreField(v: string, label: string, required = true): string | undefined {
+  if (!v.trim()) return required ? `El ${label} es requerido` : undefined
+  if (v.trim().length < 2)   return `El ${label} debe tener al menos 2 caracteres`
+  if (!RE_NOMBRE.test(v.trim())) return `El ${label} solo puede contener letras, espacios o guiones`
+}
+
+// ─── Campos del formulario ────────────────────────────────────────────────────
+
+type FormField = "primer_nombre" | "segundo_nombre" | "primer_apellido" | "segundo_apellido" | "cedula" | "email"
+type FormType  = Record<FormField, string>
 type ErrorType = Partial<Record<FormField, string>>
 
-// --- Componente: Input con foco animado y error inline ---
+// ─── AnimatedInput (memoizado) ────────────────────────────────────────────────
+
 interface AnimatedInputProps {
-  label: string
-  value: string
-  error?: string
-  onChangeText: (v: string) => void
-  placeholder: string
-  keyboardType?: TextInput["props"]["keyboardType"]
+  label:           string
+  value:           string
+  error?:          string
+  onChangeText:    (v: string) => void
+  placeholder:     string
+  keyboardType?:   TextInput["props"]["keyboardType"]
   autoCapitalize?: TextInput["props"]["autoCapitalize"]
-  maxLength?: number
-  returnKeyType?: TextInput["props"]["returnKeyType"]
+  maxLength?:      number
+  returnKeyType?:  TextInput["props"]["returnKeyType"]
   onSubmitEditing?: () => void
-  // FIX 2: El tipo correcto para useRef<TextInput>(null) en React 18+ es
-  // RefObject<TextInput | null>, no RefObject<TextInput>.
-  inputRef?: React.RefObject<TextInput | null>
-  autoCorrect?: boolean
-  accessibilityHint?: string
+  inputRef?:       React.RefObject<TextInput | null>
+  autoCorrect?:    boolean
+  hint?:           string
+  optional?:       boolean
 }
 
-// FIX 3: memo() evita que AnimatedInput se re-renderice cuando el padre
-// (RegisterScreen) re-renderiza pero sus props no han cambiado.
-// Sin esto, los 4 inputs se re-renderizan en cada pulsación de tecla.
 const AnimatedInput = memo(function AnimatedInput({
-  label,
-  value,
-  error,
-  onChangeText,
-  placeholder,
-  keyboardType = "default",
-  autoCapitalize = "words",
-  maxLength,
-  returnKeyType = "next",
-  onSubmitEditing,
-  inputRef,
-  autoCorrect = false,
-  accessibilityHint,
+  label, value, error, onChangeText, placeholder, keyboardType = "default",
+  autoCapitalize = "words", maxLength, returnKeyType = "next", onSubmitEditing,
+  inputRef, autoCorrect = false, hint, optional,
 }: AnimatedInputProps) {
   const borderColor = useRef(new Animated.Value(0)).current
-  const shakeX = useSharedValue(0)
+  const shakeX      = useSharedValue(0)
 
   const animatedBorder = borderColor.interpolate({
     inputRange: [0, 1],
     outputRange: [colors.lightGray, colors.primary],
   })
-
-  const shakeStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: shakeX.value }],
-  }))
-
-  const handleFocus = () => {
-    Animated.timing(borderColor, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: false,
-    }).start()
-  }
-
-  const handleBlur = () => {
-    Animated.timing(borderColor, {
-      toValue: error ? 1 : 0,
-      duration: 200,
-      useNativeDriver: false,
-    }).start()
-  }
+  const shakeStyle = useAnimatedStyle(() => ({ transform: [{ translateX: shakeX.value }] }))
 
   return (
     <View style={styles.fieldWrapper}>
-      <Text style={styles.label}>{label}</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>{label}</Text>
+        {optional && <Text style={styles.optionalBadge}>opcional</Text>}
+      </View>
       <Reanimated.View style={shakeStyle}>
         <Animated.View
-          style={[
-            styles.inputWrapper,
-            { borderColor: error ? "#EF4444" : animatedBorder },
-          ]}
+          style={[styles.inputWrapper, { borderColor: error ? "#EF4444" : animatedBorder }]}
         >
           <TextInput
             ref={inputRef}
@@ -138,8 +113,14 @@ const AnimatedInput = memo(function AnimatedInput({
             placeholderTextColor={colors.gray}
             value={value}
             onChangeText={onChangeText}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
+            onFocus={() =>
+              Animated.timing(borderColor, { toValue: 1, duration: 200, useNativeDriver: false }).start()
+            }
+            onBlur={() =>
+              Animated.timing(borderColor, {
+                toValue: error ? 1 : 0, duration: 200, useNativeDriver: false,
+              }).start()
+            }
             keyboardType={keyboardType}
             autoCapitalize={autoCapitalize}
             autoCorrect={autoCorrect}
@@ -147,65 +128,71 @@ const AnimatedInput = memo(function AnimatedInput({
             returnKeyType={returnKeyType}
             onSubmitEditing={onSubmitEditing}
             submitBehavior="submit"
-            accessibilityLabel={label}
-            accessibilityRole="none"
-            accessibilityHint={accessibilityHint}
           />
         </Animated.View>
       </Reanimated.View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error ? (
+        <Text style={styles.errorText}>{error}</Text>
+      ) : hint ? (
+        <Text style={styles.hintText}>{hint}</Text>
+      ) : null}
     </View>
   )
 })
 
-// --- Pantalla Principal ---
+// ─── Pantalla Principal ───────────────────────────────────────────────────────
+
 export default function RegisterScreen({ navigation }: Props) {
   const [form, setForm] = useState<FormType>({
-    nombre: "", apellido: "", cedula: "", email: "",
+    primer_nombre: "", segundo_nombre: "",
+    primer_apellido: "", segundo_apellido: "",
+    cedula: "", email: "",
   })
-  const [errors, setErrors] = useState<ErrorType>({})
+  const [errors,  setErrors]  = useState<ErrorType>({})
   const [loading, setLoading] = useState(false)
 
-  // Refs para navegar entre inputs con el teclado
-  const apellidoRef = useRef<TextInput>(null)
-  const cedulaRef   = useRef<TextInput>(null)
-  const emailRef    = useRef<TextInput>(null)
+  const segundoNombreRef   = useRef<TextInput>(null)
+  const primerApellidoRef  = useRef<TextInput>(null)
+  const segundoApellidoRef = useRef<TextInput>(null)
+  const cedulaRef          = useRef<TextInput>(null)
+  const emailRef           = useRef<TextInput>(null)
 
-  // Animación del botón
   const buttonScale = useSharedValue(1)
-  const buttonStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: buttonScale.value }],
-  }))
+  const buttonStyle = useAnimatedStyle(() => ({ transform: [{ scale: buttonScale.value }] }))
 
-  // FIX 4: handleChange ya no depende de `errors`.
-  // Antes: [errors] en el array de deps → handleChange se recreaba cada vez que
-  // cambiaba errors → todos los AnimatedInput recibían onChangeText nuevo → re-render
-  // en cascada de los 4 inputs en cada pulsación cuando había un error activo.
-  // Solución: usar el patrón de actualización funcional de setErrors para leer el
-  // valor previo sin cerrarse sobre la variable `errors` del render.
   const handleChange = useCallback((key: FormField, value: string) => {
     setForm(prev => ({ ...prev, [key]: value }))
-    setErrors(prev => {
-      if (!prev[key]) return prev           // sin error → misma referencia, sin re-render
-      return { ...prev, [key]: undefined }  // limpia el error del campo al escribir
-    })
+    setErrors(prev => (prev[key] ? { ...prev, [key]: undefined } : prev))
   }, [])
 
-  // FIX 5: Handlers estables por campo (deps vacías porque handleChange es estable).
-  // Sin esto, las arrow functions inline `v => handleChange("nombre", v)` son objetos
-  // nuevos en cada render, haciendo inútil el memo() de AnimatedInput.
-  const handleNombreChange   = useCallback((v: string) => handleChange("nombre",   v), [handleChange])
-  const handleApellidoChange = useCallback((v: string) => handleChange("apellido", v), [handleChange])
-  const handleCedulaChange   = useCallback((v: string) => handleChange("cedula",   v), [handleChange])
-  const handleEmailChange    = useCallback((v: string) => handleChange("email",    v), [handleChange])
+  // Handlers estables (memo funciona)
+  const hPrimerNombre    = useCallback((v: string) => handleChange("primer_nombre",    v), [handleChange])
+  const hSegundoNombre   = useCallback((v: string) => handleChange("segundo_nombre",   v), [handleChange])
+  const hPrimerApellido  = useCallback((v: string) => handleChange("primer_apellido",  v), [handleChange])
+  const hSegundoApellido = useCallback((v: string) => handleChange("segundo_apellido", v), [handleChange])
+  const hCedula          = useCallback((v: string) => handleChange("cedula",           v), [handleChange])
+  const hEmail           = useCallback((v: string) => handleChange("email",            v), [handleChange])
 
   const validate = (): ErrorType | null => {
-    const newErrors: ErrorType = {}
-    if (!form.nombre.trim())         newErrors.nombre   = "Ingresa tu nombre"
-    if (!form.apellido.trim())       newErrors.apellido = "Ingresa tu apellido"
-    if (!validarCedula(form.cedula)) newErrors.cedula   = "Cédula inválida (10 dígitos, provincia 01-24)"
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) newErrors.email = "Formato de email inválido"
-    return Object.keys(newErrors).length > 0 ? newErrors : null
+    const e: ErrorType = {}
+    const ep1 = validarNombreField(form.primer_nombre,    "primer nombre")
+    const ep2 = validarNombreField(form.primer_apellido,  "primer apellido")
+    const ep3 = validarNombreField(form.segundo_apellido, "segundo apellido")
+    const es2 = form.segundo_nombre.trim()
+      ? validarNombreField(form.segundo_nombre, "segundo nombre", false)
+      : undefined
+
+    if (ep1) e.primer_nombre    = ep1
+    if (es2) e.segundo_nombre   = es2
+    if (ep2) e.primer_apellido  = ep2
+    if (ep3) e.segundo_apellido = ep3
+
+    if (!validarCedula(form.cedula))
+      e.cedula = "Cédula inválida (10 dígitos, provincia 01–24)"
+    if (!RE_EMAIL.test(form.email))
+      e.email  = "Formato de correo inválido"
+
+    return Object.keys(e).length > 0 ? e : null
   }
 
   const handleContinuar = async () => {
@@ -214,22 +201,21 @@ export default function RegisterScreen({ navigation }: Props) {
       setErrors(validationErrors)
       return
     }
-
-    buttonScale.value = withSequence(
-      withSpring(0.96),
-      withSpring(1)
-    )
-
+    buttonScale.value = withSequence(withSpring(0.96), withSpring(1))
     try {
       setLoading(true)
-      const res = await registerUser(form)
-      const { email, emailSent } = res.data
-
-      if (!emailSent && __DEV__) {
-        console.warn("[Register] Email no enviado — revisar servidor SMTP")
+      const payload = {
+        primer_nombre:    form.primer_nombre.trim(),
+        segundo_nombre:   form.segundo_nombre.trim() || undefined,
+        primer_apellido:  form.primer_apellido.trim(),
+        segundo_apellido: form.segundo_apellido.trim(),
+        cedula:           form.cedula,
+        email:            form.email.trim().toLowerCase(),
       }
-
-      navigation.navigate("OtpVerification", { email, registrationData: form })
+      const res = await registerUser(payload)
+      const { email, emailSent } = res.data
+      if (!emailSent && __DEV__) console.warn("[Register] SMTP no envió el correo")
+      navigation.navigate("OtpVerification", { email, registrationData: payload })
     } catch (err: any) {
       const msg = err?.response?.data?.message || "No se pudo iniciar el registro"
       setErrors({ email: msg })
@@ -250,42 +236,66 @@ export default function RegisterScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Card con animación de entrada estable (CARD_ENTERING es constante) */}
-        <Reanimated.View
-          entering={CARD_ENTERING}
-          style={styles.card}
-        >
-          {/* Cabecera */}
+        <Reanimated.View entering={CARD_ENTERING} style={styles.card}>
+
           <View style={styles.header}>
             <BackButton onPress={() => navigation.goBack()} />
             <Text style={styles.title}>Crear Cuenta</Text>
+            <Text style={styles.subtitle}>Ingresa tus datos tal como aparecen en tu cédula</Text>
             <ProgressBar currentStep={1} totalSteps={3} />
           </View>
 
-          {/* Campos — onChangeText recibe handlers estables para que memo() funcione */}
+          {/* ── Nombres ── */}
+          <Text style={styles.groupLabel}>Nombres</Text>
           <AnimatedInput
-            label="Nombre"
-            value={form.nombre}
-            error={errors.nombre}
-            placeholder="Ej: Juan Carlos"
-            onChangeText={handleNombreChange}
+            label="Primer nombre"
+            value={form.primer_nombre}
+            error={errors.primer_nombre}
+            placeholder="Ej: Juan"
+            onChangeText={hPrimerNombre}
             returnKeyType="next"
-            onSubmitEditing={() => apellidoRef.current?.focus()}
-            accessibilityHint="Ingresa tu nombre como aparece en tu cédula"
+            onSubmitEditing={() => segundoNombreRef.current?.focus()}
+            hint="Solo letras, sin números ni símbolos"
+          />
+          <AnimatedInput
+            label="Segundo nombre"
+            value={form.segundo_nombre}
+            error={errors.segundo_nombre}
+            placeholder="Ej: Carlos"
+            onChangeText={hSegundoNombre}
+            inputRef={segundoNombreRef}
+            returnKeyType="next"
+            onSubmitEditing={() => primerApellidoRef.current?.focus()}
+            optional
           />
 
+          {/* ── Apellidos ── */}
+          <Text style={styles.groupLabel}>Apellidos</Text>
           <AnimatedInput
-            label="Apellido"
-            value={form.apellido}
-            error={errors.apellido}
-            placeholder="Ej: Pérez Torres"
-            onChangeText={handleApellidoChange}
-            inputRef={apellidoRef}
+            label="Primer apellido"
+            value={form.primer_apellido}
+            error={errors.primer_apellido}
+            placeholder="Ej: Pérez"
+            onChangeText={hPrimerApellido}
+            inputRef={primerApellidoRef}
+            returnKeyType="next"
+            onSubmitEditing={() => segundoApellidoRef.current?.focus()}
+            hint="Apellido paterno"
+          />
+          <AnimatedInput
+            label="Segundo apellido"
+            value={form.segundo_apellido}
+            error={errors.segundo_apellido}
+            placeholder="Ej: Torres"
+            onChangeText={hSegundoApellido}
+            inputRef={segundoApellidoRef}
             returnKeyType="next"
             onSubmitEditing={() => cedulaRef.current?.focus()}
-            accessibilityHint="Ingresa tu apellido como aparece en tu cédula"
+            hint="Apellido materno"
           />
 
+          {/* ── Identificación ── */}
+          <Text style={styles.groupLabel}>Identificación</Text>
           <AnimatedInput
             label="Cédula de identidad"
             value={form.cedula}
@@ -294,13 +304,12 @@ export default function RegisterScreen({ navigation }: Props) {
             keyboardType="number-pad"
             maxLength={10}
             autoCapitalize="none"
-            onChangeText={handleCedulaChange}
+            onChangeText={hCedula}
             inputRef={cedulaRef}
             returnKeyType="next"
             onSubmitEditing={() => emailRef.current?.focus()}
-            accessibilityHint="10 dígitos, debe ser una cédula ecuatoriana válida"
+            hint="Cédula ecuatoriana válida (módulo 10)"
           />
-
           <AnimatedInput
             label="Correo electrónico"
             value={form.email}
@@ -308,26 +317,20 @@ export default function RegisterScreen({ navigation }: Props) {
             placeholder="ejemplo@correo.com"
             keyboardType="email-address"
             autoCapitalize="none"
-            onChangeText={handleEmailChange}
+            onChangeText={hEmail}
             inputRef={emailRef}
             returnKeyType="done"
             onSubmitEditing={handleContinuar}
-            accessibilityHint="Recibirás un código de verificación en este correo"
+            hint="Recibirás un código de verificación aquí"
           />
 
-          {/* Botón con micro-interacción de escala */}
           <Reanimated.View style={buttonStyle}>
             <Pressable
               onPress={handleContinuar}
               disabled={loading}
-              style={({ pressed }) => [
-                styles.button,
-                (pressed || loading) && styles.buttonPressed,
-              ]}
+              style={({ pressed }) => [styles.button, (pressed || loading) && styles.buttonPressed]}
               accessibilityRole="button"
               accessibilityLabel="Continuar al siguiente paso"
-              accessibilityHint="Valida tus datos y avanza al paso 2 de 3"
-              accessibilityState={{ disabled: loading, busy: loading }}
             >
               {loading
                 ? <ActivityIndicator color={colors.white} />
@@ -336,17 +339,12 @@ export default function RegisterScreen({ navigation }: Props) {
             </Pressable>
           </Reanimated.View>
 
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            hitSlop={{ top: 12, bottom: 12, left: 0, right: 0 }}
-            accessibilityRole="button"
-            accessibilityLabel="Iniciar sesión en cuenta existente"
-            accessibilityHint="Navega a la pantalla de inicio de sesión"
-          >
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
             <Text style={styles.loginLink}>
               ¿Ya tienes cuenta? <Text style={{ fontWeight: "700" }}>Inicia sesión</Text>
             </Text>
           </TouchableOpacity>
+
         </Reanimated.View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -370,22 +368,51 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   title: {
     fontSize: 26,
     fontWeight: "700",
     color: colors.primary,
     marginBottom: 4,
+    marginTop: 8,
+  },
+  subtitle: {
+    fontSize: 13,
+    color: colors.gray,
+    marginBottom: 12,
+  },
+  groupLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: colors.gray,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    marginTop: 12,
+    marginBottom: 4,
+    marginLeft: 2,
   },
   fieldWrapper: {
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
   },
   label: {
     fontSize: 13,
     fontWeight: "600",
     color: colors.black,
-    marginBottom: 6,
+  },
+  optionalBadge: {
+    fontSize: 11,
+    color: colors.gray,
+    backgroundColor: colors.background,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 8,
   },
   inputWrapper: {
     borderWidth: 1.5,
@@ -405,12 +432,18 @@ const styles = StyleSheet.create({
     color: "#EF4444",
     marginLeft: 2,
   },
+  hintText: {
+    marginTop: 3,
+    fontSize: 11,
+    color: colors.gray,
+    marginLeft: 2,
+  },
   button: {
     backgroundColor: colors.secondary,
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 16,
     shadowColor: colors.secondary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,

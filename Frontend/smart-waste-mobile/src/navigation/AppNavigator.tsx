@@ -99,7 +99,7 @@ export type RootStackParamList = {
   Register: undefined
   OtpVerification: {
     email: string
-    registrationData: { nombre: string; apellido: string; cedula: string; email: string }
+    registrationData: import("../types/user.types").PreRegisterUser
   }
   SetPassword: { email: string }
   Home: undefined

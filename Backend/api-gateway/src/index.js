@@ -363,6 +363,28 @@ app.use("/api/operario", verifyToken, requireStaff, createProxyMiddleware({
   },
 }))
 
+// Perfil del ciudadano — GET y PUT /api/users/profile accesibles por CIUDADANO.
+// Deben ir ANTES del catch-all /api/users (que requiere ADMIN) para que Express
+// los capture primero y no lleguen al middleware de requireAdmin.
+const citizenProfileProxy = createProxyMiddleware({
+  target: USERS_SERVICE_URL,
+  changeOrigin: true,
+  headers: { "X-Internal-Token": INTERNAL_TOKEN },
+  on: {
+    proxyReq: (proxyReq, req) => {
+      if (req.user) {
+        proxyReq.setHeader("x-user-id",  req.user.id)
+        proxyReq.setHeader("x-user-rol", req.user.rol)
+      }
+    },
+    error: (err, req, res) => {
+      if (!res.headersSent) res.status(502).json({ error: "Error de proxy al users-service." })
+    },
+  },
+})
+app.get("/api/users/profile", verifyToken, requireCiudadano, citizenProfileProxy)
+app.put("/api/users/profile", verifyToken, requireCiudadano, citizenProfileProxy)
+
 // Gestión de usuarios (consulta, edición, desactivación): solo ADMIN
 // El registro público ya fue capturado arriba antes de llegar aquí
 app.use("/api/users", verifyToken, requireAdmin, createProxyMiddleware({

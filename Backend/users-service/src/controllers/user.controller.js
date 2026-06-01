@@ -13,23 +13,54 @@ const generateOpaqueToken = () => crypto.randomBytes(64).toString("hex")
 
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
+// ─── Helpers de validación ────────────────────────────────────────────────────
+
+const RE_NOMBRE    = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]+$/
+const RE_TELEFONO  = /^[\+]?[0-9\s\-\(\)]{7,20}$/
+const SEXO_VALIDOS = ["Masculino", "Femenino", "Otro", "Prefiero no decir"]
+
+function validarNombre(v, campo) {
+  if (!v?.trim())            return `${campo} es requerido`
+  if (v.trim().length < 2)  return `${campo} debe tener al menos 2 caracteres`
+  if (!RE_NOMBRE.test(v.trim())) return `${campo} solo puede contener letras, espacios o guiones`
+  return null
+}
+
 // ============================================================================
 // POST /api/users/register  — Paso 1: datos básicos + envío de OTP
-// Body: { nombre, apellido, cedula, email }
+// Body: { primer_nombre, segundo_nombre?, primer_apellido, segundo_apellido, cedula, email }
 // ============================================================================
 export const registerUser = async (req, res) => {
   const client = await pool.connect()
   try {
-    const { nombre, apellido, cedula, email } = req.body
+    const {
+      primer_nombre, segundo_nombre,
+      primer_apellido, segundo_apellido,
+      cedula, email,
+    } = req.body
 
-    if (!nombre?.trim() || !apellido?.trim() || !cedula || !email) {
-      return res.status(400).json({ message: "Todos los campos son requeridos" })
+    // Validar nombres
+    const errores = []
+    const e1 = validarNombre(primer_nombre,   "El primer nombre")
+    const e2 = validarNombre(primer_apellido, "El primer apellido")
+    const e3 = validarNombre(segundo_apellido, "El segundo apellido")
+    if (e1) errores.push(e1)
+    if (e2) errores.push(e2)
+    if (e3) errores.push(e3)
+    if (segundo_nombre?.trim() && !RE_NOMBRE.test(segundo_nombre.trim())) {
+      errores.push("El segundo nombre solo puede contener letras, espacios o guiones")
     }
+    if (!cedula || !email) errores.push("Cédula y correo son requeridos")
+    if (errores.length) return res.status(400).json({ message: errores[0] })
 
     // Validar cédula ecuatoriana (algoritmo módulo 10)
     if (!validarCedula(cedula)) {
       return res.status(400).json({ message: "Número de cédula inválido" })
     }
+
+    // Para compatibilidad con el JWT y la tabla, nombre = primer_nombre, apellido = primer_apellido
+    const nombre   = primer_nombre.trim()
+    const apellido = primer_apellido.trim()
 
     // Verificar que el email y la cédula no estén ya registrados en app_auth.users
     const existe = await client.query(
@@ -50,17 +81,19 @@ export const registerUser = async (req, res) => {
     // Guardar o reemplazar el registro pendiente para este email
     await client.query(
       `INSERT INTO app_auth.pending_registrations
-         (nombre, apellido, cedula, email, otp_code, otp_expires_at, is_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, FALSE)
+         (nombre, apellido, segundo_nombre, segundo_apellido, cedula, email, otp_code, otp_expires_at, is_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
        ON CONFLICT (email) DO UPDATE SET
-         nombre         = EXCLUDED.nombre,
-         apellido       = EXCLUDED.apellido,
-         cedula         = EXCLUDED.cedula,
-         otp_code       = EXCLUDED.otp_code,
-         otp_expires_at = EXCLUDED.otp_expires_at,
-         is_verified    = FALSE,
-         created_at     = NOW()`,
-      [nombre.trim(), apellido.trim(), cedula, email, otpHash, otpExpires]
+         nombre          = EXCLUDED.nombre,
+         apellido        = EXCLUDED.apellido,
+         segundo_nombre  = EXCLUDED.segundo_nombre,
+         segundo_apellido = EXCLUDED.segundo_apellido,
+         cedula          = EXCLUDED.cedula,
+         otp_code        = EXCLUDED.otp_code,
+         otp_expires_at  = EXCLUDED.otp_expires_at,
+         is_verified     = FALSE,
+         created_at      = NOW()`,
+      [nombre, apellido, segundo_nombre?.trim() || null, segundo_apellido?.trim() || null, cedula, email, otpHash, otpExpires]
     )
 
     // En desarrollo, imprimir OTP en consola para testing sin SMTP
@@ -180,7 +213,8 @@ export const setPassword = async (req, res) => {
 
     // Leer datos del registro pendiente — debe estar verificado
     const result = await client.query(
-      `SELECT nombre, apellido, cedula FROM app_auth.pending_registrations
+      `SELECT nombre, apellido, segundo_nombre, segundo_apellido, cedula
+       FROM app_auth.pending_registrations
        WHERE email = $1 AND is_verified = TRUE`,
       [email]
     )
@@ -189,7 +223,7 @@ export const setPassword = async (req, res) => {
       return res.status(400).json({ message: "Email no verificado o registro no encontrado" })
     }
 
-    const { nombre, apellido, cedula } = result.rows[0]
+    const { nombre, apellido, segundo_nombre, segundo_apellido, cedula } = result.rows[0]
 
     const username = `usr_${crypto.randomBytes(8).toString("hex")}`
 
@@ -208,9 +242,9 @@ export const setPassword = async (req, res) => {
 
     // 2. Crear perfil en public.ciudadanos
     await client.query(
-      `INSERT INTO public.ciudadanos (user_id, nombre, apellido, cedula)
-       VALUES ($1, $2, $3, $4)`,
-      [user.id, nombre, apellido, cedula]
+      `INSERT INTO public.ciudadanos (user_id, nombre, apellido, segundo_nombre, segundo_apellido, cedula)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [user.id, nombre, apellido, segundo_nombre ?? null, segundo_apellido ?? null, cedula]
     )
 
     // 3. Registrar consentimiento LOPDP (art. 8 — consentimiento libre, específico e informado)
@@ -266,6 +300,106 @@ export const setPassword = async (req, res) => {
     res.status(500).json({ message: "Error en servidor" })
   } finally {
     client.release()
+  }
+}
+
+// ============================================================================
+// GET /api/users/profile  — Perfil completo del ciudadano autenticado
+// Header: x-user-id (inyectado por el gateway)
+// ============================================================================
+const PROFILE_QUERY = `
+  SELECT
+    c.nombre            AS primer_nombre,
+    c.segundo_nombre,
+    c.apellido          AS primer_apellido,
+    c.segundo_apellido,
+    c.telefono,
+    c.fecha_nacimiento,
+    c.sexo,
+    u.email,
+    u.username,
+    u.created_at,
+    CASE
+      WHEN length(c.cedula) = 10
+      THEN substring(c.cedula, 1, 3) || '****' || substring(c.cedula, 8)
+      ELSE '**********'
+    END AS cedula_masked
+  FROM public.ciudadanos c
+  JOIN app_auth.users u ON u.id = c.user_id
+  WHERE c.user_id = $1
+`
+
+export const getProfile = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  if (!userId) return res.status(401).json({ message: "No autenticado." })
+
+  try {
+    const { rows } = await pool.query(PROFILE_QUERY, [userId])
+    if (!rows.length) return res.status(404).json({ message: "Perfil no encontrado." })
+    return res.json(rows[0])
+  } catch (err) {
+    console.error("[users-controller] getProfile:", err.message)
+    return res.status(500).json({ message: "Error al obtener el perfil." })
+  }
+}
+
+// ============================================================================
+// PUT /api/users/profile  — Actualizar datos editables del perfil
+// Body: { telefono?, fecha_nacimiento?, sexo? }
+// Header: x-user-id (inyectado por el gateway)
+// ============================================================================
+export const updateProfile = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  if (!userId) return res.status(401).json({ message: "No autenticado." })
+
+  const { telefono, fecha_nacimiento, sexo } = req.body
+
+  // Validar sexo
+  if (sexo !== undefined && sexo !== null && !SEXO_VALIDOS.includes(sexo)) {
+    return res.status(400).json({ message: `Valor de sexo inválido. Opciones: ${SEXO_VALIDOS.join(", ")}.` })
+  }
+
+  // Validar fecha de nacimiento
+  if (fecha_nacimiento) {
+    const d = new Date(fecha_nacimiento)
+    if (isNaN(d.getTime())) {
+      return res.status(400).json({ message: "Fecha de nacimiento inválida." })
+    }
+    const edadAnios = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000)
+    if (edadAnios < 13 || edadAnios > 120) {
+      return res.status(400).json({ message: "Fecha de nacimiento fuera de rango (13–120 años)." })
+    }
+  }
+
+  // Validar teléfono
+  if (telefono !== undefined && telefono !== null && telefono !== "") {
+    if (!RE_TELEFONO.test(telefono.trim())) {
+      return res.status(400).json({ message: "Número de teléfono inválido (7–20 dígitos)." })
+    }
+  }
+
+  try {
+    await pool.query(
+      `UPDATE public.ciudadanos SET
+         telefono         = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE telefono END,
+         fecha_nacimiento = CASE WHEN $3::date IS NOT NULL THEN $3::date ELSE fecha_nacimiento END,
+         sexo             = CASE WHEN $4::text IS NOT NULL THEN $4 ELSE sexo END,
+         updated_at       = NOW()
+       WHERE user_id = $1`,
+      [
+        userId,
+        telefono?.trim() ?? null,
+        fecha_nacimiento ?? null,
+        sexo ?? null,
+      ]
+    )
+
+    // Devolver perfil actualizado
+    const { rows } = await pool.query(PROFILE_QUERY, [userId])
+    return res.json(rows[0])
+  } catch (err) {
+    console.error("[users-controller] updateProfile:", err.message)
+    return res.status(500).json({ message: "Error al actualizar el perfil." })
   }
 }
 
