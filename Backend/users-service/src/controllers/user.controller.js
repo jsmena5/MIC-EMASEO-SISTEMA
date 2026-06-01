@@ -426,10 +426,15 @@ export const listCiudadanos = async (req, res) => {
 
   if (search?.trim()) {
     params.push(`%${search.trim().toLowerCase()}%`)
+    const p = params.length
     conditions.push(
-      `(LOWER(c.nombre) LIKE $${params.length}
-       OR LOWER(c.apellido) LIKE $${params.length}
-       OR LOWER(u.email) LIKE $${params.length})`
+      `(LOWER(c.nombre) LIKE $${p}
+       OR LOWER(c.segundo_nombre) LIKE $${p}
+       OR LOWER(c.apellido) LIKE $${p}
+       OR LOWER(c.segundo_apellido) LIKE $${p}
+       OR LOWER(u.email) LIKE $${p}
+       OR c.cedula LIKE $${p}
+       OR LOWER(c.nombre || ' ' || c.apellido) LIKE $${p})`
     )
   }
   if (estado) {

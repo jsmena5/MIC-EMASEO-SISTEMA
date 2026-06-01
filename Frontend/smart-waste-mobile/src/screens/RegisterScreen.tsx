@@ -1,6 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import React, { useRef, useState, useCallback, memo } from "react"
 import {
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -32,7 +33,10 @@ const CARD_ENTERING = FadeInDown.duration(400).springify()
 
 // ─── Validaciones ─────────────────────────────────────────────────────────────
 
-const RE_NOMBRE   = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]+$/
+// Apellidos: una sola palabra, letras + guiones (sin espacios — en Ecuador nunca llevan)
+const RE_APELLIDO = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ][a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\-]*$/
+// Nombres: una o dos palabras (nombre compuesto), sin números ni símbolos
+const RE_PALABRA  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const validarCedula = (cedula: string): boolean => {
@@ -52,9 +56,23 @@ const validarCedula = (cedula: string): boolean => {
 }
 
 function validarNombreField(v: string, label: string, required = true): string | undefined {
-  if (!v.trim()) return required ? `El ${label} es requerido` : undefined
-  if (v.trim().length < 2)   return `El ${label} debe tener al menos 2 caracteres`
-  if (!RE_NOMBRE.test(v.trim())) return `El ${label} solo puede contener letras, espacios o guiones`
+  const trimmed = v.trim()
+  if (!trimmed) return required ? `El ${label} es requerido` : undefined
+  if (trimmed.length > 30) return `El ${label} no puede superar 30 caracteres`
+  const words = trimmed.split(/\s+/)
+  if (words.length > 2) return `El ${label} no puede tener más de 2 palabras`
+  for (const word of words) {
+    if (word.length < 2)          return `Cada palabra del ${label} debe tener al menos 2 letras`
+    if (!RE_PALABRA.test(word))   return `El ${label} solo puede contener letras`
+  }
+}
+
+function validarApellidoField(v: string, label: string, required = true): string | undefined {
+  const trimmed = v.trim()
+  if (!trimmed) return required ? `El ${label} es requerido` : undefined
+  if (trimmed.length < 2)  return `El ${label} debe tener al menos 2 caracteres`
+  if (trimmed.length > 30) return `El ${label} no puede superar 30 caracteres`
+  if (!RE_APELLIDO.test(trimmed)) return `El ${label} debe ser una sola palabra (sin espacios)`
 }
 
 // ─── Campos del formulario ────────────────────────────────────────────────────
@@ -175,12 +193,13 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const validate = (): ErrorType | null => {
     const e: ErrorType = {}
-    const ep1 = validarNombreField(form.primer_nombre,    "primer nombre")
-    const ep2 = validarNombreField(form.primer_apellido,  "primer apellido")
-    const ep3 = validarNombreField(form.segundo_apellido, "segundo apellido")
+
+    const ep1 = validarNombreField(form.primer_nombre,   "primer nombre")
     const es2 = form.segundo_nombre.trim()
       ? validarNombreField(form.segundo_nombre, "segundo nombre", false)
       : undefined
+    const ep2 = validarApellidoField(form.primer_apellido,  "primer apellido")
+    const ep3 = validarApellidoField(form.segundo_apellido, "segundo apellido")
 
     if (ep1) e.primer_nombre    = ep1
     if (es2) e.segundo_nombre   = es2
@@ -217,8 +236,18 @@ export default function RegisterScreen({ navigation }: Props) {
       if (!emailSent && __DEV__) console.warn("[Register] SMTP no envió el correo")
       navigation.navigate("OtpVerification", { email, registrationData: payload })
     } catch (err: any) {
-      const msg = err?.response?.data?.message || "No se pudo iniciar el registro"
-      setErrors({ email: msg })
+      const serverMsg = err?.response?.data?.message
+      // Email/cédula ya registrado → mostrarlo en el campo email para guiar al usuario
+      if (serverMsg?.toLowerCase().includes("registrado") || serverMsg?.toLowerCase().includes("email")) {
+        setErrors({ email: serverMsg })
+      } else {
+        // Cualquier otro error del servidor → Alert para no confundir con validación
+        Alert.alert(
+          "No se pudo continuar",
+          serverMsg || "Verifica tu conexión a internet e intenta de nuevo.",
+          [{ text: "Entendido" }]
+        )
+      }
     } finally {
       setLoading(false)
     }

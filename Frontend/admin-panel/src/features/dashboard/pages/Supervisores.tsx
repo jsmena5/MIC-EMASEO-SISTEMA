@@ -268,9 +268,11 @@ function fmtDate(iso: string | null) {
   return new Date(iso).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
+const MIN_SEARCH = 2
+
 function CiudadanosTab() {
   const [ciudadanos, setCiudadanos] = useState<Ciudadano[]>([])
-  const [loading,    setLoading]    = useState(true)
+  const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState("")
   const [search,     setSearch]     = useState("")
   const [debouncedSearch, setDebouncedSearch] = useState("")
@@ -278,9 +280,13 @@ function CiudadanosTab() {
   const [page,     setPage]     = useState(1)
   const [totalPag, setTotalPag] = useState(1)
   const [total,    setTotal]    = useState(0)
+  const [hasSearched, setHasSearched] = useState(false)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [pwModal,  setPwModal]  = useState<{ id: string; nombre: string } | null>(null)
   const [tempPwd,  setTempPwd]  = useState<string | null>(null)
+
+  const term = debouncedSearch.trim()
+  const searchActive = term.length >= MIN_SEARCH
 
   // Debounce search
   useEffect(() => {
@@ -288,16 +294,22 @@ function CiudadanosTab() {
     return () => clearTimeout(t)
   }, [search])
 
+  // Solo consulta cuando hay un término de búsqueda válido (rendimiento: no
+  // cargamos toda la ciudadanía). El filtro de estado se aplica sobre la búsqueda.
   const load = useCallback(async () => {
-    setLoading(true); setError("")
+    if (!searchActive) {
+      setCiudadanos([]); setHasSearched(false); setTotal(0); setTotalPag(1)
+      return
+    }
+    setLoading(true); setError(""); setHasSearched(true)
     try {
-      const data = await getCiudadanos({ search: debouncedSearch, estado: estadoFiltro, page, limit: 20 })
+      const data = await getCiudadanos({ search: term, estado: estadoFiltro, page, limit: 20 })
       setCiudadanos(data.ciudadanos)
       setTotalPag(data.pagination.pages)
       setTotal(data.pagination.total)
     } catch { setError("No se pudieron cargar los ciudadanos.") }
     finally   { setLoading(false) }
-  }, [debouncedSearch, estadoFiltro, page])
+  }, [searchActive, term, estadoFiltro, page])
 
   useEffect(() => { void load() }, [load])
 
@@ -330,14 +342,15 @@ function CiudadanosTab() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nombre, apellido o correo…"
+            placeholder="Buscar por cédula, nombre, apellido o correo…"
             className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
           />
         </div>
         <select
           value={estadoFiltro}
           onChange={(e) => { setEstadoFiltro(e.target.value); setPage(1) }}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none"
+          disabled={!searchActive}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none disabled:opacity-50"
         >
           <option value="">Todos los estados</option>
           <option value="ACTIVO">Activo</option>
@@ -346,9 +359,11 @@ function CiudadanosTab() {
         </select>
       </div>
 
-      {/* Stats */}
-      {!loading && !error && (
-        <p className="text-xs text-slate-400 font-medium">{total} ciudadano{total !== 1 ? "s" : ""} registrado{total !== 1 ? "s" : ""}</p>
+      {/* Stats — solo cuando hay búsqueda activa con resultados */}
+      {searchActive && !loading && !error && hasSearched && (
+        <p className="text-xs text-slate-400 font-medium">
+          {total} resultado{total !== 1 ? "s" : ""} para “{term}”
+        </p>
       )}
 
       {error && (
@@ -358,7 +373,22 @@ function CiudadanosTab() {
         </div>
       )}
 
-      {/* Tabla */}
+      {/* Estado inicial: invitar a buscar (no cargamos toda la ciudadanía) */}
+      {!searchActive && !error && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center">
+          <svg className="mx-auto h-10 w-10 text-slate-300" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <p className="mt-3 text-sm font-semibold text-slate-600">Busca un ciudadano para empezar</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Escribe al menos {MIN_SEARCH} caracteres de su cédula, nombre, apellido o correo.
+            <br />Por rendimiento no se carga el listado completo de la ciudadanía.
+          </p>
+        </div>
+      )}
+
+      {/* Tabla — solo visible con búsqueda activa */}
+      {searchActive && (
       <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -370,11 +400,11 @@ function CiudadanosTab() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">Cargando ciudadanos…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">Buscando…</td></tr>
             )}
             {!loading && ciudadanos.length === 0 && !error && (
               <tr><td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">
-                {search || estadoFiltro ? "Sin resultados para los filtros aplicados" : "No hay ciudadanos registrados aún"}
+                Sin resultados para “{term}”{estadoFiltro ? ` con estado ${estadoFiltro}` : ""}
               </td></tr>
             )}
             {ciudadanos.map((c) => (
@@ -423,9 +453,10 @@ function CiudadanosTab() {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Paginación */}
-      {totalPag > 1 && (
+      {searchActive && totalPag > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
