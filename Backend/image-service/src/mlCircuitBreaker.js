@@ -19,11 +19,13 @@ export const POLL_TIMEOUT_MS = 120_000  // presupuesto máximo de polling (fuera
 // Envuelto en CircuitBreaker para detectar indisponibilidad del servicio.
 // El polling se hace por separado (ver pollMlTask) para no mantener el CB abierto
 // durante la inferencia (30-120 s con cold-start del modelo).
-async function submitMlTask({ image_base64, image_width, image_height }) {
+async function submitMlTask({ image_base64, image_width, image_height, client_coverage_ratio }) {
+  const body = { image_base64, image_width, image_height }
+  if (client_coverage_ratio !== undefined) body.client_coverage_ratio = client_coverage_ratio
   const postRes = await fetch(ML_SERVICE_URL, {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ image_base64, image_width, image_height }),
+    body:    JSON.stringify(body),
     signal:  AbortSignal.timeout(CB_SUBMIT_TIMEOUT),
   })
 

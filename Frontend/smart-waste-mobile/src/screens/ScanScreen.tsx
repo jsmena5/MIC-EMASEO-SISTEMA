@@ -399,6 +399,10 @@ export default function ScanScreen() {
             [
               { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
               { text: "Tomar otra foto", onPress: retake },
+              {
+                text: "Enviar de todos modos",
+                onPress: () => proceedToAnalysis(capturedB64!),
+              },
             ],
           )
           return
