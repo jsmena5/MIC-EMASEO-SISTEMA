@@ -828,6 +828,50 @@ export async function recoverCeleryTasks() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// getMyIncidentById — Detalle de un incidente del ciudadano por ID
+// Usado por la pantalla de alertas para navegar directamente al incidente.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const getMyIncidentById = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  const { id } = req.params
+
+  if (!userId) return res.status(401).json({ error: "No se pudo identificar al usuario." })
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         i.id, i.estado, i.prioridad, i.descripcion, i.created_at,
+         i.decision_automatica, i.confianza_decision, i.imagen_auditoria_url,
+         ST_Y(i.ubicacion::geometry) AS latitud,
+         ST_X(i.ubicacion::geometry) AS longitud,
+         ii.image_url,
+         ar.nivel_acumulacion, ar.volumen_estimado_m3, ar.tipo_residuo,
+         ar.confianza,
+         jsonb_array_length(ar.detecciones) AS num_detecciones,
+         sh.motivo_rechazo, sh.observaciones AS observaciones_rechazo
+       FROM incidents.incidents i
+       LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
+       LEFT JOIN ai.analysis_results ar ON ar.incident_id = i.id
+       LEFT JOIN LATERAL (
+         SELECT motivo_rechazo, observaciones
+         FROM incidents.status_history
+         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+         ORDER BY created_at DESC LIMIT 1
+       ) sh ON TRUE
+       WHERE i.id = $1 AND i.reportado_por = $2`,
+      [id, userId],
+    )
+
+    if (!rows.length) return res.status(404).json({ error: "Incidente no encontrado." })
+    return res.json(rows[0])
+  } catch (err) {
+    console.error("[image-service] getMyIncidentById error:", err.message)
+    return res.status(500).json({ error: "Error al obtener el incidente." })
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // getMyIncidents — Handler legacy para historial de ciudadano
 // ──────────────────────────────────────────────────────────────────────────────
 

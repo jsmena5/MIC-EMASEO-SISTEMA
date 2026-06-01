@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react"
 import {
+  ActivityIndicator,
   FlatList,
   RefreshControl,
   StatusBar,
@@ -15,6 +16,7 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 import api from "../utils/api"
+import { getMyIncidentById } from "../services/image.service"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Alerts">
 
@@ -24,6 +26,7 @@ type AlertType = "info" | "success" | "warning" | "update"
 
 interface AppAlert {
   id: string
+  incident_id: string | null
   type: AlertType
   title: string
   body: string
@@ -62,12 +65,13 @@ function inferType(titulo: string): AlertType {
 
 function mapNotification(n: RawNotification): AppAlert {
   return {
-    id:    n.id,
-    type:  inferType(n.titulo),
-    title: n.titulo,
-    body:  n.mensaje,
-    date:  n.created_at,
-    read:  n.estado === "LEIDA",
+    id:          n.id,
+    incident_id: n.incident_id,
+    type:        inferType(n.titulo),
+    title:       n.titulo,
+    body:        n.mensaje,
+    date:        n.created_at,
+    read:        n.estado === "LEIDA",
   }
 }
 
@@ -84,14 +88,29 @@ function formatRelativeDate(iso: string): string {
 // ─── Alert Item ──────────────────────────────────────────────────────────────
 
 function AlertItem({
-  item, index, onMarkRead,
-}: { item: AppAlert; index: number; onMarkRead: (id: string) => void }) {
+  item,
+  index,
+  onMarkRead,
+  onNavigate,
+}: {
+  item: AppAlert
+  index: number
+  onMarkRead: (id: string) => void
+  onNavigate: (item: AppAlert) => void
+}) {
   const cfg = ALERT_CONFIG[item.type]
+  const hasLink = !!item.incident_id
+
+  const handlePress = () => {
+    if (!item.read) onMarkRead(item.id)
+    if (hasLink) onNavigate(item)
+  }
+
   return (
     <Animated.View entering={FadeInDown.delay(index * 60).duration(380)}>
       <TouchableOpacity
         style={[styles.alertCard, !item.read && styles.alertCardUnread]}
-        onPress={() => !item.read && onMarkRead(item.id)}
+        onPress={handlePress}
         activeOpacity={0.82}
       >
         {!item.read && <View style={styles.unreadDot} />}
@@ -103,8 +122,17 @@ function AlertItem({
             <Text style={styles.alertTitle} numberOfLines={1}>{item.title}</Text>
             <Text style={styles.alertDate}>{formatRelativeDate(item.date)}</Text>
           </View>
-          <Text style={styles.alertText} numberOfLines={3}>{item.body}</Text>
-          {!item.read && <Text style={styles.tapHint}>Toca para marcar como leída</Text>}
+          {/* Sin numberOfLines para mostrar el mensaje completo */}
+          <Text style={styles.alertText}>{item.body}</Text>
+          {hasLink && (
+            <View style={styles.linkHint}>
+              <Ionicons name="arrow-forward-circle-outline" size={14} color={colors.primary} />
+              <Text style={styles.linkHintText}>Ver reporte</Text>
+            </View>
+          )}
+          {!item.read && !hasLink && (
+            <Text style={styles.tapHint}>Toca para marcar como leída</Text>
+          )}
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -114,10 +142,11 @@ function AlertItem({
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function AlertsScreen({ navigation }: Props) {
-  const [alerts,     setAlerts]     = useState<AppAlert[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
+  const [alerts,      setAlerts]      = useState<AppAlert[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [refreshing,  setRefreshing]  = useState(false)
+  const [error,       setError]       = useState<string | null>(null)
+  const [navigating,  setNavigating]  = useState<string | null>(null)   // id del item en carga
 
   const unreadCount = alerts.filter((a) => !a.read).length
 
@@ -141,12 +170,10 @@ export default function AlertsScreen({ navigation }: Props) {
   useEffect(() => { fetchNotifications() }, [fetchNotifications])
 
   const markRead = useCallback(async (id: string) => {
-    // Actualizar UI optimistamente
     setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: true } : a)))
     try {
       await api.put(`/incidents/notifications/${id}/read`)
     } catch {
-      // Revertir si falla
       setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: false } : a)))
     }
   }, [])
@@ -159,6 +186,19 @@ export default function AlertsScreen({ navigation }: Props) {
       setAlerts((prev) => prev.map((a) => ({ ...a, read: false })))
     }
   }, [])
+
+  const handleNavigate = useCallback(async (item: AppAlert) => {
+    if (!item.incident_id) return
+    setNavigating(item.id)
+    try {
+      const incident = await getMyIncidentById(item.incident_id)
+      navigation.navigate("ReportDetail", { incident })
+    } catch {
+      // Silently ignore: el incidente puede no existir (descartado, antiguo)
+    } finally {
+      setNavigating(null)
+    }
+  }, [navigation])
 
   return (
     <View style={styles.root}>
@@ -197,6 +237,14 @@ export default function AlertsScreen({ navigation }: Props) {
           )}
         </View>
       </Animated.View>
+
+      {/* Overlay de carga al navegar */}
+      {navigating !== null && (
+        <View style={styles.navOverlay}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.navOverlayText}>Cargando reporte…</Text>
+        </View>
+      )}
 
       {/* Lista */}
       {loading ? (
@@ -246,7 +294,12 @@ export default function AlertsScreen({ navigation }: Props) {
             </View>
           }
           renderItem={({ item, index }) => (
-            <AlertItem item={item} index={index} onMarkRead={markRead} />
+            <AlertItem
+              item={item}
+              index={index}
+              onMarkRead={markRead}
+              onNavigate={handleNavigate}
+            />
           )}
         />
       )}
@@ -337,6 +390,18 @@ const styles = StyleSheet.create({
   alertDate:  { fontSize: 11, color: colors.textTertiary, flexShrink: 0 },
   alertText:  { fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
   tapHint:    { fontSize: 11, color: "#D97706", marginTop: 6, fontWeight: "600" },
+  linkHint: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    marginTop: 6,
+  },
+  linkHintText: { fontSize: 12, color: colors.primary, fontWeight: "600" },
+  navOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    zIndex: 10,
+    justifyContent: "center", alignItems: "center", gap: 12,
+  },
+  navOverlayText: { fontSize: 14, color: colors.textSecondary, fontWeight: "600" },
   center:     { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 32 },
   loadingText: { fontSize: 14, color: colors.textSecondary, marginTop: 8 },
   errorText:  { fontSize: 14, color: colors.textSecondary, textAlign: "center" },

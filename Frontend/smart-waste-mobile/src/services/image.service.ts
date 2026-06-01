@@ -97,6 +97,12 @@ export const getMyIncidents = async (): Promise<Incident[]> => {
   }))
 }
 
+export const getMyIncidentById = async (id: string): Promise<Incident> => {
+  const res = await api.get(`/incidents/me/${id}`)
+  const inc = res.data as Incident
+  return { ...inc, image_url: toPublicMediaUrl(inc.image_url ?? inc.imagen_auditoria_url) }
+}
+
 // Submits the image and returns immediately with a task_id (HTTP 202).
 // The caller is responsible for polling getTaskStatus until done.
 export const analyzeImage = async (

@@ -1,5 +1,5 @@
 import { Router } from "express"
-import { getMyIncidents } from "../services/image.service.js"
+import { getMyIncidents, getMyIncidentById } from "../services/image.service.js"
 import {
   getNotifications,
   markAllNotificationsRead,
@@ -8,7 +8,8 @@ import {
 
 const router = Router()
 
-router.get("/me", getMyIncidents)
+router.get("/me",     getMyIncidents)
+router.get("/me/:id", getMyIncidentById)
 
 // Notificaciones del ciudadano (orden importa: read-all antes de :id/read)
 router.get("/notifications",           getNotifications)
