@@ -645,6 +645,29 @@ export default function ScanScreen() {
           return
         }
 
+        // EN_REVISION: el supervisor debe validar manualmente la decisión IA.
+        // No navegar a ScanResultScreen — ese componente requiere incident_id y
+        // datos de detección completos que EN_REVISION no incluye, y crashea.
+        if (status.estado === "EN_REVISION") {
+          setPollProgress(0)
+          setPhase("idle")
+          Alert.alert(
+            "Reporte en revisión",
+            "Tu foto fue recibida pero la IA no pudo confirmar la acumulación con certeza. Un supervisor revisará el reporte y recibirás una notificación con la decisión. Puedes ver el estado en tu historial.",
+            [
+              {
+                text: "Ver historial",
+                onPress: () => {
+                  retake()
+                  navigation.reset({ index: 0, routes: [{ name: "Historial" }] })
+                },
+              },
+              { text: "Entendido", style: "cancel", onPress: handleCancelToHome },
+            ],
+          )
+          return
+        }
+
         setPollProgress(100)
         setPhase("saving")
         currentTaskIdRef.current = null

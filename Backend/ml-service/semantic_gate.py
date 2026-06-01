@@ -143,6 +143,15 @@ _NEGATIVE_PROMPTS = [
     "a building facade with no trash",
     "clothing or fabric close-up",
     "a person in outdoor clothing",
+    # ── Electrónicos e interiores — falsos positivos frecuentes ──────────────
+    "a laptop computer on a desk",
+    "a closed laptop on a table",
+    "electronic devices on a work surface",
+    "a computer keyboard and mouse",
+    "office equipment on a desk",
+    "a smartphone or tablet on a table",
+    "food on a plate or table",
+    "objects on a wooden table indoors",
 ]
 
 # ── Cache global del modelo CLIP ──────────────────────────────────────────────
