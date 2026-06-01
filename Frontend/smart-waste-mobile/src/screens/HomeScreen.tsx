@@ -201,7 +201,7 @@ export default function HomeScreen({ navigation }: Props) {
         <Animated.View entering={FadeInDown.delay(550).duration(400)} style={styles.infoStrip}>
           <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
           <Text style={styles.infoStripText}>
-            Las fotos incluyen automáticamente tu ubicación GPS para despacho.
+            Las fotos incluyen automáticamente tu ubicación GPS para gestionar las incidencias.
           </Text>
         </Animated.View>
 
