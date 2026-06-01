@@ -91,9 +91,10 @@ export const registerUser = async (req, res) => {
     // Validar nombres
     const errores = []
     const e1 = validarNombre(primer_nombre, "El primer nombre")
-    const e2 = validarNombre(segundo_nombre, "El segundo nombre")
+    // Segundo nombre y segundo apellido son opcionales en la UI; solo validar si vienen presentes
+    const e2 = segundo_nombre ? validarNombre(segundo_nombre, "El segundo nombre") : null
     const e3 = validarApellido(primer_apellido, "El primer apellido")
-    const e4 = validarApellido(segundo_apellido, "El segundo apellido")
+    const e4 = segundo_apellido ? validarApellido(segundo_apellido, "El segundo apellido") : null
     const e5 = validarTelefono(telefono, "El celular")
     const e6 = validarFechaNacimiento(fecha_nacimiento, "La fecha de nacimiento")
     const e7 = validarSexo(sexo)
@@ -153,11 +154,11 @@ export const registerUser = async (req, res) => {
       [
         nombre,
         apellido,
-        segundo_nombre.trim(),
-        segundo_apellido.trim(),
+        segundo_nombre?.trim() ?? null,
+        segundo_apellido?.trim() ?? null,
         cedula,
-        telefono.trim(),
-        fecha_nacimiento.trim(),
+        telefono?.trim() ?? null,
+        fecha_nacimiento?.trim() ?? null,
         sexo,
         email,
         otpHash,
