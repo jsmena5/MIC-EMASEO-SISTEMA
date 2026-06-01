@@ -44,6 +44,7 @@ export type TaskStatusResponse =
   | { task_id: string; estado: "PROCESANDO"; message: string }
   | { task_id: string; estado: "FALLIDO";    message: string; nota_fallo: string | null }
   | { task_id: string; estado: "DESCARTADO"; message?: string; decision_automatica?: string | null }
+  | { task_id: string; estado: "EN_REVISION"; message?: string; decision_automatica?: string | null; confianza_decision?: number | null }
   | (AnalysisResult & { task_id: string })
 
 // Immediate 202 response from POST /image/analyze

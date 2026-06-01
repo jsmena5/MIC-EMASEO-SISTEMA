@@ -23,14 +23,32 @@ function tempPassword(len = 12) {
 
 // ─── Helpers de validación ────────────────────────────────────────────────────
 
-const RE_NOMBRE    = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s\-]+$/
-const RE_TELEFONO  = /^[\+]?[0-9\s\-\(\)]{7,20}$/
+// Apellidos: una sola palabra sin espacios; guiones permitidos (al final del class)
+const RE_APELLIDO  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ][a-zA-ZáéíóúÁÉÍÓÚñÑüÜ-]*$/
+// Palabras individuales de nombre/apellido: solo letras
+const RE_PALABRA   = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
+const RE_TELEFONO  = /^\+?[0-9\s()-]{7,20}$/
 const SEXO_VALIDOS = ["Masculino", "Femenino", "Otro", "Prefiero no decir"]
 
 function validarNombre(v, campo) {
-  if (!v?.trim())            return `${campo} es requerido`
-  if (v.trim().length < 2)  return `${campo} debe tener al menos 2 caracteres`
-  if (!RE_NOMBRE.test(v.trim())) return `${campo} solo puede contener letras, espacios o guiones`
+  const t = v?.trim() ?? ""
+  if (!t) return `${campo} es requerido`
+  if (t.length > 30) return `${campo} no puede superar 30 caracteres`
+  const words = t.split(/\s+/)
+  if (words.length > 2) return `${campo} no puede tener más de 2 palabras`
+  for (const w of words) {
+    if (w.length < 2)        return `Cada palabra de ${campo} debe tener al menos 2 letras`
+    if (!RE_PALABRA.test(w)) return `${campo} solo puede contener letras`
+  }
+  return null
+}
+
+function validarApellido(v, campo) {
+  const t = v?.trim() ?? ""
+  if (!t) return `${campo} es requerido`
+  if (t.length < 2)  return `${campo} debe tener al menos 2 caracteres`
+  if (t.length > 30) return `${campo} no puede superar 30 caracteres`
+  if (!RE_APELLIDO.test(t)) return `${campo} debe ser una sola palabra (sin espacios)`
   return null
 }
 
@@ -49,14 +67,15 @@ export const registerUser = async (req, res) => {
 
     // Validar nombres
     const errores = []
-    const e1 = validarNombre(primer_nombre,   "El primer nombre")
-    const e2 = validarNombre(primer_apellido, "El primer apellido")
-    const e3 = validarNombre(segundo_apellido, "El segundo apellido")
+    const e1 = validarNombre(primer_nombre, "El primer nombre")
+    const e2 = validarApellido(primer_apellido, "El primer apellido")
+    const e3 = validarApellido(segundo_apellido, "El segundo apellido")
     if (e1) errores.push(e1)
     if (e2) errores.push(e2)
     if (e3) errores.push(e3)
-    if (segundo_nombre?.trim() && !RE_NOMBRE.test(segundo_nombre.trim())) {
-      errores.push("El segundo nombre solo puede contener letras, espacios o guiones")
+    if (segundo_nombre?.trim()) {
+      const e4 = validarNombre(segundo_nombre, "El segundo nombre")
+      if (e4) errores.push(e4)
     }
     if (!cedula || !email) errores.push("Cédula y correo son requeridos")
     if (errores.length) return res.status(400).json({ message: errores[0] })
