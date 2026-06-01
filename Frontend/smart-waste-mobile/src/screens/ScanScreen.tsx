@@ -35,10 +35,11 @@ import {
 import { enqueuePendingReport } from "../services/offlineQueue.service"
 import { colors } from "../theme/colors"
 import { cropToScanFrame } from "../utils/cropToScanFrame"
+import { uuidv4 } from "../utils/uuid"
 
 type ScanNavProp = NativeStackNavigationProp<RootStackParamList, "Scan">
 
-type AnalysisPhase = "idle" | "uploading" | "queued" | "analyzing" | "saving" | "done"
+type AnalysisPhase = "idle" | "checking" | "uploading" | "queued" | "analyzing" | "saving" | "done"
 
 const POLL_INTERVAL_MS = 2000
 const SLOW_THRESHOLD_MS = 10000
@@ -101,6 +102,15 @@ export default function ScanScreen() {
   const pollRetryRef         = useRef(0)
   // Alias para compatibilidad con retake() que lo resetea
   const retryCountRef        = uploadRetryRef
+  // Latch sincrónico anti-doble-tap. Cubre la ventana del pre-check/ubicación en
+  // la que `phase` todavía puede ser "idle" mientras hay trabajo async en curso.
+  // Sin esto, con red lenta el usuario re-presiona "Analizar" y se disparan
+  // envíos duplicados (setState es asíncrono y no bloquea taps del mismo tick).
+  const submittingRef        = useRef(false)
+  // Clave de idempotencia del reporte actual (UUID v4). Se genera al capturar la
+  // foto y se reusa en TODOS los reintentos del mismo reporte, de modo que el
+  // backend no cree incidentes duplicados si la red estuvo lenta. retake() la limpia.
+  const idempotencyKeyRef    = useRef<string | null>(null)
 
   // VisionCamera gestiona el permiso de cámara internamente en CameraCapture.
   // Aquí solo pedimos Location (no mezclar los dos dialogs simultáneamente).
@@ -137,6 +147,14 @@ export default function ScanScreen() {
       pollingIntervalRef.current = null
     }
     pollingInProgressRef.current = false
+  }
+
+  // Libera el latch anti-doble-tap y devuelve la UI a "idle". Se usa cuando el
+  // flujo se detiene esperando una decisión del usuario (Alert modal) en lugar de
+  // continuar hacia "uploading".
+  const releaseGuard = () => {
+    submittingRef.current = false
+    setPhase("idle")
   }
 
   // Función mejorada para obtener ubicación con reintentos
@@ -189,6 +207,8 @@ export default function ScanScreen() {
     photoWidth: number,
     photoHeight: number,
   ) => {
+    // Clave de idempotencia fresca para esta foto: estable entre reintentos.
+    idempotencyKeyRef.current = uuidv4()
     // Mostrar la UI de revisión inmediatamente con la imagen completa como fondo
     setCapturedUri(uri)
     setCapturedB64(base64)   // fallback: imagen completa (se reemplaza tras el crop)
@@ -233,6 +253,8 @@ export default function ScanScreen() {
     currentTaskIdRef.current = null
     uploadRetryRef.current = 0
     pollRetryRef.current = 0
+    submittingRef.current = false
+    idempotencyKeyRef.current = null
     setCapturedUri(null)
     setCapturedCropUri(null)
     setIsCropping(false)
@@ -283,6 +305,7 @@ export default function ScanScreen() {
   // tomar otra foto o cancelar). Sin esto el botón quedaba "congelado" en 100%.
   const handleCancelUpload = () => {
     abortControllerRef.current?.abort()
+    submittingRef.current = false
     setPhase("idle")
     setUploadProgress(0)
     setIsSlowMessage(false)
@@ -316,6 +339,11 @@ export default function ScanScreen() {
   // Resuelve la ubicación y arranca performAnalysis.
   // Se llama desde handleAnalyze (flujo normal) y desde los Alerts de preCheck (fail-open).
   const proceedToAnalysis = async (b64: string) => {
+    // Re-asegura el latch: esta función también se invoca desde los onPress de los
+    // Alerts del pre-check, donde el latch se liberó para mostrar el modal.
+    submittingRef.current = true
+    setPhase("checking")
+
     let currentLat = location?.latitude ?? null
     let currentLng = location?.longitude ?? null
 
@@ -329,6 +357,7 @@ export default function ScanScreen() {
         currentLat = loc.latitude
         currentLng = loc.longitude
       } else {
+        releaseGuard()
         Alert.alert(
           "Ubicación no disponible",
           "No pudimos obtener tu ubicación exacta. El reporte se registrará con una ubicación aproximada en Quito.",
@@ -352,9 +381,21 @@ export default function ScanScreen() {
   }
 
   const handleAnalyze = async () => {
+    // Latch sincrónico: rechaza taps repetidos ANTES de cualquier await. Con red
+    // lenta el pre-check tarda y, sin esto, el botón seguía "vivo" (phase=idle) y
+    // cada toque disparaba un envío duplicado. setState no protege aquí porque es
+    // asíncrono; el ref sí, en el mismo tick del evento.
+    if (submittingRef.current) return
     if (!capturedB64) return
 
+    submittingRef.current = true
+    // Feedback inmediato: el botón pasa a "Verificando imagen…" y queda bloqueado.
+    setPhase("checking")
+
     // ── Pre-check de basura (thumbnail 320 px → /ml/pre-check) ────────────
+    // Decidimos primero y mostramos los diálogos DESPUÉS (fuera del try) para no
+    // dejar el latch tomado si un Alert corta el flujo.
+    let decision: "send" | "ask-open" | "ask-not-garbage" = "send"
     const sourceUri = capturedCropUri ?? capturedUri
     if (sourceUri) {
       let thumbB64: string | null = null
@@ -370,9 +411,9 @@ export default function ScanScreen() {
       }
 
       if (thumbB64) {
-        let check: Awaited<ReturnType<typeof preCheckImage>> | null = null
         try {
-          check = await preCheckImage(thumbB64)
+          const check = await preCheckImage(thumbB64)
+          if (check && !check.is_garbage) decision = "ask-not-garbage"
         } catch {
           // El pre-check es SOLO una optimización para ahorrar inferencia en el
           // servidor; el validador real es el pipeline YOLO del backend (que
@@ -381,42 +422,54 @@ export default function ScanScreen() {
           // hacemos fail-OPEN: ofrecemos enviar igual en lugar de bloquear al
           // usuario. Bloquear aquí dejaba al ciudadano sin poder reportar cuando
           // el pre-check tenía un hipo (timeout del modelo en frío, 500, etc.).
-          Alert.alert(
-            "No pudimos verificar la imagen",
-            "No se pudo revisar la imagen antes de enviarla, pero el servidor la analizará al recibirla. ¿Deseas enviarla de todos modos?",
-            [
-              { text: "Cancelar", style: "cancel" },
-              { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
-            ],
-          )
-          return
-        }
-
-        if (check && !check.is_garbage) {
-          Alert.alert(
-            "No detectamos basura",
-            "La imagen no parece mostrar acumulación de residuos. Acerca la cámara al lugar correcto e inténtalo de nuevo.",
-            [
-              { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
-              { text: "Tomar otra foto", onPress: retake },
-              {
-                text: "Enviar de todos modos",
-                onPress: () => proceedToAnalysis(capturedB64!),
-              },
-            ],
-          )
-          return
+          decision = "ask-open"
         }
       }
     }
 
+    if (decision === "ask-open") {
+      releaseGuard()
+      Alert.alert(
+        "No pudimos verificar la imagen",
+        "No se pudo revisar la imagen antes de enviarla, pero el servidor la analizará al recibirla. ¿Deseas enviarla de todos modos?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
+        ],
+      )
+      return
+    }
+
+    if (decision === "ask-not-garbage") {
+      releaseGuard()
+      Alert.alert(
+        "No detectamos basura",
+        "La imagen no parece mostrar acumulación de residuos. Acerca la cámara al lugar correcto e inténtalo de nuevo.",
+        [
+          { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
+          { text: "Tomar otra foto", onPress: retake },
+          {
+            text: "Enviar de todos modos",
+            onPress: () => proceedToAnalysis(capturedB64!),
+          },
+        ],
+      )
+      return
+    }
+
+    // Pre-check OK (o sin thumbnail): el latch sigue tomado y proceedToAnalysis
+    // continúa el flujo protegido hasta entrar en "uploading".
     await proceedToAnalysis(capturedB64)
   }
   
   const performAnalysis = async (b64: string, lat: number, lng: number, ubicacionAproximada = false) => {
+    // Clave estable para este reporte; se reusa en cada reintento y en el guardado
+    // offline para que el backend nunca cree un duplicado del mismo reporte.
+    const idempotencyKey = idempotencyKeyRef.current ?? (idempotencyKeyRef.current = uuidv4())
+
     // ── Offline path: save to local queue and notify user ───────────────────
     if (!isConnected) {
-      await enqueuePendingReport(b64, lat, lng)
+      await enqueuePendingReport(b64, lat, lng, undefined, idempotencyKey)
       await refreshPendingCount()
       retake()
       Alert.alert(
@@ -428,6 +481,9 @@ export default function ScanScreen() {
     }
 
     setPhase("uploading")
+    // A partir de aquí la UI bloquea por estado (botón deshabilitado + spinner),
+    // así que liberamos el latch sincrónico.
+    submittingRef.current = false
     setUploadProgress(0)
     setIsSlowMessage(false)
 
@@ -442,6 +498,7 @@ export default function ScanScreen() {
         onUploadProgress: setUploadProgress,
         ubicacion_aproximada: ubicacionAproximada,
         clientCoverageRatio: liveCoverage ?? undefined,
+        idempotencyKey,
       })
       taskId = accepted.task_id
       // Persistir task_id en ref para que handleCancelAnalysis pueda guardarlo
@@ -471,7 +528,7 @@ export default function ScanScreen() {
             {
               text: "Guardar para después",
               onPress: async () => {
-                await enqueuePendingReport(b64, lat, lng)
+                await enqueuePendingReport(b64, lat, lng, undefined, idempotencyKey)
                 await refreshPendingCount()
                 retake()
                 navigation.reset({ index: 0, routes: [{ name: "Home" }] })
@@ -494,7 +551,7 @@ export default function ScanScreen() {
               {
                 text: "Guardar para después",
                 onPress: async () => {
-                  await enqueuePendingReport(b64, lat, lng)
+                  await enqueuePendingReport(b64, lat, lng, undefined, idempotencyKey)
                   await refreshPendingCount()
                   retake()
                   navigation.reset({ index: 0, routes: [{ name: "Home" }] })
@@ -770,6 +827,11 @@ export default function ScanScreen() {
                 <Text style={styles.analyzeBtnText}>
                   {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
                 </Text>
+              </>
+            ) : phase === "checking" ? (
+              <>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
               </>
             ) : isCropping ? (
               <>

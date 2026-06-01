@@ -46,6 +46,10 @@ const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE 
 const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.5, MEDIO: 2.0, ALTO: 5.0, CRITICO: 15.0 }
 const VOLUME_COHERENCE_TOLERANCE = 1.10  // +10% sobre el techo
 
+// Formato UUID (cualquier versión) para validar la clave de idempotencia del
+// cliente. Una clave malformada se ignora y el reporte se trata como sin clave.
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Cliente S3 (MinIO / AWS)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -535,10 +539,100 @@ async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio 
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Idempotencia — creación de incidente sin duplicados
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// El cliente envía una clave UUID estable entre reintentos del mismo reporte.
+// Con red lenta, un POST /analyze puede hacer timeout en el cliente aunque el
+// servidor ya haya creado el incidente; el reintento traería la misma clave.
+// Sin esto, cada reintento crea un incidente nuevo (duplicado).
+
+function normalizeIdempotencyKey(raw) {
+  if (typeof raw !== "string") return null
+  const trimmed = raw.trim().toLowerCase()
+  return IDEMPOTENCY_KEY_RE.test(trimmed) ? trimmed : null
+}
+
+const INSERT_INCIDENT_SQL =
+  `INSERT INTO incidents.incidents
+   (reportado_por, descripcion, ubicacion, direccion, estado, prioridad, ubicacion_aproximada, idempotency_key)
+   VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO', $6, $7, $8)
+   RETURNING id`
+
+// Crea el incidente. Sin clave de idempotencia usa el camino clásico (INSERT
+// directo). Con clave, delega en createIncidentIdempotent (transacción + lock).
+// Devuelve { incidentId, replay } — replay=true significa que ya existía.
+async function createIncident({ userId, descripcion, direccion, lat, lon, ubicacion_aproximada, idempotencyKey }) {
+  const insertParams = [userId, descripcion || null, lon, lat, direccion || null, TEMP_PRIORIDAD, ubicacion_aproximada, idempotencyKey]
+
+  if (!idempotencyKey) {
+    const { rows } = await retry(
+      () => pool.query(INSERT_INCIDENT_SQL, insertParams),
+      {
+        ...DB_RETRY_OPTS,
+        onRetry: (err, attempt) =>
+          console.warn(`[image-service] INSERT incidents retry ${attempt}: ${err.message}`),
+      }
+    )
+    return { incidentId: rows[0].id, replay: false }
+  }
+
+  return retry(
+    () => createIncidentIdempotent(insertParams, userId, idempotencyKey),
+    {
+      ...DB_RETRY_OPTS,
+      onRetry: (err, attempt) =>
+        console.warn(`[image-service] INSERT incidents idempotente retry ${attempt}: ${err.message}`),
+    }
+  )
+}
+
+// Transacción que deduplica por (reportado_por, idempotency_key).
+//
+// pg_advisory_xact_lock serializa los requests concurrentes con la misma clave:
+// el segundo espera a que el primero termine su transacción, luego el SELECT ya
+// ve el incidente creado → replay. El lock se libera solo al COMMIT/ROLLBACK.
+// (La tabla está particionada y no admite un UNIQUE sin created_at — ver
+// migración 046 — por eso la unicidad se garantiza con el lock, no con un índice.)
+async function createIncidentIdempotent(insertParams, userId, idempotencyKey) {
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`${userId}:${idempotencyKey}`]
+    )
+
+    const existing = await client.query(
+      `SELECT id FROM incidents.incidents
+       WHERE reportado_por = $1 AND idempotency_key = $2
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, idempotencyKey]
+    )
+
+    if (existing.rows.length > 0) {
+      await client.query("COMMIT")
+      return { incidentId: existing.rows[0].id, replay: true }
+    }
+
+    const { rows } = await client.query(INSERT_INCIDENT_SQL, insertParams)
+    await client.query("COMMIT")
+    return { incidentId: rows[0].id, replay: false }
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // analyzeImage — Endpoint principal
 // ──────────────────────────────────────────────────────────────────────────────
 
-export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", ubicacion_aproximada = false, userId, client_coverage_ratio }) {
+export async function analyzeImage({ image, latitude, longitude, descripcion = "", direccion = "", ubicacion_aproximada = false, userId, client_coverage_ratio, idempotency_key }) {
 
   if (!image) {
     throw createHttpError("El campo 'image' (base64) es requerido.", 400)
@@ -575,23 +669,28 @@ export async function analyzeImage({ image, latitude, longitude, descripcion = "
 
   const lat = Number(latitude)
   const lon = Number(longitude)
+  const idempotencyKey = normalizeIdempotencyKey(idempotency_key)
 
-  const { rows } = await retry(
-    () => pool.query(
-      `INSERT INTO incidents.incidents
-       (reportado_por, descripcion, ubicacion, direccion, estado, prioridad, ubicacion_aproximada)
-       VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO', $6, $7)
-       RETURNING id`,
-      [userId, descripcion || null, lon, lat, direccion || null, TEMP_PRIORIDAD, ubicacion_aproximada]
-    ),
-    {
-      ...DB_RETRY_OPTS,
-      onRetry: (err, attempt) =>
-        console.warn(`[image-service] INSERT incidents retry ${attempt}: ${err.message}`),
+  const { incidentId, replay } = await createIncident({
+    userId, descripcion, direccion, lat, lon, ubicacion_aproximada, idempotencyKey,
+  })
+
+  // Replay idempotente: el cliente reintentó un reporte que el servidor ya había
+  // recibido (timeout por red lenta). El incidente y su pipeline ML ya existen;
+  // solo devolvemos el task_id para que el cliente siga el polling. NO se relanza
+  // runMlAnalysis (evita una segunda inferencia sobre el mismo reporte).
+  if (replay) {
+    console.log(`[image-service] ♻️ Replay idempotente — key=${idempotencyKey} → incidente id=${incidentId} (ML no se relanza)`)
+    return {
+      httpStatus: 202,
+      task_id:   incidentId,
+      estado:    "PROCESANDO",
+      message:   "Reporte ya recibido; el análisis continúa en progreso.",
+      poll_url:  `/api/image/status/${incidentId}`,
+      idempotent_replay: true,
     }
-  )
+  }
 
-  const incidentId = rows[0].id
   console.log(`[image-service] ✅ Incidente creado id=${incidentId} estado=PROCESANDO prioridad_temp=${TEMP_PRIORIDAD}`)
 
   setImmediate(() => {

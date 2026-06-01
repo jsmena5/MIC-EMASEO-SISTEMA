@@ -53,6 +53,8 @@ export interface AnalyzeAccepted {
   estado: "PROCESANDO"
   message: string
   poll_url: string
+  /** true cuando el servidor reconoció un reenvío idempotente (no creó un duplicado). */
+  idempotent_replay?: boolean
 }
 
 export interface WaitForAnalysisOptions {
@@ -116,6 +118,8 @@ export const analyzeImage = async (
     onUploadProgress?: (percentage: number) => void
     ubicacion_aproximada?: boolean
     clientCoverageRatio?: number
+    /** Clave estable por reporte: reenviarla en cada reintento evita duplicados en el servidor. */
+    idempotencyKey?: string
   }
 ): Promise<AnalyzeAccepted> => {
   const body: Record<string, unknown> = {
@@ -127,6 +131,9 @@ export const analyzeImage = async (
   }
   if (options?.clientCoverageRatio !== undefined) {
     body.client_coverage_ratio = options.clientCoverageRatio
+  }
+  if (options?.idempotencyKey) {
+    body.idempotency_key = options.idempotencyKey
   }
   const res = await api.post(
     "/image/analyze",

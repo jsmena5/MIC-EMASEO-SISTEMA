@@ -4,6 +4,7 @@ import {
   TaskAnalysisFailedError,
   waitForAnalysisResult,
 } from "./image.service"
+import { uuidv4 } from "../utils/uuid"
 
 const QUEUE_KEY = "pending_reports"
 
@@ -15,6 +16,8 @@ export interface PendingReport {
   longitude: number
   descripcion?: string
   taskId?: string
+  /** Clave de idempotencia estable: el servidor la usa para no duplicar el incidente en reintentos. */
+  idempotencyKey?: string
   retries: number
 }
 
@@ -42,6 +45,7 @@ export async function enqueuePendingReport(
   latitude: number,
   longitude: number,
   descripcion?: string,
+  idempotencyKey?: string,
 ): Promise<void> {
   const queue = await readQueue()
   queue.push({
@@ -51,6 +55,9 @@ export async function enqueuePendingReport(
     latitude,
     longitude,
     descripcion,
+    // Si el caller no provee una clave, generamos una aquí para que el reenvío
+    // automático al recuperar conexión tampoco pueda duplicar el incidente.
+    idempotencyKey: idempotencyKey ?? uuidv4(),
     retries: 0,
   })
   await writeQueue(queue)
@@ -90,15 +97,26 @@ export async function processQueue(
       let taskId = report.taskId
 
       if (!taskId) {
+        // Garantiza una clave de idempotencia estable ANTES de enviar: si este
+        // flush se interrumpe tras llegar al servidor pero antes de guardar el
+        // taskId, el próximo intento reusa la misma clave y el backend no duplica.
+        let idempotencyKey = report.idempotencyKey
+        if (!idempotencyKey) {
+          idempotencyKey = uuidv4()
+          workingQueue[0] = { ...report, idempotencyKey }
+          await writeQueue(workingQueue)
+        }
+
         const accepted = await analyzeImage(
           report.imageBase64,
           report.latitude,
           report.longitude,
           report.descripcion,
+          { idempotencyKey },
         )
         taskId = accepted.task_id
 
-        workingQueue[0] = { ...report, taskId }
+        workingQueue[0] = { ...workingQueue[0], taskId }
         await writeQueue(workingQueue)
       }
 

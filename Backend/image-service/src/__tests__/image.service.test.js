@@ -223,6 +223,88 @@ describe('analyzeImage — flujo de reporte de incidente', () => {
   });
 });
 
+// ── Tests: analyzeImage — idempotencia (migración 046) ────────────────────────
+//
+// Verifican que una clave de idempotencia estable evita incidentes duplicados
+// cuando el cliente reintenta el mismo reporte con red lenta. La deduplicación
+// usa una transacción con pg_advisory_xact_lock (pool.connect), por eso estos
+// tests mockean el client de la transacción.
+
+describe('analyzeImage — idempotencia (migración 046)', () => {
+  const VALID_KEY_NEW      = '22222222-2222-4222-8222-222222222222';
+  const VALID_KEY_EXISTING = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(global, 'setImmediate').mockImplementation(() => {});
+  });
+
+  it('con clave nueva: abre transacción, inserta y arranca el pipeline ML', async () => {
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({})                                      // BEGIN
+        .mockResolvedValueOnce({})                                      // pg_advisory_xact_lock
+        .mockResolvedValueOnce({ rows: [] })                            // SELECT existing → vacío
+        .mockResolvedValueOnce({ rows: [{ id: 'new-incident-id' }] })  // INSERT
+        .mockResolvedValueOnce({}),                                     // COMMIT
+      release: vi.fn(),
+    };
+    pool.connect.mockResolvedValue(client);
+
+    const result = await analyzeImage({
+      image: VALID_IMAGE_B64, ...QUITO, userId: USER_ID,
+      idempotency_key: VALID_KEY_NEW,
+    });
+
+    expect(result.task_id).toBe('new-incident-id');
+    expect(result.idempotent_replay).toBeUndefined();
+    expect(pool.connect).toHaveBeenCalledTimes(1);
+    expect(global.setImmediate).toHaveBeenCalledTimes(1); // pipeline ML lanzado
+    expect(client.release).toHaveBeenCalled();
+  });
+
+  it('con clave ya vista: devuelve el incidente previo y NO relanza el ML', async () => {
+    const client = {
+      query: vi.fn()
+        .mockResolvedValueOnce({})                                          // BEGIN
+        .mockResolvedValueOnce({})                                          // lock
+        .mockResolvedValueOnce({ rows: [{ id: 'existing-incident-id' }] })  // SELECT existing
+        .mockResolvedValueOnce({}),                                         // COMMIT
+      release: vi.fn(),
+    };
+    pool.connect.mockResolvedValue(client);
+
+    const result = await analyzeImage({
+      image: VALID_IMAGE_B64, ...QUITO, userId: USER_ID,
+      idempotency_key: VALID_KEY_EXISTING,
+    });
+
+    expect(result.httpStatus).toBe(202);
+    expect(result.task_id).toBe('existing-incident-id');
+    expect(result.idempotent_replay).toBe(true);
+    // No se relanza el pipeline ML para un replay
+    expect(global.setImmediate).not.toHaveBeenCalled();
+    // Solo BEGIN, lock, SELECT, COMMIT — nunca el INSERT
+    expect(client.query).toHaveBeenCalledTimes(4);
+  });
+
+  it('ignora una clave malformada y usa el INSERT directo (sin transacción)', async () => {
+    pool.query.mockResolvedValue({ rows: [{ id: 'direct-incident-id' }] });
+
+    const result = await analyzeImage({
+      image: VALID_IMAGE_B64, ...QUITO, userId: USER_ID,
+      idempotency_key: 'no-es-un-uuid',
+    });
+
+    expect(result.task_id).toBe('direct-incident-id');
+    expect(pool.connect).not.toHaveBeenCalled();
+    expect(pool.query).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO incidents.incidents'),
+      expect.any(Array),
+    );
+  });
+});
+
 // ── Tests: getTaskStatus — respuestas API para nuevos estados (migración 032) ─
 //
 // Verifican que la API devuelve los campos correctos para cada estado del
