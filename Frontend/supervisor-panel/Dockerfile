@@ -13,7 +13,7 @@ WORKDIR /app
 ARG VITE_API_URL
 
 COPY package*.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm install --no-audit --no-fund
 
 COPY . .
 # Solo inyectar el ARG en .env.production si fue pasado explícitamente;
