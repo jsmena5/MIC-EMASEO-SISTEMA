@@ -1,12 +1,3 @@
-export interface PreRegisterUser {
-  primer_nombre:   string
-  segundo_nombre?: string
-  primer_apellido: string
-  segundo_apellido: string
-  cedula: string
-  email:  string
-}
-
 export interface LoginUser {
   email:    string
   password: string
@@ -29,6 +20,18 @@ export interface PasswordResetData {
 }
 
 export type Sexo = "Masculino" | "Femenino" | "Otro" | "Prefiero no decir"
+
+export interface PreRegisterUser {
+  primer_nombre: string
+  segundo_nombre: string
+  primer_apellido: string
+  segundo_apellido: string
+  fecha_nacimiento: string
+  sexo: Sexo
+  telefono: string
+  cedula: string
+  email: string
+}
 
 export interface CitizenProfile {
   primer_nombre:    string

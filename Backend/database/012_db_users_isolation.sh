@@ -89,6 +89,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA operations TO users
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA operations               TO users_svc;
 
 GRANT SELECT, INSERT, UPDATE ON auth.users                              TO users_svc;
+GRANT USAGE ON SCHEMA incidents                                         TO users_svc;
+GRANT SELECT ON incidents.incidents                                     TO users_svc;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.pending_registrations    TO users_svc;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public

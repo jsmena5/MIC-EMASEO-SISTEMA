@@ -30,6 +30,29 @@ const RE_PALABRA   = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_TELEFONO  = /^\+?[0-9\s()-]{7,20}$/
 const SEXO_VALIDOS = ["Masculino", "Femenino", "Otro", "Prefiero no decir"]
 
+function validarTelefono(v, campo) {
+  const t = v?.trim() ?? ""
+  if (!t) return `${campo} es requerido`
+  if (!RE_TELEFONO.test(t)) return `${campo} no tiene un formato válido`
+  return null
+}
+
+function validarFechaNacimiento(v, campo) {
+  const t = v?.trim() ?? ""
+  if (!t) return `${campo} es requerido`
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return `${campo} no es válida`
+  const edadAnios = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000)
+  if (edadAnios < 13 || edadAnios > 120) return `${campo} debe estar entre 13 y 120 años`
+  return null
+}
+
+function validarSexo(v) {
+  if (!v) return "El sexo es requerido"
+  if (!SEXO_VALIDOS.includes(v)) return `El sexo debe ser uno de: ${SEXO_VALIDOS.join(", ")}`
+  return null
+}
+
 function validarNombre(v, campo) {
   const t = v?.trim() ?? ""
   if (!t) return `${campo} es requerido`
@@ -62,21 +85,25 @@ export const registerUser = async (req, res) => {
     const {
       primer_nombre, segundo_nombre,
       primer_apellido, segundo_apellido,
-      cedula, email,
+      cedula, telefono, fecha_nacimiento, sexo, email,
     } = req.body
 
     // Validar nombres
     const errores = []
     const e1 = validarNombre(primer_nombre, "El primer nombre")
-    const e2 = validarApellido(primer_apellido, "El primer apellido")
-    const e3 = validarApellido(segundo_apellido, "El segundo apellido")
+    const e2 = validarNombre(segundo_nombre, "El segundo nombre")
+    const e3 = validarApellido(primer_apellido, "El primer apellido")
+    const e4 = validarApellido(segundo_apellido, "El segundo apellido")
+    const e5 = validarTelefono(telefono, "El celular")
+    const e6 = validarFechaNacimiento(fecha_nacimiento, "La fecha de nacimiento")
+    const e7 = validarSexo(sexo)
     if (e1) errores.push(e1)
     if (e2) errores.push(e2)
     if (e3) errores.push(e3)
-    if (segundo_nombre?.trim()) {
-      const e4 = validarNombre(segundo_nombre, "El segundo nombre")
-      if (e4) errores.push(e4)
-    }
+    if (e4) errores.push(e4)
+    if (e5) errores.push(e5)
+    if (e6) errores.push(e6)
+    if (e7) errores.push(e7)
     if (!cedula || !email) errores.push("Cédula y correo son requeridos")
     if (errores.length) return res.status(400).json({ message: errores[0] })
 
@@ -108,19 +135,34 @@ export const registerUser = async (req, res) => {
     // Guardar o reemplazar el registro pendiente para este email
     await client.query(
       `INSERT INTO app_auth.pending_registrations
-         (nombre, apellido, segundo_nombre, segundo_apellido, cedula, email, otp_code, otp_expires_at, is_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+         (nombre, apellido, segundo_nombre, segundo_apellido, cedula, telefono, fecha_nacimiento, sexo, email, otp_code, otp_expires_at, is_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, FALSE)
        ON CONFLICT (email) DO UPDATE SET
          nombre          = EXCLUDED.nombre,
          apellido        = EXCLUDED.apellido,
          segundo_nombre  = EXCLUDED.segundo_nombre,
          segundo_apellido = EXCLUDED.segundo_apellido,
          cedula          = EXCLUDED.cedula,
+         telefono        = EXCLUDED.telefono,
+         fecha_nacimiento = EXCLUDED.fecha_nacimiento,
+         sexo            = EXCLUDED.sexo,
          otp_code        = EXCLUDED.otp_code,
          otp_expires_at  = EXCLUDED.otp_expires_at,
          is_verified     = FALSE,
          created_at      = NOW()`,
-      [nombre, apellido, segundo_nombre?.trim() || null, segundo_apellido?.trim() || null, cedula, email, otpHash, otpExpires]
+      [
+        nombre,
+        apellido,
+        segundo_nombre.trim(),
+        segundo_apellido.trim(),
+        cedula,
+        telefono.trim(),
+        fecha_nacimiento.trim(),
+        sexo,
+        email,
+        otpHash,
+        otpExpires,
+      ]
     )
 
     // En desarrollo, imprimir OTP en consola para testing sin SMTP
@@ -240,7 +282,7 @@ export const setPassword = async (req, res) => {
 
     // Leer datos del registro pendiente — debe estar verificado
     const result = await client.query(
-      `SELECT nombre, apellido, segundo_nombre, segundo_apellido, cedula
+      `SELECT nombre, apellido, segundo_nombre, segundo_apellido, cedula, telefono, fecha_nacimiento, sexo
        FROM app_auth.pending_registrations
        WHERE email = $1 AND is_verified = TRUE`,
       [email]
@@ -250,7 +292,10 @@ export const setPassword = async (req, res) => {
       return res.status(400).json({ message: "Email no verificado o registro no encontrado" })
     }
 
-    const { nombre, apellido, segundo_nombre, segundo_apellido, cedula } = result.rows[0]
+    const {
+      nombre, apellido, segundo_nombre, segundo_apellido,
+      cedula, telefono, fecha_nacimiento, sexo,
+    } = result.rows[0]
 
     const username = `usr_${crypto.randomBytes(8).toString("hex")}`
 
@@ -272,6 +317,16 @@ export const setPassword = async (req, res) => {
       `INSERT INTO public.ciudadanos (user_id, nombre, apellido, segundo_nombre, segundo_apellido, cedula)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [user.id, nombre, apellido, segundo_nombre ?? null, segundo_apellido ?? null, cedula]
+    )
+
+    await client.query(
+      `UPDATE public.ciudadanos
+       SET telefono = $2,
+           fecha_nacimiento = $3::date,
+           sexo = $4,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [user.id, telefono ?? null, fecha_nacimiento ?? null, sexo ?? null]
     )
 
     // 3. Registrar consentimiento LOPDP (art. 8 — consentimiento libre, específico e informado)
@@ -464,37 +519,67 @@ export const listCiudadanos = async (req, res) => {
   const where = "WHERE " + conditions.join(" AND ")
 
   try {
-    const [{ rows }, { rows: countRows }] = await Promise.all([
-      pool.query(
-        `SELECT
-           u.id,
-           c.nombre          AS primer_nombre,
-           c.segundo_nombre,
-           c.apellido        AS primer_apellido,
-           c.segundo_apellido,
-           u.email,
-           u.estado,
-           u.ultimo_login,
-           u.created_at,
-           CASE WHEN length(c.cedula) = 10
-             THEN substring(c.cedula,1,3)||'****'||substring(c.cedula,8)
-             ELSE '**********' END AS cedula_masked,
-           (SELECT COUNT(*) FROM incidents.incidents i WHERE i.reportado_por = u.id) AS total_reportes
-         FROM app_auth.users u
-         JOIN public.ciudadanos c ON c.user_id = u.id
-         ${where}
-         ORDER BY u.created_at DESC
-         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-        [...params, pageSize, offset]
-      ),
-      pool.query(
-        `SELECT COUNT(*) AS total
-         FROM app_auth.users u
-         JOIN public.ciudadanos c ON c.user_id = u.id
-         ${where}`,
-        params
-      ),
-    ])
+    const baseSelect = `
+      SELECT
+        u.id,
+        c.nombre          AS primer_nombre,
+        c.segundo_nombre,
+        c.apellido        AS primer_apellido,
+        c.segundo_apellido,
+        u.email,
+        u.estado,
+        u.ultimo_login,
+        u.created_at,
+        CASE WHEN length(c.cedula) = 10
+          THEN substring(c.cedula,1,3)||'****'||substring(c.cedula,8)
+          ELSE '**********' END AS cedula_masked
+    `
+
+    const queryWithReportes = `
+      ${baseSelect},
+      (SELECT COUNT(*) FROM incidents.incidents i WHERE i.reportado_por = u.id) AS total_reportes
+      FROM app_auth.users u
+      JOIN public.ciudadanos c ON c.user_id = u.id
+      ${where}
+      ORDER BY u.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `
+
+    const queryWithoutReportes = `
+      ${baseSelect},
+      0 AS total_reportes
+      FROM app_auth.users u
+      JOIN public.ciudadanos c ON c.user_id = u.id
+      ${where}
+      ORDER BY u.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `
+
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM app_auth.users u
+      JOIN public.ciudadanos c ON c.user_id = u.id
+      ${where}
+    `
+
+    let rows = []
+    let countRows = []
+    try {
+      ;[{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(queryWithReportes, [...params, pageSize, offset]),
+        pool.query(countQuery, params),
+      ])
+    } catch (reportesError) {
+      const shouldFallback =
+        reportesError?.code === "42501" ||
+        /permission denied/i.test(reportesError?.message ?? "")
+      if (!shouldFallback) throw reportesError
+      console.warn("[users-controller] listCiudadanos fallback sin total_reportes:", reportesError.message)
+      ;[{ rows }, { rows: countRows }] = await Promise.all([
+        pool.query(queryWithoutReportes, [...params, pageSize, offset]),
+        pool.query(countQuery, params),
+      ])
+    }
 
     const total = parseInt(countRows[0].total, 10)
     return res.json({

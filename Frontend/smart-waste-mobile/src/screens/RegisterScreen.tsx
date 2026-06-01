@@ -25,6 +25,7 @@ import BackButton from "../components/BackButton"
 import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser } from "../services/user.service"
+import type { PreRegisterUser } from "../types/user.types"
 import { colors } from "../theme/colors"
 
 type Props = NativeStackScreenProps<RootStackParamList, "Register">
@@ -38,6 +39,8 @@ const RE_APELLIDO = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ][a-zA-ZáéíóúÁÉ�
 // Nombres: una o dos palabras (nombre compuesto), sin números ni símbolos
 const RE_PALABRA  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const RE_TELEFONO = /^(?:\+?5939[0-9]{8}|09[0-9]{8})$/
+const SEXO_OPCIONES = ["Masculino", "Femenino", "Otro", "Prefiero no decir"] as const
 
 const validarCedula = (cedula: string): boolean => {
   if (!/^\d{10}$/.test(cedula)) return false
@@ -75,9 +78,24 @@ function validarApellidoField(v: string, label: string, required = true): string
   if (!RE_APELLIDO.test(trimmed)) return `El ${label} debe ser una sola palabra (sin espacios)`
 }
 
+function validarTelefonoField(v: string, label: string): string | undefined {
+  const trimmed = v.trim()
+  if (!trimmed) return `El ${label} es requerido`
+  if (!RE_TELEFONO.test(trimmed)) return `El ${label} debe tener formato 09XXXXXXXX o +5939XXXXXXXX`
+}
+
+function validarFechaNacimientoField(v: string, label: string): string | undefined {
+  const trimmed = v.trim()
+  if (!trimmed) return `El ${label} es requerido`
+  const date = new Date(trimmed)
+  if (Number.isNaN(date.getTime())) return `El ${label} no es válida`
+  const ageYears = (Date.now() - date.getTime()) / (365.25 * 24 * 3600 * 1000)
+  if (ageYears < 13 || ageYears > 120) return `El ${label} debe estar entre 13 y 120 años`
+}
+
 // ─── Campos del formulario ────────────────────────────────────────────────────
 
-type FormField = "primer_nombre" | "segundo_nombre" | "primer_apellido" | "segundo_apellido" | "cedula" | "email"
+type FormField = "primer_nombre" | "segundo_nombre" | "primer_apellido" | "segundo_apellido" | "fecha_nacimiento" | "sexo" | "telefono" | "cedula" | "email"
 type FormType  = Record<FormField, string>
 type ErrorType = Partial<Record<FormField, string>>
 
@@ -158,12 +176,54 @@ const AnimatedInput = memo(function AnimatedInput({
   )
 })
 
+interface SexoSelectorProps {
+  value: string
+  error?: string
+  onChange: (value: string) => void
+}
+
+function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
+  return (
+    <View style={styles.fieldWrapper}>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>Sexo</Text>
+        <Text style={styles.requiredBadge}>requerido</Text>
+      </View>
+      <View style={styles.optionGrid}>
+        {SEXO_OPCIONES.map((option) => {
+          const active = value === option
+          return (
+            <Pressable
+              key={option}
+              onPress={() => onChange(option)}
+              style={({ pressed }) => [
+                styles.optionChip,
+                active && styles.optionChipActive,
+                pressed && styles.optionChipPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={`Seleccionar sexo ${option}`}
+              accessibilityState={{ selected: active }}
+            >
+              <Text style={[styles.optionChipText, active && styles.optionChipTextActive]}>
+                {option}
+              </Text>
+            </Pressable>
+          )
+        })}
+      </View>
+      {error ? <Text style={styles.errorText}>{error}</Text> : <Text style={styles.hintText}>Selecciona una opción</Text>}
+    </View>
+  )
+}
+
 // ─── Pantalla Principal ───────────────────────────────────────────────────────
 
 export default function RegisterScreen({ navigation }: Props) {
   const [form, setForm] = useState<FormType>({
     primer_nombre: "", segundo_nombre: "",
     primer_apellido: "", segundo_apellido: "",
+    fecha_nacimiento: "", sexo: "", telefono: "",
     cedula: "", email: "",
   })
   const [errors,  setErrors]  = useState<ErrorType>({})
@@ -172,6 +232,8 @@ export default function RegisterScreen({ navigation }: Props) {
   const segundoNombreRef   = useRef<TextInput>(null)
   const primerApellidoRef  = useRef<TextInput>(null)
   const segundoApellidoRef = useRef<TextInput>(null)
+  const fechaNacimientoRef = useRef<TextInput>(null)
+  const telefonoRef        = useRef<TextInput>(null)
   const cedulaRef          = useRef<TextInput>(null)
   const emailRef           = useRef<TextInput>(null)
 
@@ -188,6 +250,9 @@ export default function RegisterScreen({ navigation }: Props) {
   const hSegundoNombre   = useCallback((v: string) => handleChange("segundo_nombre",   v), [handleChange])
   const hPrimerApellido  = useCallback((v: string) => handleChange("primer_apellido",  v), [handleChange])
   const hSegundoApellido = useCallback((v: string) => handleChange("segundo_apellido", v), [handleChange])
+  const hFechaNacimiento = useCallback((v: string) => handleChange("fecha_nacimiento", v), [handleChange])
+  const hSexo            = useCallback((v: string) => handleChange("sexo", v), [handleChange])
+  const hTelefono        = useCallback((v: string) => handleChange("telefono", v), [handleChange])
   const hCedula          = useCallback((v: string) => handleChange("cedula",           v), [handleChange])
   const hEmail           = useCallback((v: string) => handleChange("email",            v), [handleChange])
 
@@ -195,16 +260,20 @@ export default function RegisterScreen({ navigation }: Props) {
     const e: ErrorType = {}
 
     const ep1 = validarNombreField(form.primer_nombre,   "primer nombre")
-    const es2 = form.segundo_nombre.trim()
-      ? validarNombreField(form.segundo_nombre, "segundo nombre", false)
-      : undefined
+    const es2 = validarNombreField(form.segundo_nombre, "segundo nombre")
     const ep2 = validarApellidoField(form.primer_apellido,  "primer apellido")
     const ep3 = validarApellidoField(form.segundo_apellido, "segundo apellido")
+    const efn = validarFechaNacimientoField(form.fecha_nacimiento, "fecha de nacimiento")
+    const esx = form.sexo ? undefined : "El sexo es requerido"
+    const etl = validarTelefonoField(form.telefono, "celular")
 
     if (ep1) e.primer_nombre    = ep1
     if (es2) e.segundo_nombre   = es2
     if (ep2) e.primer_apellido  = ep2
     if (ep3) e.segundo_apellido = ep3
+    if (efn) e.fecha_nacimiento = efn
+    if (esx) e.sexo = esx
+    if (etl) e.telefono = etl
 
     if (!validarCedula(form.cedula))
       e.cedula = "Cédula inválida (10 dígitos, provincia 01–24)"
@@ -223,11 +292,14 @@ export default function RegisterScreen({ navigation }: Props) {
     buttonScale.value = withSequence(withSpring(0.96), withSpring(1))
     try {
       setLoading(true)
-      const payload = {
+      const payload: PreRegisterUser = {
         primer_nombre:    form.primer_nombre.trim(),
-        segundo_nombre:   form.segundo_nombre.trim() || undefined,
+        segundo_nombre:   form.segundo_nombre.trim(),
         primer_apellido:  form.primer_apellido.trim(),
         segundo_apellido: form.segundo_apellido.trim(),
+        fecha_nacimiento: form.fecha_nacimiento.trim(),
+        sexo:             form.sexo as PreRegisterUser["sexo"],
+        telefono:         form.telefono.trim(),
         cedula:           form.cedula,
         email:            form.email.trim().toLowerCase(),
       }
@@ -280,11 +352,11 @@ export default function RegisterScreen({ navigation }: Props) {
             label="Primer nombre"
             value={form.primer_nombre}
             error={errors.primer_nombre}
-            placeholder="Ej: Juan"
+            placeholder="Ej: Juan o María José"
             onChangeText={hPrimerNombre}
             returnKeyType="next"
             onSubmitEditing={() => segundoNombreRef.current?.focus()}
-            hint="Solo letras, sin números ni símbolos"
+            hint="Solo letras, máx. 2 palabras"
           />
           <AnimatedInput
             label="Segundo nombre"
@@ -309,7 +381,7 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={primerApellidoRef}
             returnKeyType="next"
             onSubmitEditing={() => segundoApellidoRef.current?.focus()}
-            hint="Apellido paterno"
+            hint="Apellido paterno, una sola palabra"
           />
           <AnimatedInput
             label="Segundo apellido"
@@ -319,8 +391,37 @@ export default function RegisterScreen({ navigation }: Props) {
             onChangeText={hSegundoApellido}
             inputRef={segundoApellidoRef}
             returnKeyType="next"
+            onSubmitEditing={() => fechaNacimientoRef.current?.focus()}
+            hint="Apellido materno, una sola palabra"
+          />
+
+          {/* ── Información personal ── */}
+          <Text style={styles.groupLabel}>Información personal</Text>
+          <AnimatedInput
+            label="Fecha de nacimiento"
+            value={form.fecha_nacimiento}
+            error={errors.fecha_nacimiento}
+            placeholder="AAAA-MM-DD"
+            onChangeText={hFechaNacimiento}
+            inputRef={fechaNacimientoRef}
+            returnKeyType="next"
+            onSubmitEditing={() => telefonoRef.current?.focus()}
+            keyboardType="numbers-and-punctuation"
+            hint="Formato recomendado: 1995-08-24"
+          />
+          <SexoSelector value={form.sexo} error={errors.sexo} onChange={hSexo} />
+          <AnimatedInput
+            label="Celular"
+            value={form.telefono}
+            error={errors.telefono}
+            placeholder="09XXXXXXXX"
+            keyboardType="phone-pad"
+            autoCapitalize="none"
+            onChangeText={hTelefono}
+            inputRef={telefonoRef}
+            returnKeyType="next"
             onSubmitEditing={() => cedulaRef.current?.focus()}
-            hint="Apellido materno"
+            hint="Usa 09XXXXXXXX o +5939XXXXXXXX"
           />
 
           {/* ── Identificación ── */}
@@ -443,6 +544,14 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 8,
   },
+  requiredBadge: {
+    fontSize: 11,
+    color: colors.primary,
+    backgroundColor: "rgba(0, 91, 172, 0.08)",
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 8,
+  },
   inputWrapper: {
     borderWidth: 1.5,
     borderRadius: 12,
@@ -466,6 +575,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.gray,
     marginLeft: 2,
+  },
+  optionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  optionChip: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.lightGray,
+    backgroundColor: colors.background,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionChipActive: {
+    backgroundColor: "rgba(0, 91, 172, 0.12)",
+    borderColor: colors.primary,
+  },
+  optionChipPressed: {
+    opacity: 0.88,
+  },
+  optionChipText: {
+    fontSize: 13,
+    color: colors.gray500,
+    fontWeight: "600",
+  },
+  optionChipTextActive: {
+    color: colors.primary,
   },
   button: {
     backgroundColor: colors.secondary,
