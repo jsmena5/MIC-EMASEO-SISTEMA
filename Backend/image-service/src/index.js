@@ -1,6 +1,5 @@
 import express from "express"
 import cors from "cors"
-import rateLimit from "express-rate-limit"
 import imageRoutes from "./routes/image.routes.js"
 import incidentRoutes from "./routes/incident.routes.js"
 import supervisorRoutes from "./routes/supervisor.routes.js"
@@ -43,16 +42,6 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }))
 // Todas las rutas /api/* requieren el token interno inyectado por el gateway.
 app.use("/api", internalAuth)
 
-// Defensa en profundidad: 20 análisis por IP por hora
-const imageLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Límite de análisis de imágenes alcanzado. Inténtalo de nuevo en 1 hora.", status: 429 },
-})
-
-app.use("/api/image", imageLimiter)
 app.use("/api/image", imageRoutes)
 app.use("/api/incidents", incidentRoutes)
 app.use("/api/supervisor", supervisorRoutes)
