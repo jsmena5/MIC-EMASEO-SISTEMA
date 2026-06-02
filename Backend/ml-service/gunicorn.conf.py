@@ -34,3 +34,12 @@ max_requests_jitter = 100
 accesslog = "-"
 errorlog  = "-"
 loglevel  = os.environ.get("GUNICORN_LOG_LEVEL", "info")
+
+# ── Precarga CLIP en el proceso padre (antes del fork) ────────────────────────
+# on_starting corre en el master ANTES de que se forken los workers.
+# Con preload_app=True el módulo ya está en sys.modules y _clip_model queda
+# seteado → los workers lo heredan por copy-on-write sin volver a cargarlo.
+# Sin esto, cada worker carga su propia copia (~400 MB × 6 = 2.4 GB).
+def on_starting(server):
+    from semantic_gate import warm_up_clip
+    warm_up_clip()
