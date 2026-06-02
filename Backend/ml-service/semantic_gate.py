@@ -273,6 +273,12 @@ _NEGATIVE_PROMPTS = [
     "a utility pole or electricity post",
     "a fire hydrant on a sidewalk",
     "a painted wall or colorful mural",
+    # ── Accesorios personales ─────────────────────────────────────────────────
+    "eyeglasses or sunglasses on a surface",
+    "glasses and accessories on a desk or table",
+    "a watch or jewelry on a surface",
+    "a pen or pencil on a notebook",
+    "personal accessories laid on a table",
     # ── Comida preparada en exteriores ────────────────────────────────────────
     "a barbecue or grill being used outdoors",
     "street food being cooked at a stall",

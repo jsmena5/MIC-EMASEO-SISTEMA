@@ -415,29 +415,14 @@ export default function ScanScreen() {
           const check = await preCheckImage(thumbB64)
           if (check && !check.is_garbage) decision = "ask-not-garbage"
         } catch {
-          // El pre-check es SOLO una optimización para ahorrar inferencia en el
-          // servidor; el validador real es el pipeline YOLO del backend (que
-          // devuelve DESCARTADO si no hay basura). Por eso ante CUALQUIER fallo
-          // del pre-check —sea de red (sin response) o un error HTTP 4xx/5xx/504—
-          // hacemos fail-OPEN: ofrecemos enviar igual en lugar de bloquear al
-          // usuario. Bloquear aquí dejaba al ciudadano sin poder reportar cuando
-          // el pre-check tenía un hipo (timeout del modelo en frío, 500, etc.).
-          decision = "ask-open"
+          // Pre-check falló (timeout, 500, red lenta). Es solo una optimización;
+          // el pipeline completo valida la imagen al recibirla. Continuamos
+          // silenciosamente sin mostrar ningún error al usuario — ver un dialog
+          // de error en este punto lo confunde y le hace pensar que la app está
+          // dañada cuando en realidad el envío funciona perfectamente.
+          decision = "send"
         }
       }
-    }
-
-    if (decision === "ask-open") {
-      releaseGuard()
-      Alert.alert(
-        "No pudimos verificar la imagen",
-        "No se pudo revisar la imagen antes de enviarla, pero el servidor la analizará al recibirla. ¿Deseas enviarla de todos modos?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          { text: "Enviar de todos modos", onPress: () => proceedToAnalysis(capturedB64!) },
-        ],
-      )
-      return
     }
 
     if (decision === "ask-not-garbage") {
