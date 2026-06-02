@@ -1,4 +1,24 @@
-import rateLimit from "express-rate-limit"
+import rateLimit, { ipKeyGenerator } from "express-rate-limit"
+import jwt from "jsonwebtoken"
+
+// ── keyGenerator por usuario (no por IP) ──────────────────────────────────────
+// Agrupa el conteo por userId del JWT en lugar de por IP. Es CRÍTICO para redes
+// compartidas (laboratorios, aulas, CGNAT móvil) donde decenas de personas salen
+// con la MISMA IP pública: con key por IP, 60 usuarios comparten una sola cuota y
+// se bloquean entre sí aunque cada uno reporte poco.
+// jwt.decode (sin verificar firma) basta para agrupar — verifyToken valida el
+// token de verdad en el siguiente middleware. Sin token → cae a la IP (con el
+// helper ipKeyGenerator que normaliza IPv6).
+const keyByUserOrIp = (req /*, res */) => {
+  const auth = req.headers["authorization"]
+  if (auth) {
+    try {
+      const decoded = jwt.decode(auth.split(" ")[1])
+      if (decoded?.id) return `u:${decoded.id}`
+    } catch { /* token ilegible → cae a IP */ }
+  }
+  return ipKeyGenerator(req.ip)
+}
 
 // ── Store Redis opcional ──────────────────────────────────────────────────────
 // Si REDIS_URL está definida, cada instancia del gateway comparte contadores
@@ -29,10 +49,12 @@ const message429 = (msg) => ({
 })
 
 // ── Limitador global — protección base para todas las rutas ──────────────────
-// 300 peticiones por IP cada 15 minutos es suficiente para uso normal
+// Por USUARIO (no por IP). 1000/15min cubre el polling intensivo: cada reporte
+// hace ~30 consultas GET /image/status mientras el ML procesa, más navegación.
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  max: 1000,
+  keyGenerator: keyByUserOrIp,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore("rl:global:"),
@@ -40,10 +62,13 @@ export const globalLimiter = rateLimit({
 })
 
 // ── Login / Refresh / Logout — protección anti fuerza bruta ─────────────────
-// 10 intentos por IP cada 15 minutos
+// Por IP (anti fuerza bruta). 100/15min: un login exitoso es 1 request y dura
+// 7 días (refresh token), así que el límite real solo lo tocan los reintentos.
+// Subido de 10 para soportar decenas de personas logueándose desde la misma red
+// compartida (lab/CGNAT) sin bloquearse entre sí; 100 sigue frenando un bot.
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore("rl:auth:"),
@@ -73,10 +98,12 @@ export const otpLimiter = rateLimit({
 })
 
 // ── Análisis de imagen — protege operación costosa de ML ─────────────────────
-// 20 análisis por IP por hora
+// Por USUARIO, 60/hora. Solo cuenta el POST /analyze + pre-check (~2 por reporte),
+// NO el polling (eximido en index.js) → ~30 reportes/hora por persona.
 export const imageLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 20,
+  max: 60,
+  keyGenerator: keyByUserOrIp,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore("rl:image:"),

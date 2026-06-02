@@ -278,7 +278,14 @@ app.post(
 // on.proxyReq inyecta el user del JWT como headers HTTP al image-service.
 // proxyTimeout/timeout en 120 s porque la primera inferencia del modelo ML
 // puede tardar 30-90 s en frío (carga de pesos en GPU/CPU).
-app.use("/api/image", imageLimiter, verifyToken, requireCiudadano, createProxyMiddleware({
+// imageLimiter SOLO debe contar el POST /analyze (la operación ML costosa).
+// El polling GET /image/status/:id hace ~30 requests por reporte mientras el ML
+// procesa; si contaran, un solo reporte agotaría la cuota. El polling queda
+// cubierto únicamente por el globalLimiter (que es generoso y por usuario).
+const analyzeRateLimit = (req, res, next) =>
+  req.method === "POST" ? imageLimiter(req, res, next) : next()
+
+app.use("/api/image", analyzeRateLimit, verifyToken, requireCiudadano, createProxyMiddleware({
   target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/image" + path,
