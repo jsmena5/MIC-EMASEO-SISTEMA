@@ -214,6 +214,11 @@ services:
     environment:
       <<: *ml-env
       UPLOADS_DIR: /app/uploads
+      # Con preload_app=True en gunicorn.conf.py, CLIP (~400 MB) se carga una
+      # vez en el proceso padre y los workers lo heredan por copy-on-write.
+      # 6 workers = (2×cores-2) para 4 vCPUs con 7.8 GB RAM:
+      #   400 MB CLIP + 6×100 MB workers + 1 GB resto = ~2 GB total.
+      GUNICORN_WORKERS: "6"
     volumes:
       # Volumen efímero compartido con ml-worker: la imagen vive aquí solo
       # durante la inferencia (~1-30 s). No es almacenamiento permanente.
