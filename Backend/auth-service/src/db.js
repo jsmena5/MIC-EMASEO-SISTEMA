@@ -13,7 +13,7 @@ export const pool = new Pool({
   connectionTimeoutMillis: 8_000,
   // Supabase cierra conexiones idle en ~300 s. Usamos 60 s para descartar
   // clientes del pool antes de que el servidor los mate silenciosamente.
-  idleTimeoutMillis:       60_000,
+  idleTimeoutMillis:       20_000,
   // keepAlive envía paquetes TCP periódicos para detectar conexiones muertas
   // antes de que la siguiente consulta falle con "Connection terminated".
   keepAlive:               true,

@@ -18,7 +18,7 @@ export const pool = new Pool({
   port:                    Number(process.env.DB_PORT) || 5432,
   max:                     5,
   connectionTimeoutMillis: 8_000,
-  idleTimeoutMillis:       60_000,
+  idleTimeoutMillis:       20_000,
   keepAlive:               true,
   keepAliveInitialDelayMillis: 10_000,
   ssl:                     process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
