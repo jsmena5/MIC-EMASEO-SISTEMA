@@ -98,11 +98,11 @@ export const otpLimiter = rateLimit({
 })
 
 // ── Análisis de imagen — protege operación costosa de ML ─────────────────────
-// Por USUARIO, 60/hora. Solo cuenta el POST /analyze + pre-check (~2 por reporte),
-// NO el polling (eximido en index.js) → ~30 reportes/hora por persona.
+// Por USUARIO, 120/hora. Solo cuenta el POST /analyze + pre-check (~2 por reporte),
+// NO el polling (eximido en index.js) → ~60 reportes/hora por persona.
 export const imageLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 60,
+  max: 120,
   keyGenerator: keyByUserOrIp,
   standardHeaders: true,
   legacyHeaders: false,
