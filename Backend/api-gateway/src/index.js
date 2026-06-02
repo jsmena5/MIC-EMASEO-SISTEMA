@@ -80,7 +80,14 @@ app.use(helmet())
 app.use(cors(corsOptions))
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"))
 app.use(requestId)
-app.use(globalLimiter)
+// globalLimiter no aplica al polling de estado: GET /api/image/status/* es
+// lectura autenticada que hace ~2 req/s por tarea activa. Con 2 tareas en paralelo
+// se agotan 1000 req/15min en ~4 min bloqueando también el POST /analyze.
+// El polling solo lo cubre verifyToken + requireCiudadano (autenticación real).
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.path.startsWith("/api/image/status/")) return next()
+  return globalLimiter(req, res, next)
+})
 
 // Health — responde antes de cualquier middleware de autenticación
 app.get("/health", (_req, res) => res.json({ status: "ok" }))
