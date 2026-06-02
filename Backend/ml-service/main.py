@@ -31,6 +31,11 @@ UPLOADS_DIR = Path(os.environ.get("UPLOADS_DIR", "/app/uploads"))
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    # Pre-carga CLIP al arrancar (con preload_app=True en gunicorn, esto ocurre
+    # en el proceso padre antes del fork → todos los workers comparten el modelo
+    # por copy-on-write en lugar de cada uno cargar su propia copia ~400 MB).
+    from semantic_gate import warm_up_clip
+    warm_up_clip()
     yield
 
 

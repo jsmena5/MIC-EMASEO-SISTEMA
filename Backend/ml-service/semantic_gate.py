@@ -278,6 +278,32 @@ _NEGATIVE_PROMPTS = [
     "street food being cooked at a stall",
     "a person eating outdoors",
     "food trays or containers being served",
+    # ── Mochilas y bolsos — interior y exterior ───────────────────────────────
+    "the inside of a backpack showing fabric and zippers",
+    "a zipper close-up on a bag or backpack",
+    "white or light colored fabric inside a bag",
+    "a backpack open on a desk or floor",
+    "a school bag or purse on a surface",
+    "textile fabric and zipper detail",
+    # ── Cargadores y adaptadores eléctricos ──────────────────────────────────
+    "a laptop charger or power adapter with cable",
+    "a black power supply or electronic transformer",
+    "a phone charger or USB cable plugged in",
+    "an electrical adapter on a wooden surface",
+    "a power brick with attached cable",
+    "electronic accessories on a desk",
+    # ── Aulas y mobiliario escolar vacío ──────────────────────────────────────
+    "empty desks and chairs in a classroom",
+    "school furniture in an empty room",
+    "rows of chairs and tables in a classroom",
+    "a classroom with no people",
+    "desks and monitors in a computer lab",
+    "chairs around a table in an office or school",
+    # ── Cables en el piso (no basura) ─────────────────────────────────────────
+    "a cable coiled or looped on a clean floor",
+    "ethernet or power cable on a tiled floor",
+    "a blue or colored cable on the ground indoors",
+    "extension cord or cable running across a floor",
 ]
 
 # ── Cache global del modelo CLIP ──────────────────────────────────────────────
