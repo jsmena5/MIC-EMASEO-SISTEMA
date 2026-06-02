@@ -214,14 +214,11 @@ services:
     environment:
       <<: *ml-env
       UPLOADS_DIR: /app/uploads
-      # 1 worker: ml-api no hace inferencia pesada, solo encola tareas Celery
-      # y ejecuta pre-checks CLIP. 1 proceso = 1 copia de CLIP (~400 MB).
-      # Más workers provocaban OOM: cada uno cargaba CLIP en paralelo al arrancar.
-      GUNICORN_WORKERS: "1"
+      # El pre-check usa OpenCV (NO CLIP): cada worker ocupa ~150 MB.
+      # 2 workers = 60 pre-checks simultáneos se sirven sin cola.
+      GUNICORN_WORKERS: "2"
     volumes:
       - shared_uploads:/app/uploads
-      # Mismo caché de pesos CLIP que ml-worker: evita re-descargar ~600 MB
-      # desde HuggingFace en cada reinicio del contenedor.
       - hf_cache:/app/hf_cache
     depends_on:
       redis:
@@ -238,8 +235,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 2G
+          cpus: '1.0'   # pre-check es liviano; deja 3 cores libres para Node+ML
+          memory: 500M
 
   # ── ML Worker (Celery) ────────────────────────────────────────────────────────
   # El worker recibe la imagen vía Celery payload (no via volumen compartido).
@@ -252,10 +249,14 @@ services:
       <<: *ml-env
       USE_MIDAS_VOLUME: "false"
       UPLOADS_DIR: /app/uploads
+      # 2 threads por inferencia RT-DETR × 2 tareas concurrentes = 4 threads
+      # máximo, que caben justo en los 4 vCPU del VPS sin desbordar.
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
-      - hf_cache:/app/hf_cache  # pesos CLIP ViT-B/32 (~350 MB) — persisten entre reinicios
+      - hf_cache:/app/hf_cache
     depends_on:
       redis:
         condition: service_healthy
@@ -264,6 +265,7 @@ services:
         -Q ml_queue,dead_letter
         --loglevel=info
         --hostname=worker@%h
+        --concurrency=2
     healthcheck:
       test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping", "--timeout=5"]
       interval: 60s
@@ -275,7 +277,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4.0'
+          cpus: '3.0'   # 3 de 4 vCPU para inferencia; 1 queda para Node+ml-api
           memory: 4G
 
   # ── Flower (opcional — colocar detrás de proxy con TLS si se expone) ──────────
