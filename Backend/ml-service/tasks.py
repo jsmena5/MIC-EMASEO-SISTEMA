@@ -157,20 +157,21 @@ def _get_model():
 
 @signals.worker_process_init.connect
 def _preload_model_on_startup(**kwargs):
-    """Pre-carga modelos en CADA hijo después del fork (no en el padre).
+    """Pre-carga RT-DETR en CADA hijo después del fork (no en el padre).
 
     worker_process_init fires en cada proceso hijo tras el fork — esto evita
     el deadlock conocido de PyTorch+fork: si el padre carga el modelo (con
     threadpools internos OMP/MKL) y luego forkea, los hijos heredan referencias
     a hilos que no existen → futex_wait_queue_me eterno → tareas nunca completan.
 
-    Carga en orden:
-      1. RT-DETR-L  — detector de residuos principal
-      2. CLIP ViT-B/32 — gate semántico para filtrar falsos positivos
+    CLIP (semantic_gate) se carga lazy en el primer verify_is_garbage() real
+    para evitar un segundo deadlock: open_clip.create_model_and_transforms() +
+    hf_hub_download() dentro de un ForkPoolWorker cuelga ~300 s incluso con
+    HF_HUB_OFFLINE=1 (huggingface_hub hace al menos un request de telemetría
+    que bloquea en TCP hasta el soft_time_limit).
     """
     if not DUMMY_MODE:
         _get_model()
-        _warm_up_clip()
 
 
 @celery.task(
@@ -259,8 +260,13 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
 
     from PIL import Image
 
+    logger.info("[run_inference] START task_id=%s image=%s", self.request.id, image_path)
+    print(f"[run_inference] START task_id={self.request.id} image={image_path}", flush=True)
+
     try:
         img = Image.open(image_path).convert("RGB")
+        logger.info("[run_inference] image loaded %dx%d", *img.size)
+        print(f"[run_inference] image loaded {img.size[0]}x{img.size[1]}", flush=True)
 
         img_w, img_h = img.size
         img_area      = img_w * img_h

@@ -216,6 +216,7 @@ services:
       UPLOADS_DIR: /app/uploads
       GUNICORN_WORKERS: "2"
       HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
       HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - shared_uploads:/app/uploads
@@ -258,6 +259,7 @@ services:
       # Sin esto, cada carga de CLIP hace un request a HF que con rate-limiting
       # puede colgar por minutos bloqueando la primera inferencia tras reinicio.
       HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
       HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - shared_uploads:/app/uploads
