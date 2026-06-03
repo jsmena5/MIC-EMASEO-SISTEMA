@@ -33,7 +33,7 @@ x-ml-env: &ml-env
   SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
   SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
   # ── Gate de calidad: blur y cobertura ────────────────────────────────────────
-  BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-80.0}"
+  BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-0}"
   MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
   # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────────────────
   HF_HOME: /app/hf_cache
@@ -214,9 +214,9 @@ services:
     environment:
       <<: *ml-env
       UPLOADS_DIR: /app/uploads
-      # El pre-check usa OpenCV (NO CLIP): cada worker ocupa ~150 MB.
-      # 2 workers = 60 pre-checks simultáneos se sirven sin cola.
       GUNICORN_WORKERS: "2"
+      HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - shared_uploads:/app/uploads
       - hf_cache:/app/hf_cache
@@ -253,6 +253,12 @@ services:
       # máximo, que caben justo en los 4 vCPU del VPS sin desbordar.
       OMP_NUM_THREADS: "2"
       MKL_NUM_THREADS: "2"
+      # Fuerza HuggingFace Hub a modo offline: usa solo el caché local (hf_cache
+      # volume) sin hacer requests HTTP para verificar actualizaciones del modelo.
+      # Sin esto, cada carga de CLIP hace un request a HF que con rate-limiting
+      # puede colgar por minutos bloqueando la primera inferencia tras reinicio.
+      HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro

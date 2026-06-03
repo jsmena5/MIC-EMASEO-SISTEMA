@@ -89,7 +89,7 @@ USE_MIDAS_VOLUME = os.environ.get("USE_MIDAS_VOLUME", "false").lower() == "true"
 #   · Foto ligeramente movida: ~200-400
 #   · Foto muy borrosa/desenfocada: <100
 # Configurable vía BLUR_VARIANCE_MIN; 0 = desactiva el gate de blur.
-BLUR_VARIANCE_MIN = float(os.environ.get("BLUR_VARIANCE_MIN", "80.0"))
+BLUR_VARIANCE_MIN = float(os.environ.get("BLUR_VARIANCE_MIN", "0"))
 
 # ── Gate de cobertura mínima global ───────────────────────────────────────────
 # Coverage ratio mínimo de la unión de bboxes para que el resultado sea válido.
