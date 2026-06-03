@@ -104,7 +104,7 @@ export default function CameraCapture({
       setCamActive(false)
       return
     }
-    const t = setTimeout(() => setCamActive(true), 350)
+    const t = setTimeout(() => setCamActive(true), 800)
     return () => clearTimeout(t)
   }, [hasPermission, device])
 

@@ -131,7 +131,7 @@ export default function ManualScreen({ navigation }: Props) {
       <Animated.View entering={FadeInUp.duration(400)} style={styles.header}>
         <View style={styles.hdecCircle1} />
         <View style={styles.hdecCircle2} />
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate("Home")}>
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>

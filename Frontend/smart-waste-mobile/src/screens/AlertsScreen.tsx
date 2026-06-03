@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -141,14 +142,28 @@ function AlertItem({
 
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
-export default function AlertsScreen({ navigation }: Props) {
-  const [alerts,      setAlerts]      = useState<AppAlert[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [refreshing,  setRefreshing]  = useState(false)
-  const [error,       setError]       = useState<string | null>(null)
-  const [navigating,  setNavigating]  = useState<string | null>(null)   // id del item en carga
+type AlertFilter = "todas" | "no_leidas" | "leidas"
 
-  const unreadCount = alerts.filter((a) => !a.read).length
+const ALERT_FILTERS: { key: AlertFilter; label: string }[] = [
+  { key: "todas",     label: "Todas" },
+  { key: "no_leidas", label: "No leídas" },
+  { key: "leidas",    label: "Leídas" },
+]
+
+export default function AlertsScreen({ navigation }: Props) {
+  const [alerts,       setAlerts]      = useState<AppAlert[]>([])
+  const [loading,      setLoading]     = useState(true)
+  const [refreshing,   setRefreshing]  = useState(false)
+  const [error,        setError]       = useState<string | null>(null)
+  const [navigating,   setNavigating]  = useState<string | null>(null)
+  const [activeFilter, setActiveFilter] = useState<AlertFilter>("todas")
+
+  const unreadCount    = alerts.filter((a) => !a.read).length
+  const filteredAlerts = activeFilter === "no_leidas"
+    ? alerts.filter((a) => !a.read)
+    : activeFilter === "leidas"
+      ? alerts.filter((a) => a.read)
+      : alerts
 
   const fetchNotifications = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -208,7 +223,7 @@ export default function AlertsScreen({ navigation }: Props) {
       <Animated.View entering={FadeInUp.duration(400)} style={styles.header}>
         <View style={styles.hdecCircle1} />
         <View style={styles.hdecCircle2} />
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate("Home")}>
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
@@ -246,6 +261,32 @@ export default function AlertsScreen({ navigation }: Props) {
         </View>
       )}
 
+      {/* Filter bar */}
+      {!loading && !error && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterBar}
+          contentContainerStyle={styles.filterBarContent}
+        >
+          {ALERT_FILTERS.map((f) => {
+            const active = f.key === activeFilter
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveFilter(f.key)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
+        </ScrollView>
+      )}
+
       {/* Lista */}
       {loading ? (
         <View style={styles.center}>
@@ -263,7 +304,7 @@ export default function AlertsScreen({ navigation }: Props) {
         </View>
       ) : (
         <FlatList
-          data={alerts}
+          data={filteredAlerts}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -280,18 +321,33 @@ export default function AlertsScreen({ navigation }: Props) {
                 entering={FadeInDown.delay(80).duration(350)}
                 style={styles.sectionLabel}
               >
-                Notificaciones recientes
+                {activeFilter === "todas"
+                  ? "Notificaciones recientes"
+                  : activeFilter === "no_leidas"
+                    ? "Sin leer"
+                    : "Leídas"}
               </Animated.Text>
             ) : null
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="notifications-off-outline" size={52} color={colors.textTertiary} />
-              <Text style={styles.emptyTitle}>Sin notificaciones</Text>
-              <Text style={styles.emptyText}>
-                Aquí aparecerán los cambios de estado de tus reportes.
-              </Text>
-            </View>
+            alerts.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons name="notifications-off-outline" size={52} color={colors.textTertiary} />
+                <Text style={styles.emptyTitle}>Sin notificaciones</Text>
+                <Text style={styles.emptyText}>
+                  Aquí aparecerán los cambios de estado de tus reportes.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.empty}>
+                <Ionicons name="filter-outline" size={48} color={colors.textTertiary} />
+                <Text style={styles.emptyTitle}>Sin resultados</Text>
+                <Text style={styles.emptyText}>No hay notificaciones con este filtro.</Text>
+                <TouchableOpacity style={styles.filterResetBtn} onPress={() => setActiveFilter("todas")}>
+                  <Text style={styles.filterResetText}>Ver todas</Text>
+                </TouchableOpacity>
+              </View>
+            )
           }
           renderItem={({ item, index }) => (
             <AlertItem
@@ -358,6 +414,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12,
   },
   markAllText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  filterBar: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray200,
+    flexGrow: 0,
+  },
+  filterBarContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: colors.gray100,
+  },
+  filterChipActive: { backgroundColor: "#D97706" },
+  filterChipText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+  filterChipTextActive: { color: "#fff" },
+  filterResetBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    borderRadius: 12,
+    backgroundColor: "#FEF3C7",
+    marginTop: 8,
+  },
+  filterResetText: { color: "#D97706", fontWeight: "700", fontSize: 14 },
   listContent:  { padding: 16, paddingBottom: 40 },
   sectionLabel: {
     fontSize: 11, fontWeight: "700", color: colors.textTertiary,

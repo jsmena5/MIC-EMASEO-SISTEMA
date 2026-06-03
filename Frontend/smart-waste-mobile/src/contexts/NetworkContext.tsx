@@ -15,6 +15,7 @@ interface NetworkContextValue {
   pendingCount: number
   isProcessingQueue: boolean
   refreshPendingCount: () => Promise<void>
+  triggerFlush: () => Promise<void>
 }
 
 const NetworkContext = createContext<NetworkContextValue>({
@@ -22,6 +23,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   pendingCount: 0,
   isProcessingQueue: false,
   refreshPendingCount: async () => {},
+  triggerFlush: async () => {},
 })
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
@@ -78,10 +80,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshPendingCount])
 
-  // Load pending count once on mount
+  // On mount: refresh count and, if there are pending reports, intentar un flush.
+  // Cubre al usuario que SIEMPRE está online (sin transición offline→online): sin
+  // esto, los items atascados — análisis ya enviado pero no confirmado, o sobre el
+  // tope de reintentos — quedaban para siempre como "Pendiente de envío". processQueue
+  // ahora los resuelve (los enviados salen de la cola; los exhaustos se purgan).
   useEffect(() => {
-    refreshPendingCount()
-  }, [refreshPendingCount])
+    void (async () => {
+      await refreshPendingCount()
+      const count = await getPendingCount()
+      if (count > 0) flushQueue()
+    })()
+  }, [refreshPendingCount, flushQueue])
 
   // Global network listener — flushes queue when coming back online
   useEffect(() => {
@@ -104,7 +114,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <NetworkContext.Provider
-      value={{ isConnected, pendingCount, isProcessingQueue, refreshPendingCount }}
+      value={{ isConnected, pendingCount, isProcessingQueue, refreshPendingCount, triggerFlush: flushQueue }}
     >
       {children}
     </NetworkContext.Provider>

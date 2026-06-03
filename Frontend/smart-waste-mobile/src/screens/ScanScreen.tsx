@@ -113,9 +113,11 @@ export default function ScanScreen() {
   const idempotencyKeyRef    = useRef<string | null>(null)
 
   // VisionCamera gestiona el permiso de cámara internamente en CameraCapture.
-  // Aquí solo pedimos Location (no mezclar los dos dialogs simultáneamente).
+  // Retrasamos el permiso de ubicación para que no se solape con el diálogo de
+  // cámara en el primer arranque. En Android, dos diálogos de permisos simultáneos
+  // pueden dejar la pantalla en negro al conceder el primero.
   useEffect(() => {
-    ;(async () => {
+    const timer = setTimeout(async () => {
       const { status: locStatus, canAskAgain: locCanAsk } =
         await Location.requestForegroundPermissionsAsync()
       if (locStatus !== "granted") {
@@ -131,7 +133,8 @@ export default function ScanScreen() {
           )
         }
       }
-    })()
+    }, 1000)
+    return () => clearTimeout(timer)
   }, [])
 
   useEffect(() => {
@@ -147,6 +150,21 @@ export default function ScanScreen() {
       pollingIntervalRef.current = null
     }
     pollingInProgressRef.current = false
+  }
+
+  // Registra un task_id como "en proceso" en AsyncStorage. Una vez que el POST
+  // /analyze devolvió task_id, el incidente YA existe en el servidor y el análisis
+  // continúa aunque el polling de esta pantalla se interrumpa. Persistirlo permite
+  // que el Historial muestre el resultado cuando el ML termine.
+  const persistProcessingTask = async (taskId: string) => {
+    try {
+      const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
+      const tasks: string[] = raw ? JSON.parse(raw) : []
+      if (!tasks.includes(taskId)) tasks.push(taskId)
+      await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
+    } catch (err) {
+      if (__DEV__) console.warn("[ScanScreen] persist processing task falló:", err)
+    }
   }
 
   // Libera el latch anti-doble-tap y devuelve la UI a "idle". Se usa cuando el
@@ -492,7 +510,33 @@ export default function ScanScreen() {
     } catch (e: any) {
       setPhase("idle")
       if (e?.code === "ERR_CANCELED") return
+      const httpStatus = e?.response?.status as number | undefined
       const isNetworkError = !e?.response
+      const isRateLimited = httpStatus === 429
+
+      // 429: no tiene sentido reintentar inmediatamente — el límite no se restablece
+      // hasta la próxima hora. Ofrecer guardar offline para envío automático posterior.
+      if (isRateLimited) {
+        Alert.alert(
+          "Límite de reportes alcanzado",
+          "Has enviado demasiados análisis en la última hora. Guarda el reporte y se enviará automáticamente cuando el límite se restablezca.",
+          [
+            { text: "Cancelar", style: "cancel" },
+            {
+              text: "Guardar para después",
+              onPress: async () => {
+                await enqueuePendingReport(b64, lat, lng, undefined, idempotencyKey)
+                await refreshPendingCount()
+                retake()
+                navigation.reset({ index: 0, routes: [{ name: "Home" }] })
+                Alert.alert("Guardado", "El reporte se enviará automáticamente en la próxima hora.")
+              },
+            },
+          ],
+        )
+        return
+      }
+
       uploadRetryRef.current += 1
       const canRetry = uploadRetryRef.current < MAX_RETRIES
 
@@ -571,14 +615,7 @@ export default function ScanScreen() {
         stopPolling()
         setPhase("idle")
         setIsSlowMessage(false)
-        try {
-          const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
-          const tasks: string[] = raw ? JSON.parse(raw) : []
-          if (!tasks.includes(taskId)) tasks.push(taskId)
-          await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
-        } catch (err) {
-          if (__DEV__) console.warn("[ScanScreen] persist slow-poll task falló:", err)
-        }
+        await persistProcessingTask(taskId)
         Alert.alert(
           "Análisis en progreso",
           "El análisis está tardando más de lo esperado. Podrás ver el resultado en tu historial cuando esté listo.",
@@ -667,56 +704,70 @@ export default function ScanScreen() {
           })
         }, 600)
 
-      } catch {
+      } catch (err: any) {
         stopPolling()
         setPhase("idle")
+
+        // El POST /analyze ya devolvió task_id ⇒ el incidente EXISTE en el servidor
+        // y el análisis sigue corriendo aunque el polling de esta pantalla falle.
+        // Registrarlo para que el resultado aparezca en el Historial. El reporte
+        // NO se perdió: por eso los mensajes evitan dar a entender un fallo de envío.
+        await persistProcessingTask(taskId)
+
+        // Clasificar el error: es la única forma de diagnosticar la causa (429
+        // rate-limit, 5xx servidor, o caída de red). Antes el `catch {}` lo descartaba
+        // y todo se veía como un genérico "Error de conexión".
+        const status = err?.response?.status as number | undefined
+        const code = err?.code as string | undefined
+        const isNetworkError = !err?.response
+        const isRateLimited = status === 429
+        console.warn(
+          `[ScanScreen] poll getTaskStatus falló — status=${status ?? "n/a"} code=${code ?? "n/a"} msg=${err?.message ?? "n/a"}`,
+        )
+
         pollRetryRef.current += 1
         const canRetry = pollRetryRef.current < MAX_RETRIES
 
+        const goToHistorial = {
+          text: "Ver historial",
+          onPress: () => {
+            retake()
+            navigation.reset({ index: 0, routes: [{ name: "Historial" }] })
+          },
+        }
+        const retryPolling = {
+          text: "Reintentar",
+          onPress: () => {
+            pollRetryRef.current = 0
+            startPolling(taskId, lat, lng, imageUri)
+          },
+        }
+
         if (!canRetry) {
-          const savedTaskId = currentTaskIdRef.current
+          // Reintentos agotados — el reporte ya está en el servidor procesándose.
           Alert.alert(
-            "No se pudo obtener el resultado",
-            "No fue posible consultar el estado del análisis. Puedes revisarlo en tu historial más tarde.",
+            "Reporte recibido",
+            "Tu reporte ya fue recibido y se está analizando. No pudimos mostrar el resultado ahora; podrás verlo en tu historial en unos minutos.",
             [
-              {
-                text: "Cancelar",
-                style: "cancel",
-                onPress: retake,
-              },
-              {
-                text: "Ver historial",
-                onPress: async () => {
-                  if (savedTaskId) {
-                    try {
-                      const raw = await AsyncStorage.getItem(PROCESSING_TASKS_KEY)
-                      const tasks: string[] = raw ? JSON.parse(raw) : []
-                      if (!tasks.includes(savedTaskId)) tasks.push(savedTaskId)
-                      await AsyncStorage.setItem(PROCESSING_TASKS_KEY, JSON.stringify(tasks))
-                    } catch (err) {
-                      if (__DEV__) console.warn("[ScanScreen] persist task falló:", err)
-                    }
-                  }
-                  retake()
-                  navigation.reset({ index: 0, routes: [{ name: "Home" }] })
-                },
-              },
-              {
-                text: "Reintentar",
-                onPress: () => {
-                  pollRetryRef.current = 0
-                  startPolling(taskId, lat, lng, imageUri)
-                },
-              },
+              { text: "Cancelar", style: "cancel", onPress: retake },
+              goToHistorial,
+              retryPolling,
             ],
           )
         } else {
+          // Mensaje según el tipo de fallo, dejando claro que el reporte SÍ llegó.
+          const body = isRateLimited
+            ? `El servidor está recibiendo muchas solicitudes. Tu reporte ya fue recibido y se está analizando (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
+            : isNetworkError
+              ? `Tu reporte ya fue recibido. Perdimos la conexión al consultar el estado (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
+              : `Tu reporte ya fue recibido y se está analizando. Hubo un problema temporal al consultar el estado (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
           Alert.alert(
-            "Error de conexión",
-            `No se pudo obtener el estado del análisis (intento ${pollRetryRef.current} de ${MAX_RETRIES}). Inténtalo de nuevo.`,
+            "Análisis en progreso",
+            body,
             [
               { text: "Cancelar", style: "cancel", onPress: retake },
-              { text: "Reintentar", onPress: () => startPolling(taskId, lat, lng, imageUri) },
+              goToHistorial,
+              retryPolling,
             ],
           )
         }
