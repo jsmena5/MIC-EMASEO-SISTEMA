@@ -322,4 +322,4 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-        - subnet: "fd00:dead:beef:1::/64"
+        - subnet: "fd12:3456:789a:1::/64"
