@@ -17,7 +17,6 @@ import {
   authLimiter,
   registrationLimiter,
   otpLimiter,
-  imageLimiter,
   forgotPasswordLimiter,
   passwordResetLimiter,
 } from "./middlewares/rateLimiter.js"
@@ -272,10 +271,9 @@ app.post("/api/users/set-password", otpLimiter,          ...forwardPost(`${USERS
 // Pre-check ML — ciudadanos autenticados. Respuesta síncrona (<200 ms), sin Celery.
 // Recibe thumbnail (~15 KB) y devuelve {garbage_score, is_garbage, threshold}.
 // Usa forwardPost (fetch nativo, timeout 10 s) igual que las otras rutas POST simples.
-// imageLimiter comparte cuota con /api/image para evitar abuso del endpoint.
+// Sin imageLimiter: solo globalLimiter (1000/15min por usuario) protege esta ruta.
 app.post(
   "/api/ml/pre-check",
-  imageLimiter,
   verifyToken,
   requireCiudadano,
   ...forwardPost(`${ML_SERVICE_URL}/pre-check`),
@@ -285,14 +283,10 @@ app.post(
 // on.proxyReq inyecta el user del JWT como headers HTTP al image-service.
 // proxyTimeout/timeout en 120 s porque la primera inferencia del modelo ML
 // puede tardar 30-90 s en frío (carga de pesos en GPU/CPU).
-// imageLimiter SOLO debe contar el POST /analyze (la operación ML costosa).
-// El polling GET /image/status/:id hace ~30 requests por reporte mientras el ML
-// procesa; si contaran, un solo reporte agotaría la cuota. El polling queda
-// cubierto únicamente por el globalLimiter (que es generoso y por usuario).
-const analyzeRateLimit = (req, res, next) =>
-  req.method === "POST" ? imageLimiter(req, res, next) : next()
+// Sin imageLimiter en POST /analyze: solo globalLimiter (1000/15min por usuario).
+// El polling GET /image/status/:id está exento de globalLimiter (línea ~88).
 
-app.use("/api/image", analyzeRateLimit, verifyToken, requireCiudadano, createProxyMiddleware({
+app.use("/api/image", verifyToken, requireCiudadano, createProxyMiddleware({
   target: IMAGE_SERVICE_URL,
   changeOrigin: true,
   pathRewrite: (path) => "/api/image" + path,

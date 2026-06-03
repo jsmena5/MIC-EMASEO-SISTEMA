@@ -32,6 +32,14 @@ type ListItem =
   | { kind: "online";  data: Incident;       key: string }
   | { kind: "pending"; data: PendingReport;  key: string }
 
+// ─── Saneamiento de texto del geocoder ───────────────────────────────────────
+// Algunos dispositivos Android devuelven "ñ" como "ð" (U+00F0) en el geocoder.
+// Además normalizamos a NFC para resolver formas descompuestas (n + tilde).
+function sanitizeText(raw: string | null | undefined): string {
+  if (!raw) return ""
+  return raw.normalize("NFC").replace(/ð/g, "ñ").replace(/Ð/g, "Ñ")
+}
+
 // ─── Filtros ─────────────────────────────────────────────────────────────────
 
 type HistorialFilter = "todos" | "cola" | "procesando" | "revision" | "resueltos" | "fallidos"
@@ -100,10 +108,8 @@ function ReportCard({ item, index, onPress }: CardProps) {
       Location.reverseGeocodeAsync({ latitude: item.latitud, longitude: item.longitud })
         .then(([result]) => {
           if (result) {
-            // NFC normalization fixes garbled characters (e.g. ñ) returned by
-            // some Android Geocoder implementations that produce decomposed Unicode.
-            const street = (result.street ?? "").normalize("NFC")
-            const area   = (result.district ?? result.subregion ?? result.city ?? "").normalize("NFC")
+            const street = sanitizeText(result.street)
+            const area   = sanitizeText(result.district ?? result.subregion ?? result.city)
             const parts  = [street, area].filter(Boolean)
             setAddress(parts.length > 0 ? parts.join(", ") : null)
           }
@@ -559,18 +565,24 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
     borderRadius: 20,
     backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+    minHeight: 36,
+    justifyContent: "center",
   },
   filterChipActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   filterChipText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "600",
-    color: colors.textSecondary,
+    color: colors.gray800,
+    lineHeight: 18,
   },
   filterChipTextActive: {
     color: "#fff",

@@ -8,6 +8,12 @@ import { uuidv4 } from "../utils/uuid"
 
 const QUEUE_KEY = "pending_reports"
 
+// Tope de reintentos de ENVÍO (analyzeImage) por reporte. Al superarlo se descarta
+// de la cola para no dejar items atascados para siempre con thumbnail roto. Los
+// reportes que sí llegaron al servidor (tienen taskId) NUNCA cuentan reintentos:
+// se sacan de la cola y se ven en el Historial como "Procesando".
+const MAX_QUEUE_RETRIES = 5
+
 export interface PendingReport {
   id: string
   createdAt: string
@@ -125,18 +131,36 @@ export async function processQueue(
       await writeQueue(workingQueue)
       succeeded++
     } catch (error) {
-      failed++
+      const currentReport = workingQueue[0] ?? report
 
+      // El servidor rechazó el análisis (FALLIDO) → no reintentar, descartar.
       if (error instanceof TaskAnalysisFailedError) {
+        failed++
         workingQueue = workingQueue.slice(1)
-      } else {
-        const currentReport = workingQueue[0] ?? report
-        workingQueue = [
-          ...workingQueue.slice(1),
-          { ...currentReport, retries: currentReport.retries + 1 },
-        ]
+        await writeQueue(workingQueue)
+        continue
       }
 
+      // Si ya hay taskId, el reporte SE ENVIÓ: el incidente existe en el servidor y
+      // aparece en el Historial (como "Procesando" si el análisis aún no terminó).
+      // Da igual que el análisis no terminara a tiempo (TaskAnalysisTimeoutError) o
+      // que fallara la consulta de estado: NO re-subir la imagen. Sacarlo de la cola.
+      // Esto corta el bucle infinito de "Pendiente de envío · Intento N".
+      if (currentReport.taskId) {
+        succeeded++
+        workingQueue = workingQueue.slice(1)
+        await writeQueue(workingQueue)
+        continue
+      }
+
+      // Sin taskId ⇒ el envío (analyzeImage) falló por red. Reintentar más tarde,
+      // con tope para no dejar el item atascado para siempre con thumbnail roto.
+      failed++
+      const nextRetries = currentReport.retries + 1
+      workingQueue =
+        nextRetries >= MAX_QUEUE_RETRIES
+          ? workingQueue.slice(1)
+          : [...workingQueue.slice(1), { ...currentReport, retries: nextRetries }]
       await writeQueue(workingQueue)
     }
   }

@@ -30,6 +30,14 @@ micemaseo.duckdns.org {
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
+
+		# Timeouts explícitos (el default de Caddy ronda los 100 s). Orden buscado:
+		# gateway 120 s < cliente axios 125 s < Caddy 130 s, para que cualquier
+		# error lo genere el gateway (502/504 limpio) y no un corte de Caddy.
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 130s
+		}
 	}
 }
 

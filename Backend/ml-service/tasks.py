@@ -155,16 +155,18 @@ def _get_model():
     return _model
 
 
-@signals.worker_init.connect
+@signals.worker_process_init.connect
 def _preload_model_on_startup(**kwargs):
-    """Pre-carga todos los modelos al arrancar el worker (no en el primer request).
+    """Pre-carga modelos en CADA hijo después del fork (no en el padre).
+
+    worker_process_init fires en cada proceso hijo tras el fork — esto evita
+    el deadlock conocido de PyTorch+fork: si el padre carga el modelo (con
+    threadpools internos OMP/MKL) y luego forkea, los hijos heredan referencias
+    a hilos que no existen → futex_wait_queue_me eterno → tareas nunca completan.
 
     Carga en orden:
       1. RT-DETR-L  — detector de residuos principal
       2. CLIP ViT-B/32 — gate semántico para filtrar falsos positivos
-
-    Garantiza que todos los modelos estén en memoria antes de que llegue la
-    primera tarea, eliminando latencia de cold-start bajo carga.
     """
     if not DUMMY_MODE:
         _get_model()

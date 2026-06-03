@@ -121,6 +121,8 @@ export default function LoginScreen({ navigation }: Props) {
         setServerError(err.message)
       } else if (!err?.response) {
         setServerError("Sin conexión. Verifica tu internet e inténtalo de nuevo.")
+      } else if (status === 429) {
+        setServerError("Demasiados intentos fallidos. Espera unos minutos e inténtalo de nuevo.")
       } else if (status === 401 || status === 403) {
         setServerError("El correo o la contraseña no son válidos.")
       } else {

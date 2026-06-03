@@ -3,7 +3,7 @@
 **Proyecto:** Sistema de detección y gestión de acumulaciones de basura  
 **Entidad:** EMASEO EP (Empresa Pública Metropolitana de Aseo de Quito)  
 **Repositorio:** https://github.com/jsmena5/MIC-EMASEO-SISTEMA  
-**Última actualización:** Junio 2026
+**Última actualización:** Junio 2026 (rev. 2026-06-03)
 
 ---
 
@@ -185,10 +185,15 @@ El APK del canal `preview` descarga automáticamente nuevas versiones al abrir l
 
 ```bash
 # Solo JS/assets — NO requiere recompilación nativa
+# IMPORTANTE: usar --branch production (ambos canales apuntan a esta rama)
 cd Frontend/smart-waste-mobile
-CI=1 npx eas-cli update --channel preview --platform android --message "descripción"
-CI=1 npx eas-cli update --channel preview --platform ios    --message "descripción"
+$env:CI = "1"; npx eas-cli update --branch production --platform android --message "descripción"
+$env:CI = "1"; npx eas-cli update --branch production --platform ios     --message "descripción"
 ```
+
+> **No usar `--platform all`**: expo-router es una dependencia transitiva de @expo/cli y activa el static rendering web, que falla con "No routes found" porque el proyecto usa React Navigation.
+
+> **No usar `--channel preview`** como destino: desde 2026-06-03, ambos canales (`preview` y `production`) apuntan a la rama `production`. Publicar a `--branch production` llega a todos los builds existentes.
 
 > Un nuevo build nativo (`eas build`) solo es necesario cuando se agregan/cambian dependencias nativas (permisos, módulos de cámara, etc.).
 
@@ -252,11 +257,12 @@ Se ejecutan sobre las detecciones del paso anterior.
 #### Gate A — Nitidez (Blur)
 
 ```
-Varianza del Laplaciano de la imagen < BLUR_VARIANCE_MIN (80.0)
-  → imagen borrosa → resultado: EN_REVISION (el supervisor decide)
+BLUR_VARIANCE_MIN = 0  →  gate DESACTIVADO (default desde 2026-06-03)
 ```
 
-> Referencia: imagen nítida ~800-2000, imagen movida ~200-400, borrosa < 100.
+> Este gate fue desactivado porque confundía imágenes de objetos de baja textura (termos, sillas) con imágenes borrosas — ambas tienen varianza Laplaciana baja, pero por razones distintas. El `GARBAGE_SCORE_HARD_FLOOR = 0.20` (Paso 3) ya discrimina estos casos. Para reactivar: `BLUR_VARIANCE_MIN=80` en el entorno del ml-worker.
+>
+> Referencia histórica: imagen nítida ~800-2000, imagen movida ~200-400, borrosa < 100.
 
 #### Gate B — Cobertura mínima
 
@@ -379,7 +385,7 @@ Ciudadano toma foto
        │
        ▼
 [QUALITY GATES]
-  ├─ Blur < 80 → EN_REVISION
+  ├─ Blur < BLUR_VARIANCE_MIN (default=0 → DESACTIVADO)
   └─ Cobertura < 3 % → EN_REVISION
        │
        ▼
@@ -415,9 +421,9 @@ Estado final: PENDIENTE | EN_REVISION | DESCARTADO | FALLIDO
 | `notifications` | Cola de notificaciones push y en-app |
 | `audit` | Registro de acciones (LOPDP Art. 39) |
 
-### Migraciones (42 archivos)
+### Migraciones (47 archivos)
 
-Las migraciones están en `Backend/database/` y se aplican manualmente en Supabase SQL Editor o pgAdmin. Son todas idempotentes (`IF NOT EXISTS`, `IF EXISTS`).
+Las migraciones están en `Backend/database/` y se aplican manualmente con psql directo a Supabase (ver [Aplicar una migración](#aplicar-una-migración-de-base-de-datos)). Son todas idempotentes (`IF NOT EXISTS`, `IF EXISTS`).
 
 | Rango | Tema |
 |---|---|
@@ -429,6 +435,10 @@ Las migraciones están en `Backend/database/` y se aplican manualmente en Supaba
 | 034–035 | Fix URLs imágenes (proxy gateway, R2 bucket duplicado) |
 | 036–040 | Permisos, config admin, geocerca cierre, auditoría imágenes |
 | 041–042 | Motivo estructurado de rechazo, índice LATERAL JOIN |
+| 043–044 | Perfil extendido ciudadano, campos demográficos |
+| 045 | Fix constraint `chk_inferencia_positiva` |
+| 046 | Idempotency key para reportes (advisory lock; incidents es particionada) |
+| 047 | Fix `fn_notify_citizen()` v3: restaura `incident_created_at` en el INSERT (migración 032 lo omitía → rollback silencioso en toda transición de estado) |
 
 ### Estados del ciclo de vida de un incidente
 
@@ -560,13 +570,17 @@ El sistema envía notificaciones push (FCM/APNs) y en-app en los siguientes even
 
 ### Rate limiting (Redis)
 
-| Endpoint | Límite | Ventana |
-|---|---|---|
-| Login / Auth general | 10 req | 15 min |
-| Registro | 3 req | 1 hora |
-| OTP | 5 req | 15 min |
-| Forgot-password | 5 req | 1 hora |
-| Análisis de imagen | 20 req | 1 hora |
+Los contadores se almacenan en Redis y persisten entre reinicios del gateway. La clave de agrupación es **por usuario** (JWT `userId`) para todos los limitadores excepto `authLimiter`, que es por IP (anti fuerza bruta). Esto es necesario porque en ambientes de laboratorio y en red móvil compartida (CGNAT) múltiples usuarios comparten la misma IP pública.
+
+| Endpoint | Límite | Ventana | Clave |
+|---|---|---|---|
+| Login / Auth (`authLimiter`) | 100 req | 15 min | por IP |
+| Global (`globalLimiter`) | 1 000 req | 15 min | por usuario |
+| Registro | 3 req | 1 hora | por IP |
+| OTP | 5 req | 15 min | por IP |
+| Forgot-password | 5 req | 1 hora | por IP |
+
+> El limitador de análisis de imagen (`imageLimiter`) fue eliminado del gateway (y del image-service) el 2026-06-03. Solo aplica el `globalLimiter` a las rutas `/api/image` y `/api/ml/pre-check`. El polling de estado (`GET /image/status/:id`) nunca contó contra límites costosos.
 
 ### LOPDP (Ley Orgánica de Protección de Datos Personales — Ecuador)
 
@@ -593,11 +607,17 @@ Referrer-Policy: strict-origin-when-cross-origin
 
 ### Límites de recursos Docker (producción)
 
-| Servicio | CPU | Memoria |
-|---|---|---|
-| ML API (FastAPI) | 2.0 | 2 GB |
-| ML Worker (Celery) | 4.0 | 4 GB |
-| Resto de servicios | sin límite explícito | sin límite explícito |
+| Servicio | CPU | Memoria | Notas |
+|---|---|---|---|
+| ML API (FastAPI) | 1.0 | 500 MB | `GUNICORN_WORKERS=2`; solo corre `compute_garbage_score` (OpenCV, ~200ms) — **no carga CLIP** |
+| ML Worker (Celery) | 3.0 | 4 GB | `--concurrency=2`; carga RT-DETR-L + CLIP + MiDaS en cada hijo tras el fork |
+| Resto de servicios | sin límite explícito | sin límite explícito | |
+
+> **Capacidad medida (2026-06-03, VPS 4 vCPU / 7.8 GB):** 60 tareas concurrentes → 100% completadas en ~200s (p50: 107s, p95: 197s, 0% pérdida). Throughput sostenido: **18 tareas/min**. En uso normal (1-3 reportes/min agregados) la latencia percibida es ~5 s.
+>
+> Si se necesita más capacidad: incrementar `--concurrency` en ml-worker o añadir otra instancia del worker, pero reducir `OMP_NUM_THREADS=1` para evitar contención de CPU.
+
+> **Swap:** el VPS requiere 4 GB de swapfile + `vm.swappiness=10` para sobrevivir picos de carga. Sin swap el OOM killer mata los workers de Celery. Configurado manualmente en el host (`/etc/fstab`).
 
 ### Health checks
 
@@ -611,13 +631,22 @@ Todos los servicios tienen healthcheck automático en Docker. El gateway solo re
 | ML Worker | `celery inspect ping` | 60 s |
 | Redis | `redis-cli ping` | 10 s |
 
+### Detalles de inicialización del ML Worker (Celery)
+
+El worker usa `@signals.worker_process_init.connect` (no `worker_init`) para cargar los modelos. Esto es crítico:
+
+- `worker_init` → se ejecuta en el **proceso padre** antes del fork. Los hijos heredan el estado de los threadpools de PyTorch/OMP → deadlock en `futex_wait_queue_me` → toda inferencia cuelga indefinidamente.
+- `worker_process_init` → se ejecuta en **cada hijo después del fork** → cada proceso carga sus propios modelos de forma limpia.
+
+El `hf_cache` (volumen Docker) debe estar montado tanto en ml-api como en ml-worker. Sin él, cada reinicio re-descarga ~600 MB desde HuggingFace Hub.
+
 ### Actualizar el backend en producción
 
 ```bash
 # En el VPS:
 cd /opt/mic-emaseo
-git stash                                          # guardar cambios locales si los hay
-git pull origin main
+git stash                                          # preservar cambios locales (ver nota abajo)
+git pull --no-rebase origin main                  # usar --no-rebase si hay divergencia de ramas
 git stash pop                                      # restaurar cambios locales
 docker compose -f docker-compose.prod.yml pull    # descargar nuevas imágenes de GHCR
 docker compose -f docker-compose.prod.yml up -d --no-deps image-service   # ejemplo: solo image-service
@@ -625,11 +654,28 @@ docker compose -f docker-compose.prod.yml up -d --no-deps image-service   # ejem
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+> **Config drift conocido:** el VPS tiene commits locales NO pusheados en `docker-compose.prod.yml` (`enable_ipv6: true` en la red Docker, y `HUGGINGFACE_HUB_OFFLINE: "1"` / `HF_HUB_DISABLE_TELEMETRY: "1"` / `DO_NOT_TRACK: "1"` en el bloque de entorno ML). Siempre hacer `git stash` antes de `git pull` para no perderlos.
+>
+> **CI/CD:** el CI (`.github/workflows/ci.yml`) debe pasar lint+test+typecheck antes de publicar imágenes en GHCR. Si el CI falla, el VPS nunca recibe los cambios aunque haga `docker compose pull`.
+
 ### Aplicar una migración de base de datos
 
-1. Abrir Supabase SQL Editor: https://supabase.com/dashboard/project/racsklqvunereluevwfp/sql
+Los usuarios de servicio (`image_svc`, `auth_svc`, etc.) no tienen permisos DDL. Siempre usar el superusuario `postgres`.
+
+**Opción A — psql directo desde el VPS (recomendado):**
+```bash
+# Desde el VPS — psql está instalado en el host
+PGPASSWORD=<postgres-password> psql \
+  "host=db.racsklqvunereluevwfp.supabase.co port=5432 dbname=postgres user=postgres sslmode=require" \
+  -f /opt/mic-emaseo/Backend/database/0XX_nombre.sql
+```
+
+**Opción B — Supabase SQL Editor (DDL puntual):**
+1. Abrir https://supabase.com/dashboard/project/racsklqvunereluevwfp/sql
 2. Pegar el contenido del archivo `Backend/database/0XX_nombre.sql`
 3. Ejecutar — todas las migraciones son idempotentes (`IF NOT EXISTS`)
+
+> ⚠️ **No usar `docker exec -i emaseo-postgres`**: la base de datos es Supabase (remota). No hay contenedor postgres local.
 
 ### Redesplegar los paneles web (Cloudflare Pages)
 
@@ -680,11 +726,17 @@ npx wrangler pages deploy dist --project-name mic-emaseo-admin --commit-dirty=tr
 |---|---|
 | `SEMANTIC_REJECT_THRESHOLD` | Default `0.30` — umbral CLIP para descarte automático |
 | `SEMANTIC_REVIEW_THRESHOLD` | Default `0.62` — umbral CLIP para revisión humana |
-| `BLUR_VARIANCE_MIN` | Default `80.0` — varianza Laplaciano mínima |
+| `BLUR_VARIANCE_MIN` | Default `0` — **gate desactivado**; poner `80` para reactivar |
 | `MIN_COVERAGE_UNION` | Default `0.03` — cobertura mínima del frame (3 %) |
 | `PRE_CHECK_THRESHOLD` | Default `0.35` — umbral garbage_score del pre-check |
 | `DUMMY_MODE` | `false` en prod; `true` para pruebas sin modelo |
 | `REDIS_HOST` | `redis` (nombre del contenedor Docker) |
+| `GUNICORN_WORKERS` | `2` (ml-api); controla cuántos pre-checks corren en paralelo |
+| `DO_NOT_TRACK` | `1` — desactiva telemetría de Ultralytics (evita cuelgues de 5 min en inferencias) |
+| `HUGGINGFACE_HUB_OFFLINE` | `1` — evita que CLIP cuelgue contra el rate-limit de HuggingFace Hub |
+| `HF_HUB_DISABLE_TELEMETRY` | `1` — complementa `HUGGINGFACE_HUB_OFFLINE` |
+
+> **Nota arquitectural:** ml-api **no carga CLIP**; solo ejecuta `compute_garbage_score` (OpenCV). CLIP corre exclusivamente en ml-worker (`semantic_gate`). Nunca agregar `warm_up_clip` al startup de ml-api: con N workers cargando CLIP en paralelo se produce un OOM en cascada.
 
 ### Frontend (Cloudflare Pages / build)
 

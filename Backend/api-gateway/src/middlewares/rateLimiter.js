@@ -98,12 +98,14 @@ export const otpLimiter = rateLimit({
 })
 
 // ── Análisis de imagen — protege operación costosa de ML ─────────────────────
-// Por USUARIO, 120/hora. Solo cuenta el POST /analyze + pre-check (~2 por reporte),
-// NO el polling (eximido en index.js) → ~60 reportes/hora por persona.
+// Por USUARIO, 200/hora. skipFailedRequests=true: los 429 NO suman al contador
+// (evita el bucle donde los reintentos bloquean aún más). Solo cuenta solicitudes
+// que llegaron al image-service (2xx/4xx reales), no las bloqueadas por el límite.
 export const imageLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 120,
+  max: 200,
   keyGenerator: keyByUserOrIp,
+  skipFailedRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore("rl:image:"),
