@@ -196,7 +196,7 @@ CREATE TABLE operations.zones (
     codigo          VARCHAR(20)              NOT NULL UNIQUE,  -- Ej: "ZN-NORTE-01"
     nombre          VARCHAR(150)             NOT NULL,
     descripcion     TEXT,
-    geom            GEOMETRY(Polygon, 4326)  NOT NULL,        -- Poligono — SRID 4326 (WGS84)
+    geom            GEOMETRY(Geometry, 4326) NOT NULL,        -- Polygon o MultiPolygon — SRID 4326 (WGS84)
     supervisor_id   UUID                     REFERENCES auth.users(id) ON DELETE SET NULL,
     activa          BOOLEAN                  NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ              NOT NULL DEFAULT NOW(),
