@@ -1,0 +1,55 @@
+
+========================================================================
+FASE 0 — Verificacion login (1 intento real)
+========================================================================
+  Resultado: OK — endpoint responde
+  Login real                     n=  1  ok=100.0%  p50= 2.559s  p95= 2.559s  p99= 2.559s  err=0
+  Tokens JWT pre-firmados listos: 30
+
+========================================================================
+FASE 1 — Auth burst: 30 logins simultaneos
+========================================================================
+  Duracion: 3.23s  |  OK=4  429s=26
+  (429 = auth-svc IP limiter anti-fuerza-bruta, correcto)
+  Auth endpoint                  n= 30  ok= 13.3%  p50= 2.908s  p95= 2.975s  p99= 2.975s  err=26
+
+========================================================================
+FASE 2 — Pre-check burst: 60 simultaneos
+========================================================================
+  Duracion: 4.84s  throughput: 12.4 req/s
+  Pre-check ML                   n= 60  ok=100.0%  p50= 3.498s  p95= 4.406s  p99= 4.411s  err=0
+
+========================================================================
+FASE 3 — Pipeline completo: 20 reportes simultaneos
+========================================================================
+  Duracion total: 279.9s
+  Estados finales: {'TIMEOUT': 20}
+  Submit imagen (202)            n= 20  ok=100.0%  p50= 0.961s  p95= 2.259s  p99= 2.259s  err=0
+  Pipeline ML completo           n= 20  ok=  0.0%  TODOS FALLARON
+
+========================================================================
+FASE 4 — Carga sostenida: 1 pre-check/segundo x 30s
+========================================================================
+  Duracion: 30.1s  throughput: 1.0 req/s exitosos
+  Pre-check sostenido            n= 30  ok=100.0%  p50= 0.061s  p95= 0.101s  p99= 0.287s  err=0
+
+========================================================================
+FASE 5 — REST endpoints: 30 historial + 30 notificaciones
+========================================================================
+  Duracion: 4.43s
+  GET /incidents/me              n= 30  ok=100.0%  p50= 2.964s  p95= 3.374s  p99= 3.481s  err=0
+  GET /notifications             n= 30  ok=100.0%  p50= 1.051s  p95=  1.55s  p99= 2.034s  err=0
+
+========================================================================
+RESUMEN GLOBAL
+========================================================================
+  Total requests : 160
+  Exitosos       : 114  (71.2%)
+  Errores        : 46  (28.8%)
+
+  Latencias (p50 / p95 / p99):
+    Pre-check (ML API)          p50= 0.061s  p95= 0.101s  p99= 0.287s  n=30
+    Submit imagen               p50= 0.961s  p95= 2.259s  p99= 2.259s  n=20
+    Historial                   p50= 2.964s  p95= 3.374s  p99= 3.481s  n=30
+    Notificaciones              p50= 1.051s  p95=  1.55s  p99= 2.034s  n=30
+

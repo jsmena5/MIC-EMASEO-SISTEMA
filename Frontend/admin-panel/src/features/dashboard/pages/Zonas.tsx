@@ -138,28 +138,44 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   const [importing, setImporting] = useState(false)
   const [error, setError]         = useState("")
   const [result, setResult]       = useState<{ imported: number } | null>(null)
+  const [preview, setPreview]     = useState<Feature<Polygon | MultiPolygon>[] | null>(null)
+  const [fileName, setFileName]   = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setError(""); setPreview(null); setFileName(file.name)
+    try {
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const json = JSON.parse(reader.result as string) as FeatureCollection | Feature
+          let features: Feature<Polygon | MultiPolygon>[] = []
+          if (json.type === "FeatureCollection") {
+            features = (json as FeatureCollection).features.filter(
+              (f) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon"
+            ) as Feature<Polygon | MultiPolygon>[]
+          } else if (json.type === "Feature" && (json.geometry?.type === "Polygon" || json.geometry?.type === "MultiPolygon")) {
+            features = [json as Feature<Polygon | MultiPolygon>]
+          }
+          if (features.length === 0) { setError("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)"); return }
+          setPreview(features)
+        } catch {
+          setError("El archivo no es un JSON válido")
+        }
+      }
+      reader.readAsText(file)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al leer el archivo")
+    }
+  }
+
+  const handleImport = async () => {
+    if (!preview) return
     setError(""); setImporting(true)
     try {
-      const text = await file.text()
-      const json = JSON.parse(text) as FeatureCollection | Feature
-
-      let features: Feature<Polygon | MultiPolygon>[] = []
-      if (json.type === "FeatureCollection") {
-        features = (json as FeatureCollection).features.filter(
-          (f) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon"
-        ) as Feature<Polygon | MultiPolygon>[]
-      } else if (json.type === "Feature" && (json.geometry?.type === "Polygon" || json.geometry?.type === "MultiPolygon")) {
-        features = [json as Feature<Polygon | MultiPolygon>]
-      }
-
-      if (features.length === 0) { setError("El archivo no contiene polígonos válidos"); setImporting(false); return }
-
-      const res = await importZonas(features)
+      const res = await importZonas(preview)
       setResult({ imported: res.imported })
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al importar")
@@ -194,28 +210,81 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
     <Modal title="Importar zonas desde GeoJSON" onClose={onClose}>
       <div className="space-y-4">
         <p className="text-sm text-slate-600">
-          Selecciona un archivo <strong>.geojson</strong> o <strong>.json</strong> con geometrías de tipo <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">Polygon</code> o <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">MultiPolygon</code>. Cada Feature debe tener propiedades <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">codigo</code> y <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">nombre</code>.
+          Selecciona un archivo <strong>.geojson</strong> o <strong>.json</strong> con geometrías
+          de tipo <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">Polygon</code> o{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">MultiPolygon</code>.
+          Cada Feature debe tener propiedades <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">codigo</code> y{" "}
+          <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">nombre</code>.
         </p>
+
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+
+        {/* File picker area */}
         <div
-          className="flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/30 transition"
+          className={`flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 cursor-pointer transition ${
+            preview ? "border-emerald-400 bg-emerald-50/40" : "border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50/30"
+          }`}
           onClick={() => fileRef.current?.click()}
         >
-          <svg className="h-10 w-10 text-slate-400" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          <svg className={`h-9 w-9 ${preview ? "text-emerald-500" : "text-slate-400"}`} fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
+            {preview
+              ? <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              : <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            }
           </svg>
-          <div className="text-sm font-semibold text-slate-700">
-            {importing ? "Procesando…" : "Haz clic o arrastra un archivo GeoJSON"}
+          <div className="text-sm font-semibold text-slate-700 text-center">
+            {preview
+              ? <><span className="text-emerald-700">{fileName}</span><br /><span className="text-xs font-normal text-slate-500">Haz clic para cambiar el archivo</span></>
+              : "Haz clic o arrastra un archivo GeoJSON"
+            }
           </div>
-          <div className="text-xs text-slate-500">Formatos: .geojson, .json — máximo 10 MB</div>
+          {!preview && <div className="text-xs text-slate-500">Formatos: .geojson, .json</div>}
         </div>
+
+        {/* Preview table */}
+        {preview && (
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className="border-b border-slate-100 bg-slate-50 px-4 py-2">
+              <span className="text-xs font-semibold text-slate-600">{preview.length} zona{preview.length !== 1 ? "s" : ""} detectada{preview.length !== 1 ? "s" : ""}</span>
+            </div>
+            <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
+              {preview.map((f, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2">
+                  <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-mono font-semibold text-indigo-700">
+                    {(f.properties?.codigo as string | undefined) ?? "sin código"}
+                  </span>
+                  <span className="text-sm text-slate-700">{(f.properties?.nombre as string | undefined) ?? "sin nombre"}</span>
+                  <span className="ml-auto text-xs text-slate-400">{f.geometry.type}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <input
           ref={fileRef}
           type="file"
           accept=".geojson,.json,application/geo+json,application/json"
-          onChange={(e) => void handleFile(e)}
+          onChange={handleFile}
           className="hidden"
         />
+
+        {/* Action buttons */}
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => void handleImport()}
+            disabled={!preview || importing}
+            className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            {importing ? "Importando…" : `Importar ${preview ? preview.length : ""} zona${preview?.length !== 1 ? "s" : ""}`}
+          </button>
+        </div>
       </div>
     </Modal>
   )
