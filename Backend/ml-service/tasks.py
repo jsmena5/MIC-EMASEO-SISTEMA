@@ -329,9 +329,14 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             pass
 
         if not detecciones:
+            # confianza=0.95 → image-service aplica DESCARTADO (no EN_REVISION)
+            # y dispara la notificación "Imagen sin residuos detectados" al ciudadano.
+            # 0 detecciones sobre el umbral de confianza del modelo es un rechazo seguro.
             return {
                 "success":              True,
                 "has_waste":            False,
+                "confianza":            0.95,
+                "rechazo_motivo":       "no_detections",
                 "message":              "No se detectaron residuos válidos",
                 "tiempo_inferencia_ms": tiempo_ms,
                 "modelo_nombre":        model_name,
