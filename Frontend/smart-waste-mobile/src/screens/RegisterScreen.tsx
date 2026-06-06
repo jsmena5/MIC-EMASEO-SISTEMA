@@ -627,14 +627,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   // ── Picker de fecha de nacimiento ──
+  // Sin overflow:hidden (recortaría el dropdown de Android) ni altura fija en el picker.
   dateGrid: {
     flexDirection: "row",
     borderWidth: 1.5,
     borderColor: colors.lightGray,
     borderRadius: 12,
     backgroundColor: colors.background,
-    overflow: "hidden",
-    minHeight: 72,
   },
   dateGridError: {
     borderColor: "#EF4444",
@@ -642,7 +641,6 @@ const styles = StyleSheet.create({
   dateCol: {
     flex: 1,
     paddingTop: 6,
-    paddingHorizontal: 2,
   },
   dateColLabel: {
     fontSize: 10,
@@ -651,11 +649,10 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
     textAlign: "center",
-    marginBottom: 0,
   },
   picker: {
     width: "100%",
-    height: 44,
     color: colors.black,
+    ...Platform.select({ ios: { height: 160 }, android: {} }),
   },
 })

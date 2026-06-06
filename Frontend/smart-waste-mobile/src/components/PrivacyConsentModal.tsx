@@ -13,6 +13,10 @@
  *   Art. 17 — Derechos ARCOP del titular (Acceso, Rectificación, Cancelación,
  *              Oposición, Portabilidad).
  *
+ * Responsable del tratamiento: estudiantes investigadores de la Universidad de
+ * las Fuerzas Armadas – ESPE en el marco del Proyecto de Integración Curricular.
+ * EMASEO EP actúa como entidad municipal colaboradora, no como responsable.
+ *
  * El modal se muestra UNA VEZ antes de que el usuario complete el formulario
  * de registro. Sin aceptación no se puede continuar ("No acepto" regresa atrás).
  */
@@ -66,7 +70,10 @@ export default function PrivacyConsentModal({ visible, onAccept, onDecline }: Pr
             {/* Responsable */}
             <Section icon="business-outline" title="Responsable del tratamiento">
               <Text style={styles.body}>
-                <Text style={styles.bold}>EMASEO EP</Text> (Empresa Pública Metropolitana de Aseo de Quito), en el marco del presente proyecto académico de la Universidad Técnica del Ecuador.
+                <Text style={styles.bold}>Estudiantes investigadores</Text> de la carrera de Ingeniería en Tecnologías de la Información de la{" "}
+                <Text style={styles.bold}>Universidad de las Fuerzas Armadas – ESPE</Text>, en el marco del{" "}
+                <Text style={styles.bold}>Proyecto de Integración Curricular</Text>.{"\n"}
+                EMASEO EP actúa como entidad municipal colaboradora del proyecto.
               </Text>
             </Section>
 

@@ -104,13 +104,14 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [profileError,   setProfileError]   = useState<string | null>(null)
 
-  // Edición (solo para completar info faltante)
+  // Edición (completar info faltante o rectificar datos existentes — Art. 17 LOPDP)
   const [telefono,   setTelefono]   = useState("")
   const [sexo,       setSexo]       = useState<Sexo>("Prefiero no decir")
   const [birthDay,   setBirthDay]   = useState(1)
   const [birthMonth, setBirthMonth] = useState(1)
   const [birthYear,  setBirthYear]  = useState(2000)
   const [saving,     setSaving]     = useState(false)
+  const [editing,    setEditing]    = useState(false)
 
   // Cambio de contraseña
   const [showChangePw,  setShowChangePw]  = useState(false)
@@ -165,8 +166,8 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
   const translateY      = anim.interpolate({ inputRange: [0, 1], outputRange: [SHEET_MAX_H, 0] })
   const backdropOpacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.55] })
 
-  // Guardar info faltante (solo se usa cuando el perfil está incompleto)
-  const handleCompletar = async () => {
+  // Guardar: funciona tanto para completar info faltante como para rectificar (Art. 17 LOPDP)
+  const handleGuardar = async () => {
     Keyboard.dismiss()
     setSaving(true)
     try {
@@ -176,7 +177,8 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
         sexo,
       })
       setProfile(updated)
-      Alert.alert("Listo", "Tu información fue guardada correctamente.")
+      setEditing(false)
+      Alert.alert("Listo", "Tu información fue actualizada correctamente.")
     } catch (e: any) {
       Alert.alert("Error", e?.response?.data?.message ?? "No se pudo guardar la información.")
     } finally {
@@ -275,8 +277,8 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
                     <InfoRow icon="mail-outline" iconBg="#F5F3FF" iconColor="#7C3AED"
                       label="Correo electrónico" value={profile.email} />
 
-                    {perfilCompleto ? (
-                      /* Perfil completo → todo read-only, sin opción de editar */
+                    {perfilCompleto && !editing ? (
+                      /* Perfil completo — vista lectura con opción de rectificar (Art. 17 LOPDP) */
                       <>
                         <InfoRow icon="call-outline" iconBg="#ECFDF5" iconColor="#059669"
                           label="Teléfono" value={profile.telefono ?? "—"} />
@@ -284,15 +286,13 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
                           label="Fecha de nacimiento" value={fechaLarga(profile.fecha_nacimiento)} />
                         <InfoRow icon="male-female-outline" iconBg={colors.secondaryLight} iconColor={colors.secondary}
                           label="Sexo" value={profile.sexo ?? "—"} />
-                        <View style={styles.lockedNote}>
-                          <Ionicons name="lock-closed-outline" size={13} color={colors.textTertiary} />
-                          <Text style={styles.lockedNoteText}>
-                            Datos registrados al crear tu cuenta.
-                          </Text>
-                        </View>
+                        <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.75}>
+                          <Ionicons name="create-outline" size={15} color={colors.primary} />
+                          <Text style={styles.editBtnText}>Rectificar datos (LOPDP Art. 17)</Text>
+                        </TouchableOpacity>
                       </>
-                    ) : (
-                      /* Perfil incompleto (cuenta antigua) → pedir completar una vez */
+                    ) : (perfilCompleto && editing) || !perfilCompleto ? (
+                      /* Formulario de rectificación / completar perfil */
                       <View style={styles.completeBox}>
                         <View style={styles.completeBanner}>
                           <Ionicons name="information-circle-outline" size={18} color="#B45309" />
@@ -351,19 +351,31 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
                           ))}
                         </View>
 
-                        <TouchableOpacity
-                          style={[styles.primaryBtn, saving && styles.btnDisabled]}
-                          onPress={handleCompletar}
-                          disabled={saving}
-                          activeOpacity={0.8}
-                        >
-                          {saving
-                            ? <ActivityIndicator size="small" color="#fff" />
-                            : <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />}
-                          <Text style={styles.primaryBtnText}>{saving ? "Guardando…" : "Guardar información"}</Text>
-                        </TouchableOpacity>
+                        <View style={styles.formActions}>
+                          {editing && (
+                            <TouchableOpacity
+                              style={styles.cancelBtn}
+                              onPress={() => setEditing(false)}
+                              disabled={saving}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={styles.cancelBtnText}>Cancelar</Text>
+                            </TouchableOpacity>
+                          )}
+                          <TouchableOpacity
+                            style={[styles.primaryBtn, { flex: 1 }, saving && styles.btnDisabled]}
+                            onPress={handleGuardar}
+                            disabled={saving}
+                            activeOpacity={0.8}
+                          >
+                            {saving
+                              ? <ActivityIndicator size="small" color="#fff" />
+                              : <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />}
+                            <Text style={styles.primaryBtnText}>{saving ? "Guardando…" : "Guardar"}</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    )}
+                    ) : null}
                   </>
                 ) : null}
               </>
@@ -566,6 +578,22 @@ const styles = StyleSheet.create({
     marginTop: 14, paddingHorizontal: 4,
   },
   lockedNoteText: { flex: 1, fontSize: 12, color: colors.textTertiary, lineHeight: 17 },
+
+  editBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    alignSelf: "flex-start", marginTop: 14,
+    paddingVertical: 7, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1.5, borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  editBtnText: { fontSize: 13, fontWeight: "600", color: colors.primary },
+
+  formActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  cancelBtn: {
+    paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10,
+    borderWidth: 1.5, borderColor: "#D1D5DB", alignItems: "center", justifyContent: "center",
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
 
   // Completar info
   completeBox: { marginTop: 14, gap: 8 },
