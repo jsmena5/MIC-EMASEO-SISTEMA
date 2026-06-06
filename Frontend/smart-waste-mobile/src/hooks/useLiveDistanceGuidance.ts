@@ -18,8 +18,9 @@ const NORM_FACTOR = 3.0
 // Umbrales para mapear coverage → hint (idénticos a coverage_to_distance_hint en ml_utils.py)
 const TOO_FAR_MAX   = 0.15
 const TOO_CLOSE_MIN = 0.65
-// Throttle: mínimo ms entre actualizaciones de estado (5 fps máximo de UI updates)
-const THROTTLE_MS = 200
+// Throttle por conteo de frames: procesa 1 de cada FRAME_STRIDE (~5 fps a 30 fps de cámara).
+// Evitamos performance.now()/Date.now(): no están garantizados en el runtime del worklet.
+const FRAME_STRIDE = 6
 
 // Umbrales de iluminación (brillo promedio del encuadre, normalizado 0–1).
 // Lenientes a propósito: solo marcan condiciones genuinamente problemáticas para
@@ -63,9 +64,10 @@ export function brightnessToLightingHint(brightness: number): LightingHint {
  */
 export function useLiveDistanceGuidance(
   onUpdate: (hint: DistanceHint, coverage: number, brightness: number) => void,
+  onDebug?: (info: string) => void,
 ) {
-  // Tiempo del último update (ms, worklet shared value para acceso thread-safe)
-  const lastUpdateMs = useSharedValue(0)
+  // Contador de frames (shared value): procesamos 1 de cada FRAME_STRIDE.
+  const frameCounter = useSharedValue(0)
 
   // useRunOnJS creates a worklet-callable wrapper that hops back to the JS thread
   const callOnJS = useRunOnJS(
@@ -75,14 +77,19 @@ export function useLiveDistanceGuidance(
     [onUpdate],
   )
 
+  // Reporta a JS cualquier error del worklet (para diagnóstico en pantalla).
+  const reportDebug = useRunOnJS(
+    (info: string) => { onDebug?.(info) },
+    [onDebug],
+  )
+
   const frameProcessor = useFrameProcessor((frame) => {
     'worklet'
 
-    const now = performance.now()
-    if (now - lastUpdateMs.value < THROTTLE_MS) return
-    lastUpdateMs.value = now
-
     try {
+      frameCounter.value = frameCounter.value + 1
+      if (frameCounter.value % FRAME_STRIDE !== 0) return
+
       const FW = frame.width
       const FH = frame.height
 
@@ -153,10 +160,11 @@ export function useLiveDistanceGuidance(
       }
 
       callOnJS(hint, coverage, brightness)
-    } catch {
-      // Silenciar errores en el worklet — no afectan la UI
+    } catch (e: any) {
+      // Reporta el error a JS para diagnóstico (no rompe la UI).
+      reportDebug('worklet: ' + (e?.message ?? String(e)))
     }
-  }, [callOnJS, lastUpdateMs])
+  }, [callOnJS, reportDebug, frameCounter])
 
   return frameProcessor
 }

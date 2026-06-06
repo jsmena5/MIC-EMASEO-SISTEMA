@@ -77,6 +77,9 @@ export default function CameraCapture({
   const [fpEnabled, setFpEnabled]   = useState(true)
   // true en cuanto llega la primera medición real del frame processor.
   const [guidanceLive, setGuidanceLive] = useState(false)
+  // ── Diagnóstico temporal: causa por la que el sensor en vivo no arranca ──
+  const [debugMsg, setDebugMsg]     = useState<string | null>(null)
+  const [noGuidance, setNoGuidance] = useState(false)
 
   const { hasPermission, requestPermission } = useCameraPermission()
   const device = useCameraDevice("back")
@@ -119,7 +122,15 @@ export default function CameraCapture({
     [onCoverageUpdate, indicatorX, guidanceLive],
   )
 
-  const frameProcessor = useLiveDistanceGuidance(handleGuidanceUpdate)
+  const frameProcessor = useLiveDistanceGuidance(handleGuidanceUpdate, setDebugMsg)
+
+  // Diagnóstico: si tras 3.5 s no llegó ninguna medición del frame processor,
+  // marcamos "sin datos del sensor" para mostrarlo en pantalla.
+  useEffect(() => {
+    if (guidanceLive) { setNoGuidance(false); return }
+    const t = setTimeout(() => { if (!guidanceLive) setNoGuidance(true) }, 3500)
+    return () => clearTimeout(t)
+  }, [guidanceLive])
 
   // El encuadre es óptimo cuando la distancia es correcta Y hay buena luz.
   const allGood = guidanceLive && hint === "OPTIMAL" && lighting === "OK"
@@ -266,6 +277,8 @@ export default function CameraCapture({
         pixelFormat="yuv"
         frameProcessor={fpEnabled ? frameProcessor : undefined}
         onError={(e) => {
+          // Diagnóstico: guardamos el mensaje para mostrarlo en pantalla.
+          setDebugMsg(`onError: ${e.code ?? ""} ${e.message ?? ""}`.trim())
           // Si el fallo es del frame processor (worklets no disponibles), NO
           // matamos la cámara: la desactivamos y re-renderizamos sin guía en
           // vivo para que el usuario igual pueda capturar.
@@ -290,6 +303,16 @@ export default function CameraCapture({
         <Text style={styles.topTitle}>Capturar Incidencia</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      {/* ── Diagnóstico temporal: se oculta solo cuando el sensor en vivo funciona ── */}
+      {!guidanceLive && (
+        <View style={styles.debugBox} pointerEvents="none">
+          <Text style={styles.debugText}>
+            🔧 fp:{fpEnabled ? "on" : "off"} · live:{guidanceLive ? "sí" : "no"}{noGuidance ? " · sin datos 3.5s" : ""}
+          </Text>
+          {debugMsg ? <Text style={styles.debugText}>{debugMsg}</Text> : null}
+        </View>
+      )}
 
       {/* ── Status badge (mensaje de feedback en vivo) ── */}
       <View style={[styles.statusBadge, isReady && styles.statusBadgeReady]}>
@@ -440,6 +463,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,168,89,0.25)",
     borderColor: "rgba(0,168,89,0.5)",
   },
+  debugBox: {
+    alignSelf: "center",
+    backgroundColor: "rgba(220,38,38,0.85)",
+    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10,
+    marginBottom: 8, maxWidth: "92%",
+  },
+  debugText: { color: "#fff", fontSize: 11, fontWeight: "600", textAlign: "center" },
+
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   dotBlue:  { backgroundColor: colors.primary },
   dotGreen: { backgroundColor: colors.secondary },
