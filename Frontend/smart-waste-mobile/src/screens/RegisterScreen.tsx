@@ -14,6 +14,7 @@ import {
   View,
   ActivityIndicator,
 } from "react-native"
+import { Picker } from "@react-native-picker/picker"
 import Reanimated, {
   FadeInDown,
   useAnimatedStyle,
@@ -39,6 +40,23 @@ const RE_PALABRA  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const RE_TELEFONO = /^(?:\+?5939[0-9]{8}|09[0-9]{8})$/
 const SEXO_OPCIONES = ["Masculino", "Femenino", "Otro", "Prefiero no decir"] as const
+
+// ─── Helpers y constantes para el picker de fecha ────────────────────────────
+const MONTH_LABELS = [
+  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
+]
+const CURRENT_YEAR = new Date().getFullYear()
+// Años disponibles: de 13 a 100 años atrás (rango válido de edad)
+const BIRTH_YEARS  = Array.from({ length: 88 }, (_, i) => CURRENT_YEAR - 13 - i)
+
+function daysInMonth(month: number, year: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
+function isoFromParts(day: number, month: number, year: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+}
 
 const validarCedula = (cedula: string): boolean => {
   if (!/^\d{10}$/.test(cedula)) return false
@@ -87,9 +105,9 @@ function validarFechaNacimientoField(v: string, label: string): string | undefin
 
 // ─── Campos del formulario ────────────────────────────────────────────────────
 
-type FormField = "nombres" | "apellidos" | "fecha_nacimiento" | "sexo" | "telefono" | "cedula" | "email"
+type FormField = "nombres" | "apellidos" | "sexo" | "telefono" | "cedula" | "email"
 type FormType  = Record<FormField, string>
-type ErrorType = Partial<Record<FormField, string>>
+type ErrorType = Partial<Record<FormField | "fecha_nacimiento", string>>
 
 // ─── AnimatedInput (memoizado) ────────────────────────────────────────────────
 
@@ -168,6 +186,85 @@ const AnimatedInput = memo(function AnimatedInput({
   )
 })
 
+// ─── FechaNacimientoPicker ────────────────────────────────────────────────────
+
+interface FechaPickerProps {
+  day:       number | null
+  month:     number | null
+  year:      number | null
+  error?:    string
+  onChange:  (day: number, month: number, year: number) => void
+}
+
+function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPickerProps) {
+  const safeYear  = year  ?? BIRTH_YEARS[30]
+  const safeMonth = month ?? 1
+  const maxDay    = daysInMonth(safeMonth, safeYear)
+  const safeDay   = day   ? Math.min(day, maxDay) : 1
+
+  const days = Array.from({ length: maxDay }, (_, i) => i + 1)
+
+  return (
+    <View style={styles.fieldWrapper}>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>Fecha de nacimiento</Text>
+      </View>
+      <View style={[styles.dateGrid, error ? styles.dateGridError : undefined]}>
+        {/* Día */}
+        <View style={styles.dateCol}>
+          <Text style={styles.dateColLabel}>Día</Text>
+          <Picker
+            selectedValue={safeDay}
+            onValueChange={(v) => onChange(Number(v), safeMonth, safeYear)}
+            style={styles.picker}
+            mode="dropdown"
+          >
+            {days.map(d => (
+              <Picker.Item
+                key={d}
+                label={String(d).padStart(2, "0")}
+                value={d}
+              />
+            ))}
+          </Picker>
+        </View>
+        {/* Mes */}
+        <View style={[styles.dateCol, { flex: 1.8 }]}>
+          <Text style={styles.dateColLabel}>Mes</Text>
+          <Picker
+            selectedValue={safeMonth}
+            onValueChange={(v) => onChange(safeDay, Number(v), safeYear)}
+            style={styles.picker}
+            mode="dropdown"
+          >
+            {MONTH_LABELS.map((m, i) => (
+              <Picker.Item key={i} label={m} value={i + 1} />
+            ))}
+          </Picker>
+        </View>
+        {/* Año */}
+        <View style={[styles.dateCol, { flex: 1.4 }]}>
+          <Text style={styles.dateColLabel}>Año</Text>
+          <Picker
+            selectedValue={safeYear}
+            onValueChange={(v) => onChange(safeDay, safeMonth, Number(v))}
+            style={styles.picker}
+            mode="dropdown"
+          >
+            {BIRTH_YEARS.map(y => (
+              <Picker.Item key={y} label={String(y)} value={y} />
+            ))}
+          </Picker>
+        </View>
+      </View>
+      {error
+        ? <Text style={styles.errorText}>{error}</Text>
+        : <Text style={styles.hintText}>Elige tu fecha de nacimiento</Text>
+      }
+    </View>
+  )
+}
+
 interface SexoSelectorProps {
   value: string
   error?: string
@@ -214,9 +311,14 @@ function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
 export default function RegisterScreen({ navigation }: Props) {
   const [form, setForm] = useState<FormType>({
     nombres: "", apellidos: "",
-    fecha_nacimiento: "", sexo: "", telefono: "",
+    sexo: "", telefono: "",
     cedula: "", email: "",
   })
+  // Partes del picker de fecha (null = no elegido todavía)
+  const [fechaDay,   setFechaDay]   = useState<number | null>(null)
+  const [fechaMonth, setFechaMonth] = useState<number | null>(null)
+  const [fechaYear,  setFechaYear]  = useState<number | null>(null)
+
   const [errors,  setErrors]  = useState<ErrorType>({})
   const [loading, setLoading] = useState(false)
 
@@ -224,11 +326,10 @@ export default function RegisterScreen({ navigation }: Props) {
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
 
-  const apellidosRef       = useRef<TextInput>(null)
-  const fechaNacimientoRef = useRef<TextInput>(null)
-  const telefonoRef        = useRef<TextInput>(null)
-  const cedulaRef          = useRef<TextInput>(null)
-  const emailRef           = useRef<TextInput>(null)
+  const apellidosRef = useRef<TextInput>(null)
+  const telefonoRef  = useRef<TextInput>(null)
+  const cedulaRef    = useRef<TextInput>(null)
+  const emailRef     = useRef<TextInput>(null)
 
   const buttonScale = useSharedValue(1)
   const buttonStyle = useAnimatedStyle(() => ({ transform: [{ scale: buttonScale.value }] }))
@@ -238,21 +339,29 @@ export default function RegisterScreen({ navigation }: Props) {
     setErrors(prev => (prev[key] ? { ...prev, [key]: undefined } : prev))
   }, [])
 
+  const handleFechaChange = useCallback((d: number, m: number, y: number) => {
+    setFechaDay(d); setFechaMonth(m); setFechaYear(y)
+    setErrors(prev => prev.fecha_nacimiento ? { ...prev, fecha_nacimiento: undefined } : prev)
+  }, [])
+
   // Handlers estables (memo funciona)
-  const hNombres         = useCallback((v: string) => handleChange("nombres",          v), [handleChange])
-  const hApellidos       = useCallback((v: string) => handleChange("apellidos",        v), [handleChange])
-  const hFechaNacimiento = useCallback((v: string) => handleChange("fecha_nacimiento", v), [handleChange])
-  const hSexo            = useCallback((v: string) => handleChange("sexo",             v), [handleChange])
-  const hTelefono        = useCallback((v: string) => handleChange("telefono",         v), [handleChange])
-  const hCedula          = useCallback((v: string) => handleChange("cedula",           v), [handleChange])
-  const hEmail           = useCallback((v: string) => handleChange("email",            v), [handleChange])
+  const hNombres   = useCallback((v: string) => handleChange("nombres",   v), [handleChange])
+  const hApellidos = useCallback((v: string) => handleChange("apellidos", v), [handleChange])
+  const hSexo      = useCallback((v: string) => handleChange("sexo",      v), [handleChange])
+  const hTelefono  = useCallback((v: string) => handleChange("telefono",  v), [handleChange])
+  const hCedula    = useCallback((v: string) => handleChange("cedula",    v), [handleChange])
+  const hEmail     = useCallback((v: string) => handleChange("email",     v), [handleChange])
 
   const validate = (): ErrorType | null => {
     const e: ErrorType = {}
 
     const en = validarDosPalabras(form.nombres,   "Los nombres")
     const ea = validarDosPalabras(form.apellidos, "Los apellidos")
-    const efn = validarFechaNacimientoField(form.fecha_nacimiento, "fecha de nacimiento")
+    // Validar fecha desde partes del picker
+    const fechaIso = (fechaDay && fechaMonth && fechaYear)
+      ? isoFromParts(fechaDay, fechaMonth, fechaYear)
+      : ""
+    const efn = validarFechaNacimientoField(fechaIso, "fecha de nacimiento")
     const esx = form.sexo ? undefined : "El sexo es requerido"
     const etl = validarTelefonoField(form.telefono, "celular")
 
@@ -287,7 +396,7 @@ export default function RegisterScreen({ navigation }: Props) {
         segundo_nombre:   segundoNombre,
         primer_apellido:  primerApellido,
         segundo_apellido: segundoApellido,
-        fecha_nacimiento: form.fecha_nacimiento.trim(),
+        fecha_nacimiento: isoFromParts(fechaDay!, fechaMonth!, fechaYear!),
         sexo:             form.sexo as PreRegisterUser["sexo"],
         telefono:         form.telefono.trim(),
         cedula:           form.cedula,
@@ -358,23 +467,18 @@ export default function RegisterScreen({ navigation }: Props) {
             onChangeText={hApellidos}
             inputRef={apellidosRef}
             returnKeyType="next"
-            onSubmitEditing={() => fechaNacimientoRef.current?.focus()}
+            onSubmitEditing={() => telefonoRef.current?.focus()}
             hint="Tus dos apellidos (o uno), tal como en tu cédula"
           />
 
           {/* ── Información personal ── */}
           <Text style={styles.groupLabel}>Información personal</Text>
-          <AnimatedInput
-            label="Fecha de nacimiento"
-            value={form.fecha_nacimiento}
+          <FechaNacimientoPicker
+            day={fechaDay}
+            month={fechaMonth}
+            year={fechaYear}
             error={errors.fecha_nacimiento}
-            placeholder="AAAA-MM-DD"
-            onChangeText={hFechaNacimiento}
-            inputRef={fechaNacimientoRef}
-            returnKeyType="next"
-            onSubmitEditing={() => telefonoRef.current?.focus()}
-            keyboardType="numbers-and-punctuation"
-            hint="Formato recomendado: 1995-08-24"
+            onChange={handleFechaChange}
           />
           <SexoSelector value={form.sexo} error={errors.sexo} onChange={hSexo} />
           <AnimatedInput
@@ -599,5 +703,36 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: colors.primary,
     fontSize: 14,
+  },
+  // ── Picker de fecha de nacimiento ──
+  dateGrid: {
+    flexDirection: "row",
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: colors.lightGray,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    overflow: "hidden",
+  },
+  dateGridError: {
+    borderColor: "#EF4444",
+  },
+  dateCol: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 4,
+  },
+  dateColLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.gray,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  picker: {
+    width: "100%",
+    height: 48,
+    color: colors.black,
   },
 })
