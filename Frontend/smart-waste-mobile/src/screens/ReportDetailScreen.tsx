@@ -14,7 +14,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import * as Location from "expo-location"
 
 import { RootStackParamList } from "../navigation/AppNavigator"
-import { Incident } from "../services/image.service"
+import { Incident, getMyIncidentById } from "../services/image.service"
 import { ESTADO_CONFIG, NIVEL_COLOR, formatDate } from "./HistorialScreen"
 import { colors } from "../theme/colors"
 import { toPublicMediaUrl } from "../utils/mediaUrl"
@@ -33,7 +33,7 @@ function formatDateTime(iso: string) {
 }
 
 export default function ReportDetailScreen({ route, navigation }: Props) {
-  const { incident } = route.params
+  const [incident, setIncident] = useState<Incident>(route.params.incident)
 
   if (__DEV__) console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
 
@@ -44,6 +44,14 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
 
   const [address, setAddress] = useState<string | null>(null)
   const [imgError, setImgError] = useState(false)
+
+  // Refrescar el incidente al montar: garantiza datos al día (zona, estado actualizado)
+  // y campos que la lista no siempre trae (volumen, dirección backend).
+  useEffect(() => {
+    getMyIncidentById(incident.id)
+      .then(setIncident)
+      .catch(() => {})
+  }, [incident.id])
 
   useEffect(() => {
     if (!hasCoords) return
@@ -182,6 +190,26 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
           {incident.tipo_residuo && (
             <MetaRow icon="trash-outline" label="Tipo de residuo" value={incident.tipo_residuo} />
           )}
+
+          {incident.volumen_estimado_m3 != null && (
+            <MetaRow
+              icon="cube-outline"
+              label="Volumen estimado"
+              value={`${incident.volumen_estimado_m3} m³`}
+            />
+          )}
+
+          {incident.zona_nombre ? (
+            <MetaRow icon="map-outline" label="Zona asignada" value={incident.zona_nombre} />
+          ) : null}
+
+          {incident.resuelto_at && incident.estado === "RESUELTA" ? (
+            <MetaRow
+              icon="checkmark-circle-outline"
+              label="Resuelto el"
+              value={formatDateTime(incident.resuelto_at)}
+            />
+          ) : null}
 
           {incident.confianza != null && (
             <MetaRow

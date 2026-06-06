@@ -154,6 +154,14 @@ export default function ScanResultScreen() {
         />
       </View>
 
+      {/* Aviso persistencia — el reporte queda guardado en "Mis Reportes" */}
+      <View style={styles.persistBanner}>
+        <Ionicons name="checkmark-circle" size={18} color="#16A34A" />
+        <Text style={styles.persistText}>
+          Tu reporte quedó guardado. Puedes seguir su estado en <Text style={styles.persistBold}>Mis Reportes</Text>.
+        </Text>
+      </View>
+
       {/* Acciones */}
       <TouchableOpacity
         style={[styles.button, { backgroundColor: color }]}
@@ -164,9 +172,9 @@ export default function ScanResultScreen() {
 
       <TouchableOpacity
         style={styles.buttonSecondary}
-        onPress={() => navigation.navigate("Home")}
+        onPress={() => navigation.navigate("Historial")}
       >
-        <Text style={styles.buttonSecondaryText}>Ir al inicio</Text>
+        <Text style={styles.buttonSecondaryText}>Ver mis reportes</Text>
       </TouchableOpacity>
 
       {/* Tooltip modal */}
@@ -388,6 +396,27 @@ const styles = StyleSheet.create({
     color: "#374151",
     fontSize: 16,
     fontWeight: "600",
+  },
+  persistBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#F0FDF4",
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+  },
+  persistText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#166534",
+    lineHeight: 18,
+  },
+  persistBold: {
+    fontWeight: "700",
   },
   penaltyBanner: {
     backgroundColor: "#FEF9C3",

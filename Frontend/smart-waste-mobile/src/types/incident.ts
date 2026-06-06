@@ -91,4 +91,8 @@ export interface IncidentBase {
   longitud?: number | null
   motivo_rechazo?: MotivoRechazo | null
   observaciones_rechazo?: string | null
+  volumen_estimado_m3?: number | null
+  zona_nombre?: string | null
+  direccion?: string | null
+  resuelto_at?: string | null
 }
