@@ -24,6 +24,7 @@ import Reanimated, {
 } from "react-native-reanimated"
 import BackButton from "../components/BackButton"
 import ProgressBar from "../components/ProgressBar"
+import PrivacyConsentModal from "../components/PrivacyConsentModal"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser } from "../services/user.service"
 import type { PreRegisterUser } from "../types/user.types"
@@ -197,12 +198,10 @@ function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPicke
 
   return (
     <View style={styles.fieldWrapper}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>Fecha de nacimiento</Text>
-      </View>
+      <Text style={styles.label}>Fecha de nacimiento</Text>
       <View style={[styles.dateGrid, error ? styles.dateGridError : undefined]}>
-        {/* Día */}
-        <View style={styles.dateCol}>
+        {/* Día — flex 1.2 para que "01"–"31" quepan en el dropdown de Android */}
+        <View style={[styles.dateCol, { flex: 1.2 }]}>
           <Text style={styles.dateColLabel}>Día</Text>
           <Picker
             selectedValue={safeDay}
@@ -211,16 +210,12 @@ function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPicke
             mode="dropdown"
           >
             {days.map(d => (
-              <Picker.Item
-                key={d}
-                label={String(d).padStart(2, "0")}
-                value={d}
-              />
+              <Picker.Item key={d} label={String(d).padStart(2, "0")} value={d} />
             ))}
           </Picker>
         </View>
         {/* Mes */}
-        <View style={[styles.dateCol, { flex: 1.8 }]}>
+        <View style={[styles.dateCol, { flex: 2 }]}>
           <Text style={styles.dateColLabel}>Mes</Text>
           <Picker
             selectedValue={safeMonth}
@@ -234,7 +229,7 @@ function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPicke
           </Picker>
         </View>
         {/* Año */}
-        <View style={[styles.dateCol, { flex: 1.4 }]}>
+        <View style={[styles.dateCol, { flex: 1.5 }]}>
           <Text style={styles.dateColLabel}>Año</Text>
           <Picker
             selectedValue={safeYear}
@@ -298,6 +293,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const [errors,  setErrors]  = useState<ErrorType>({})
   const [loading, setLoading] = useState(false)
+  const [showPrivacy, setShowPrivacy] = useState(true)
 
   // Evita setState tras desmontar (si el usuario cancela durante una petición en vuelo)
   const mountedRef = useRef(true)
@@ -404,6 +400,12 @@ export default function RegisterScreen({ navigation }: Props) {
   }
 
   return (
+    <>
+    <PrivacyConsentModal
+      visible={showPrivacy}
+      onAccept={() => setShowPrivacy(false)}
+      onDecline={() => navigation.goBack()}
+    />
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -521,6 +523,7 @@ export default function RegisterScreen({ navigation }: Props) {
         </Reanimated.View>
       </ScrollView>
     </KeyboardAvoidingView>
+    </>
   )
 }
 
@@ -626,32 +629,33 @@ const styles = StyleSheet.create({
   // ── Picker de fecha de nacimiento ──
   dateGrid: {
     flexDirection: "row",
-    gap: 6,
     borderWidth: 1.5,
     borderColor: colors.lightGray,
     borderRadius: 12,
     backgroundColor: colors.background,
     overflow: "hidden",
+    minHeight: 72,
   },
   dateGridError: {
     borderColor: "#EF4444",
   },
   dateCol: {
     flex: 1,
-    alignItems: "center",
-    paddingTop: 4,
+    paddingTop: 6,
+    paddingHorizontal: 2,
   },
   dateColLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "700",
     color: colors.gray,
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    marginBottom: 2,
+    textAlign: "center",
+    marginBottom: 0,
   },
   picker: {
     width: "100%",
-    height: 48,
+    height: 44,
     color: colors.black,
   },
 })
