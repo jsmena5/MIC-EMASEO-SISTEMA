@@ -7,19 +7,71 @@ de inferencia.
 Separadas de tasks.py para poder importarse sin depender de Celery/ultralytics,
 lo que permite testearlas con pytest en cualquier entorno ligero.
 
-Constantes de ajuste (NMS_CONF, DET_FACTOR_K, etc.) viven en tasks.py;
-las que se usan aquí se reciben como argumentos para mantener este módulo
-sin estado global, salvo el cache de modelos pesados (MiDaS).
+La clasificación de severidad (classify_severity + sus constantes) vive aquí como
+fuente única de verdad: tasks.py la invoca en producción y los tests la importan
+directamente, evitando que la lógica probada divergiera de la real (antes estaba
+triplicada). Las constantes de detección/gates (NMS_CONF, MIN_BBOX_AREA_RATIO,
+GARBAGE_SCORE_HARD_FLOOR, USE_MIDAS_VOLUME) siguen en tasks.py.
 """
 
 import logging
 import math
+
+from config_classes import CLASS_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
 # ── Constantes para garbage scoring ──────────────────────────────────────────
 EDGE_GRAD_THRESHOLD  = 20   # magnitud de gradiente mínima para contar como borde
 COLOR_QUANTIZE_STEP  = 8    # paso de cuantización: 256 // 8 = 32 niveles por canal
+
+# ── Constantes de clasificación de severidad ─────────────────────────────────
+# Bandas de severidad: (cov_min, cov_max, vol_min, vol_max, nivel, prioridad)
+_BANDS = [
+    (0.00, 0.15, 0.1,  0.5,  "BAJO",    "BAJA"),
+    (0.15, 0.40, 0.5,  2.0,  "MEDIO",   "MEDIA"),
+    (0.40, 0.70, 2.0,  5.0,  "ALTO",    "ALTA"),
+    (0.70, 1.00, 5.0, 15.0,  "CRITICO", "CRITICA"),
+]
+
+CONF_NORMALIZATION_BASELINE = 0.60  # confianza ≥ este valor → conf_factor = 1.0
+
+# det_factor logarítmico: 1 − e^(−k·n), tope en CEILING.
+DET_FACTOR_K       = 0.50   # n=1 → 0.39, n=3 → 0.78, n=5 → 0.92
+DET_FACTOR_CEILING = 0.90   # tope absoluto del factor de detección
+
+# ── Corrección de ambigüedad de escala (falso positivo por acercamiento) ─────
+FULL_FRAME_COVERAGE_THRESHOLD = 0.85  # cobertura casi total → close-up, penalización fuerte
+FULL_FRAME_PENALTY            = 0.20  # multiplicador para close-up de objeto único
+ISOLATION_COVERAGE_THRESHOLD  = 0.55  # cobertura alta moderada → penalización suave
+ISOLATION_DET_THRESHOLD       = 1     # máximo de detecciones para considerar Caso 1
+ISOLATION_PENALTY             = 0.40  # multiplicador moderado (bajado de 0.65 tras mochila F2998975)
+
+# Diversidad geométrica requerida para alcanzar banda CRÍTICO.
+CRITICO_MIN_DETS = 3  # mínimo de detecciones dispersas para confirmar CRÍTICO
+
+# Umbral de textura de basura real (interpola las penalizaciones de escala).
+GARBAGE_SCORE_THRESHOLD = 0.50
+
+# Piso duro: por debajo de este score la imagen no tiene NADA de basura
+# (textura uniforme + sin bordes + posición no típica). El pipeline (tasks.py,
+# Paso 1b) la descarta como falso positivo del modelo sin importar confianza ni
+# coverage → has_waste=false. Vive aquí para que tests y pipeline compartan el valor.
+GARBAGE_SCORE_HARD_FLOOR = 0.20
+
+# ── Rescate de pila única ─────────────────────────────────────────────────────
+# Una pila densa de basura suele detectarse como UNA sola caja (blob contiguo).
+# El det_factor logarítmico la castiga igual que a una detección pequeña aislada,
+# impidiendo que una acumulación real grande escale más allá de MEDIO.
+# Si la detección tiene firma de pila real — cobertura significativa + textura de
+# basura confirmada (garbage_score alto) — neutralizamos el det_factor para que la
+# cobertura real maneje la banda. Un objeto liso (mochila/laptop) tiene garbage_score
+# bajo y NO activa el rescate, así que las guardas anti-falso-positivo siguen intactas.
+# La guarda geométrica de CRÍTICO (≥3 detecciones dispersas) capea estas pilas en ALTO.
+PILE_RESCUE_MAX_DETS     = 2      # solo blobs únicos/pocos (1-2 cajas)
+PILE_RESCUE_MIN_COVERAGE = 0.18   # la(s) caja(s) deben cubrir un trozo real del frame
+PILE_RESCUE_MIN_SCORE    = 0.45   # garbage_score que confirma textura de basura real
+PILE_RESCUE_DET_FLOOR    = 1.0    # piso del det_factor cuando se confirma pila real
 
 # ── Constantes para estimación de volumen MiDaS ───────────────────────────────
 FOV_H_DEG         = 67.0   # FoV horizontal típico de smartphone (grados)
@@ -193,6 +245,106 @@ def compute_garbage_score(
     except Exception as exc:
         logger.warning("[compute_garbage_score] error → score=0.0: %s", exc)
         return 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Clasificación de severidad (banda nivel/prioridad + volumen interpolado)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def classify_severity(
+    coverage_ratio: float,
+    confianza: float,
+    num_detecciones: int,
+    garbage_score: float,
+    tipo_residuo: str,
+    detecciones: list,
+    img_w: int,
+    img_h: int,
+) -> dict:
+    """Mapea las señales de detección a (nivel, prioridad, volumen) por bandas.
+
+    Fuente única de verdad de la clasificación: tasks.py la invoca en producción
+    y los tests la importan directamente.
+
+    Pasos:
+      1.  effective_ratio base = coverage_ratio · conf_factor · det_factor
+      1a. Rescate de pila única: si pocas cajas (≤ PILE_RESCUE_MAX_DETS) con
+          cobertura y garbage_score significativos, neutraliza el det_factor
+          (una pila densa se detecta como un blob único y no debe penalizarse
+          como una detección aislada pequeña).
+      2.  Corrección de ambigüedad de escala (full-frame / isolation / cluster),
+          interpolada por garbage_score.
+      3.  Peso por tipo de residuo (CLASS_WEIGHTS).
+      3b. Diversidad geométrica requerida para CRÍTICO (≥ CRITICO_MIN_DETS
+          detecciones NO concentradas) — capea pilas de 1-2 cajas en ALTO.
+      4.  Banda con interpolación lineal del volumen.
+
+    Returns:
+        dict con nivel, prioridad, volumen, effective_ratio, scale_penalty_applied,
+        detections_clustered y pile_rescue_applied.
+    """
+    # ── Paso 1: effective_ratio base ──────────────────────────────────────────
+    conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
+    det_factor      = min(DET_FACTOR_CEILING, 1.0 - math.exp(-DET_FACTOR_K * num_detecciones))
+
+    # ── Paso 1a: rescate de pila única ────────────────────────────────────────
+    pile_rescue_applied = (
+        num_detecciones <= PILE_RESCUE_MAX_DETS
+        and coverage_ratio >= PILE_RESCUE_MIN_COVERAGE
+        and garbage_score >= PILE_RESCUE_MIN_SCORE
+    )
+    if pile_rescue_applied:
+        det_factor = max(det_factor, PILE_RESCUE_DET_FLOOR)
+
+    effective_ratio = coverage_ratio * conf_factor * det_factor
+
+    # ── Paso 2: corrección de ambigüedad de escala ────────────────────────────
+    clustered = is_clustered(detecciones, img_w, img_h)
+    is_single = (num_detecciones <= ISOLATION_DET_THRESHOLD)
+
+    if is_single and coverage_ratio > FULL_FRAME_COVERAGE_THRESHOLD:
+        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
+        penalty = FULL_FRAME_PENALTY + (ISOLATION_PENALTY - FULL_FRAME_PENALTY) * t_score
+        effective_ratio *= penalty
+        scale_penalty_applied = True
+    elif (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
+        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
+        penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
+        effective_ratio *= penalty
+        scale_penalty_applied = penalty < 0.999
+    else:
+        scale_penalty_applied = False
+
+    # ── Paso 3: ajuste por peligrosidad del tipo de residuo ───────────────────
+    class_weight    = CLASS_WEIGHTS.get(tipo_residuo, 1.00)
+    effective_ratio = min(1.0, effective_ratio * class_weight)
+
+    # ── Paso 3b: diversidad geométrica requerida para banda CRÍTICO ───────────
+    _critico_min_ratio = _BANDS[3][0]  # 0.70
+    if effective_ratio >= _critico_min_ratio:
+        well_spread = (num_detecciones >= CRITICO_MIN_DETS and not clustered)
+        if not well_spread:
+            effective_ratio = _critico_min_ratio - 0.001  # degradar al techo de ALTO
+
+    # ── Paso 4: clasificación por bandas con interpolación lineal ─────────────
+    metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
+    for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
+        if effective_ratio < c_max or c_max == 1.00:
+            t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
+            metricas = {
+                "nivel":     nivel,
+                "prioridad": prioridad,
+                "volumen":   round(v_min + t * (v_max - v_min), 2),
+            }
+            break
+
+    return {
+        **metricas,
+        "effective_ratio":       round(effective_ratio, 4),
+        "scale_penalty_applied": scale_penalty_applied,
+        "detections_clustered":  clustered,
+        "pile_rescue_applied":   pile_rescue_applied,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

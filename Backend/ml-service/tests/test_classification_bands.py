@@ -26,30 +26,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-# Constantes de clasificación — importadas directamente (no dependen de Celery)
-# Se redefinen aquí para que el test sea autónomo; si las constantes de tasks.py
-# cambian, los tests fallarán y advertirán sobre la desincronización.
-_BANDS = [
-    (0.00, 0.15, 0.1,  0.5,  "BAJO",    "BAJA"),
-    (0.15, 0.40, 0.5,  2.0,  "MEDIO",   "MEDIA"),
-    (0.40, 0.70, 2.0,  5.0,  "ALTO",    "ALTA"),
-    (0.70, 1.00, 5.0, 15.0,  "CRITICO", "CRITICA"),
-]
-CONF_NORMALIZATION_BASELINE   = 0.60
-DET_FACTOR_K                  = 0.50
-DET_FACTOR_CEILING            = 0.90
-FULL_FRAME_COVERAGE_THRESHOLD = 0.85
-FULL_FRAME_PENALTY            = 0.20
-ISOLATION_COVERAGE_THRESHOLD  = 0.55
-ISOLATION_DET_THRESHOLD       = 1
-ISOLATION_PENALTY             = 0.40   # bajado de 0.65 tras incidente mochila F2998975
-CLUSTER_DIAG_THRESHOLD        = 0.30
-CRITICO_MIN_DETS              = 3
-GARBAGE_SCORE_THRESHOLD       = 0.50   # subido de 0.45
-GARBAGE_SCORE_HARD_FLOOR      = 0.20   # nuevo: rechazo duro si score < este valor
-
-# Funciones puras — sin dependencias pesadas
-from ml_utils import coverage_union as _coverage_union, is_clustered as _is_clustered
+# Lógica y constantes de clasificación: importadas del MÓDULO REAL (ml_utils),
+# NO redefinidas. Antes se duplicaban aquí (y la lógica se reescribía en _classify/
+# _classify_full), lo que permitía que el test pasara mientras la lógica de
+# producción divergía. Ahora el test ejerce el código real. ml_utils no depende
+# de Celery/ultralytics, así que sigue siendo importable en un entorno ligero.
+from ml_utils import (
+    coverage_union           as _coverage_union,
+    is_clustered             as _is_clustered,
+    classify_severity        as _classify_severity,
+    _BANDS,
+    DET_FACTOR_K,
+    DET_FACTOR_CEILING,
+    ISOLATION_COVERAGE_THRESHOLD,
+    GARBAGE_SCORE_THRESHOLD,
+    GARBAGE_SCORE_HARD_FLOOR,
+    PILE_RESCUE_MAX_DETS,
+    PILE_RESCUE_MIN_COVERAGE,
+    PILE_RESCUE_MIN_SCORE,
+    PILE_RESCUE_DET_FLOOR,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,47 +60,31 @@ def make_det(x1, y1, x2, y2, cls="garbage", conf=0.80):
     return {"class": cls, "confidence": conf, "bbox": [x1, y1, x2, y2]}
 
 
-def _classify(coverage_ratio, confianza, num_detecciones, tipo_residuo="MIXTO", detecciones=None):
-    """
-    Replica la lógica de clasificación de tasks.py sin invocar Celery/ultralytics.
-    Devuelve (nivel, prioridad, volumen_m3, effective_ratio, scale_penalty_applied).
-    """
-    from config_classes import CLASS_WEIGHTS
+def _classify(coverage_ratio, confianza, num_detecciones, tipo_residuo="MIXTO",
+              detecciones=None, garbage_score=0.30):
+    """Adaptador sobre classify_severity REAL (ml_utils).
 
+    Mantiene la firma/retorno histórico — (nivel, prioridad, volumen, effective_ratio,
+    scale_penalty_applied) — para no reescribir los call-sites existentes. El
+    garbage_score por defecto (0.30) representa un objeto de textura ambigua, por
+    debajo de PILE_RESCUE_MIN_SCORE, así que el rescate de pila NO se activa en estos
+    escenarios genéricos (los tests específicos de rescate pasan un score alto).
+    """
     if detecciones is None:
         # Generar detecciones ficticias dispersas por toda la imagen
         detecciones = _make_dispersed_dets(num_detecciones)
 
-    conf_factor = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
-    det_factor  = min(DET_FACTOR_CEILING, 1.0 - math.exp(-DET_FACTOR_K * num_detecciones))
-    effective   = coverage_ratio * conf_factor * det_factor
-
-    clustered = _is_clustered(detecciones, IMG_W, IMG_H)
-    scale_penalty = (
-        (coverage_ratio > ISOLATION_COVERAGE_THRESHOLD and num_detecciones <= ISOLATION_DET_THRESHOLD)
-        or (num_detecciones >= 2 and clustered)
+    r = _classify_severity(
+        coverage_ratio=coverage_ratio,
+        confianza=confianza,
+        num_detecciones=num_detecciones,
+        garbage_score=garbage_score,
+        tipo_residuo=tipo_residuo,
+        detecciones=detecciones,
+        img_w=IMG_W,
+        img_h=IMG_H,
     )
-    if scale_penalty:
-        effective *= ISOLATION_PENALTY
-
-    class_weight = CLASS_WEIGHTS.get(tipo_residuo, 1.0)
-    effective = min(1.0, effective * class_weight)
-
-    _CRITICO_MIN_RATIO = _BANDS[3][0]
-    if effective >= _CRITICO_MIN_RATIO:
-        well_spread = num_detecciones >= CRITICO_MIN_DETS and not clustered
-        if not well_spread:
-            effective = _CRITICO_MIN_RATIO - 0.001
-
-    metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
-    for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-        if effective < c_max or c_max == 1.00:
-            t = max(0.0, min(1.0, (effective - c_min) / (c_max - c_min)))
-            metricas = {"nivel": nivel, "prioridad": prioridad,
-                        "volumen": round(v_min + t * (v_max - v_min), 2)}
-            break
-
-    return metricas["nivel"], metricas["prioridad"], metricas["volumen"], effective, scale_penalty
+    return r["nivel"], r["prioridad"], r["volumen"], r["effective_ratio"], r["scale_penalty_applied"]
 
 
 def _make_dispersed_dets(n):
@@ -115,64 +95,35 @@ def _make_dispersed_dets(n):
 
 def _classify_full(coverage_ratio, confianza, num_detecciones, garbage_score,
                    tipo_residuo="MIXTO", detecciones=None):
-    """
-    Replica el pipeline completo de tasks.py incluyendo:
-      - Paso 1b: rechazo por garbage_score < HARD_FLOOR (devuelve None)
-      - Paso 2: interpolación de penalty por garbage_score
-      - Paso 3b: filtro de diversidad geométrica para CRÍTICO
+    """Adaptador que reproduce el flujo de run_inference con garbage_score:
+
+      - Paso 1b: rechazo por garbage_score < HARD_FLOOR (devuelve None) — esta es la
+        única línea de tasks.py que clasificación NO incluye, así que la replicamos.
+      - Resto: delega en classify_severity REAL (incluye rescate de pila, penalty
+        interpolado por score y guarda geométrica de CRÍTICO).
 
     Returns:
         None si fue rechazado por hard floor (has_waste=false).
         (nivel, prioridad, volumen, effective_ratio) en caso contrario.
     """
-    from config_classes import CLASS_WEIGHTS
-
     if detecciones is None:
         detecciones = _make_dispersed_dets(num_detecciones)
 
-    # Paso 1b: hard floor del garbage_score
+    # Paso 1b: hard floor del garbage_score (gate de run_inference, previo a clasificar)
     if garbage_score < GARBAGE_SCORE_HARD_FLOOR:
         return None  # rechazado → has_waste=false
 
-    # Paso 1: effective_ratio base
-    conf_factor = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
-    det_factor  = min(DET_FACTOR_CEILING, 1.0 - math.exp(-DET_FACTOR_K * num_detecciones))
-    effective   = coverage_ratio * conf_factor * det_factor
-
-    # Paso 2: corrección de ambigüedad de escala con interpolación por garbage_score
-    clustered = _is_clustered(detecciones, IMG_W, IMG_H)
-    is_single = (num_detecciones <= ISOLATION_DET_THRESHOLD)
-
-    if is_single and coverage_ratio > FULL_FRAME_COVERAGE_THRESHOLD:
-        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-        penalty = FULL_FRAME_PENALTY + (ISOLATION_PENALTY - FULL_FRAME_PENALTY) * t_score
-        effective *= penalty
-    elif (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
-        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-        penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
-        effective *= penalty
-
-    # Paso 3: peso por clase
-    class_weight = CLASS_WEIGHTS.get(tipo_residuo, 1.0)
-    effective = min(1.0, effective * class_weight)
-
-    # Paso 3b: diversidad geométrica para CRÍTICO
-    _CRITICO_MIN_RATIO = _BANDS[3][0]
-    if effective >= _CRITICO_MIN_RATIO:
-        well_spread = num_detecciones >= CRITICO_MIN_DETS and not clustered
-        if not well_spread:
-            effective = _CRITICO_MIN_RATIO - 0.001
-
-    # Paso 4: clasificación por bandas
-    metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
-    for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-        if effective < c_max or c_max == 1.00:
-            t = max(0.0, min(1.0, (effective - c_min) / (c_max - c_min)))
-            metricas = {"nivel": nivel, "prioridad": prioridad,
-                        "volumen": round(v_min + t * (v_max - v_min), 2)}
-            break
-
-    return metricas["nivel"], metricas["prioridad"], metricas["volumen"], effective
+    r = _classify_severity(
+        coverage_ratio=coverage_ratio,
+        confianza=confianza,
+        num_detecciones=num_detecciones,
+        garbage_score=garbage_score,
+        tipo_residuo=tipo_residuo,
+        detecciones=detecciones,
+        img_w=IMG_W,
+        img_h=IMG_H,
+    )
+    return r["nivel"], r["prioridad"], r["volumen"], r["effective_ratio"]
 
 
 def _make_clustered_dets(n, cx=640, cy=480, size=80):
@@ -573,4 +524,112 @@ class TestMochilaFalsePositive:
         )
         assert GARBAGE_SCORE_HARD_FLOOR < GARBAGE_SCORE_THRESHOLD, (
             "HARD_FLOOR debe ser estrictamente menor que THRESHOLD"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. Rescate de pila única (incidente A07327C9)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPileRescue:
+    """
+    Una pila densa de fundas se detecta como UNA sola caja. El det_factor
+    logarítmico (n=1 → 0.393) la hundía a MEDIO pese a cubrir ~43 % del frame con
+    textura de basura real (caso reportado: MEDIA / 0.61 m³). El rescate neutraliza
+    el det_factor cuando hay firma de pila real (cobertura significativa +
+    garbage_score alto), dejando que la cobertura mande; la guarda geométrica de
+    CRÍTICO (≥3 detecciones dispersas) la capea en ALTO.
+    """
+
+    @staticmethod
+    def _centered_det(coverage_frac, conf=0.85):
+        """Una bbox cuadrada centrada que cubre ~coverage_frac del frame."""
+        side = int(math.sqrt(coverage_frac * IMG_AREA))
+        side = min(side, IMG_H)  # no exceder la altura del frame
+        x0 = max(0, (IMG_W - side) // 2)
+        y0 = max(0, (IMG_H - side) // 2)
+        return [make_det(x0, y0, x0 + side, y0 + side, conf=conf)]
+
+    def test_reported_pile_escalates_to_alto(self):
+        """Pila reportada: cov≈0.43, conf 0.89, 1 detección, score 0.60 → ALTO."""
+        dets = self._centered_det(0.43, conf=0.89)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        r = _classify_severity(
+            coverage_ratio=coverage, confianza=0.89, num_detecciones=1,
+            garbage_score=0.60, tipo_residuo="MIXTO",
+            detecciones=dets, img_w=IMG_W, img_h=IMG_H,
+        )
+        assert r["pile_rescue_applied"] is True
+        assert r["nivel"] == "ALTO", (
+            f"La pila densa única debe escalar a ALTO, got {r['nivel']} "
+            f"(eff={r['effective_ratio']:.3f}, vol={r['volumen']})"
+        )
+        assert r["prioridad"] == "ALTA"
+        assert r["volumen"] > 2.0  # la banda ALTO arranca en 2.0 m³
+
+    def test_large_pile_capped_at_alto_not_critico(self):
+        """Pila grande única (cov 0.75, score 0.65) → ALTO, nunca CRÍTICO."""
+        dets = self._centered_det(0.75, conf=0.90)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        r = _classify_severity(
+            coverage_ratio=coverage, confianza=0.90, num_detecciones=1,
+            garbage_score=0.65, tipo_residuo="MIXTO",
+            detecciones=dets, img_w=IMG_W, img_h=IMG_H,
+        )
+        assert r["pile_rescue_applied"] is True
+        assert r["nivel"] == "ALTO", (
+            f"Una pila de 1 caja no debe alcanzar CRÍTICO (requiere ≥3 dispersas), "
+            f"got {r['nivel']} (eff={r['effective_ratio']:.3f})"
+        )
+
+    def test_rescue_not_triggered_below_score_threshold(self):
+        """Objeto liso (score 0.30 < MIN_SCORE) con la misma cobertura NO se rescata."""
+        dets = self._centered_det(0.43, conf=0.89)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        r = _classify_severity(
+            coverage_ratio=coverage, confianza=0.89, num_detecciones=1,
+            garbage_score=0.30, tipo_residuo="MIXTO",
+            detecciones=dets, img_w=IMG_W, img_h=IMG_H,
+        )
+        assert r["pile_rescue_applied"] is False
+        assert r["nivel"] in ("BAJO", "MEDIO"), (
+            f"Sin firma de basura real el det_factor debe seguir aplicando, got {r['nivel']}"
+        )
+
+    def test_rescue_not_triggered_with_many_detections(self):
+        """Con n > PILE_RESCUE_MAX_DETS el rescate no aplica (no es un blob único)."""
+        dets = _make_dispersed_dets(PILE_RESCUE_MAX_DETS + 1)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        r = _classify_severity(
+            coverage_ratio=coverage, confianza=0.85, num_detecciones=len(dets),
+            garbage_score=0.70, tipo_residuo="MIXTO",
+            detecciones=dets, img_w=IMG_W, img_h=IMG_H,
+        )
+        assert r["pile_rescue_applied"] is False
+
+    def test_small_real_pile_not_over_escalated(self):
+        """Pila pequeña real (cov 0.20, score 0.55): aunque se rescate, queda en MEDIO/BAJO."""
+        dets = self._centered_det(0.20, conf=0.80)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        r = _classify_severity(
+            coverage_ratio=coverage, confianza=0.80, num_detecciones=1,
+            garbage_score=0.55, tipo_residuo="MIXTO",
+            detecciones=dets, img_w=IMG_W, img_h=IMG_H,
+        )
+        assert r["nivel"] in ("BAJO", "MEDIO"), (
+            f"Cobertura 20% no debe llegar a ALTO ni con rescate, got {r['nivel']}"
+        )
+
+    def test_rescue_is_the_decisive_factor(self):
+        """Misma pila, con vs sin firma de basura real: el rescate sube el effective_ratio."""
+        dets = self._centered_det(0.43, conf=0.89)
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        kw = dict(coverage_ratio=coverage, confianza=0.89, num_detecciones=1,
+                  tipo_residuo="MIXTO", detecciones=dets, img_w=IMG_W, img_h=IMG_H)
+        rescued = _classify_severity(garbage_score=0.60, **kw)
+        plain   = _classify_severity(garbage_score=0.30, **kw)
+        assert rescued["pile_rescue_applied"] and not plain["pile_rescue_applied"]
+        assert rescued["effective_ratio"] > plain["effective_ratio"], (
+            f"El rescate debe elevar el effective_ratio: "
+            f"rescued={rescued['effective_ratio']:.3f} vs plain={plain['effective_ratio']:.3f}"
         )

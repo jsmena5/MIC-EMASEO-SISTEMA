@@ -1,6 +1,5 @@
 import json
 import logging
-import math
 import os
 import time
 from datetime import datetime, timezone
@@ -9,13 +8,15 @@ from pathlib import Path
 from celery import signals
 from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 from celery_app import celery
-from config_classes import ALIAS_MAP, CLASS_WEIGHTS, VALID_ALIASES
+from config_classes import ALIAS_MAP, VALID_ALIASES
 from ml_utils import (
     coverage_union         as _coverage_union,
     is_clustered           as _is_clustered,
     compute_garbage_score  as _compute_garbage_score,
     compute_blur_score     as _compute_blur_score,
     estimate_volume_midas  as _estimate_volume_midas,
+    classify_severity      as _classify_severity,
+    GARBAGE_SCORE_HARD_FLOOR,
 )
 from semantic_gate import verify_is_garbage as _verify_is_garbage, warm_up_clip as _warm_up_clip
 
@@ -23,58 +24,16 @@ logger = logging.getLogger(__name__)
 
 DUMMY_MODE = os.environ.get("DUMMY_MODE", "true").lower() == "true"
 
-# ── Bandas de severidad: (cov_min, cov_max, vol_min, vol_max, nivel, prioridad)
-_BANDS = [
-    (0.00, 0.15, 0.1,  0.5,  "BAJO",    "BAJA"),
-    (0.15, 0.40, 0.5,  2.0,  "MEDIO",   "MEDIA"),
-    (0.40, 0.70, 2.0,  5.0,  "ALTO",    "ALTA"),
-    (0.70, 1.00, 5.0, 15.0,  "CRITICO", "CRITICA"),
-]
-
 # ── NMS / filtrado de detecciones ────────────────────────────────────────────
 NMS_CONF            = 0.60   # confianza mínima para aceptar una detección (subido de 0.50 tras incidente F2998975: mochila aceptada con 0.86)
 NMS_IOU             = 0.50   # IoU máximo para NMS (supresión de duplicados)
 MIN_BBOX_AREA_RATIO = 0.010  # bbox < 1 % del frame → descartado como ruido (era 0.005)
 
-# ── Factores de clasificación ─────────────────────────────────────────────────
-CONF_NORMALIZATION_BASELINE = 0.60  # confianza ≥ este valor → conf_factor = 1.0
-
-# det_factor logarítmico: 1 − e^(−k·n), tope en CEILING
-# Evita la saturación prematura del lineal (antes: 3 cajas = 1.0, ahora: 5 cajas ≈ 0.92)
-DET_FACTOR_K       = 0.50   # constante de decaimiento; n=3 → 0.78, n=5 → 0.92
-DET_FACTOR_CEILING = 0.90   # tope absoluto del factor de detección
-
-# ── Corrección de ambigüedad de escala (falso positivo por acercamiento) ─────
-# Caso 1: objeto único con alta cobertura (botella, bolsa suelta fotografiada de cerca).
-# Caso 2: múltiples bboxes concentrados sobre el mismo objeto (close-up con varias cajas).
-#
-# Se aplican dos niveles de penalización según cuánto cubre el frame:
-#   FULL_FRAME (> 85 %): el objeto ocupa prácticamente toda la imagen → close-up evidente.
-#     Penalización fuerte (×0.20) para degradar a banda BAJO independientemente de confianza.
-#     Ejemplo: funda de laptop, botella sostenida, objeto inspeccionado de cerca.
-#   ISOLATION (55 %–85 %): cobertura alta pero no total → penalización moderada (×0.65).
-#     Ejemplo: bolsa de basura grande en primer plano, objeto aislado dominando la escena.
-FULL_FRAME_COVERAGE_THRESHOLD = 0.85  # cobertura casi total → close-up, penalización fuerte
-FULL_FRAME_PENALTY            = 0.20  # multiplicador para close-up de objeto único
-ISOLATION_COVERAGE_THRESHOLD  = 0.55  # cobertura alta moderada → Caso 1 con penalización suave
-ISOLATION_DET_THRESHOLD       = 1     # máximo de detecciones para considerar Caso 1
-ISOLATION_PENALTY             = 0.40  # multiplicador moderado (bajado de 0.65 tras falso positivo de mochila con coverage~60%)
-CLUSTER_DIAG_THRESHOLD        = 0.30  # diagonal de centroides < 30 % frame-diag → cluster
-
-# ── Diversidad geométrica requerida para CRÍTICO ──────────────────────────────
-CRITICO_MIN_DETS = 3  # mínimo de detecciones dispersas para alcanzar banda CRÍTICO
-
-# ── Filtrado por textura (garbage scoring) ────────────────────────────────────
-# Umbral para decidir si la detección tiene textura de basura real.
-# Bajo el umbral: objeto liso/uniforme → penalización full-frame completa.
-# Sobre el umbral: textura caótica, colores variados → penalización reducida.
-GARBAGE_SCORE_THRESHOLD = 0.50  # subido de 0.45 para ser más estricto con objetos lisos
-
-# Piso duro: por debajo de este score la imagen no tiene NADA de basura
-# (textura uniforme + sin bordes + posición no típica). Se descarta como falso
-# positivo del modelo sin importar la confianza ni el coverage. Devuelve
-# has_waste=false → backend aplica AUTO_REJECT_CONFIDENCE → DESCARTADO o EN_REVISION.
-GARBAGE_SCORE_HARD_FLOOR = 0.20
+# ── Clasificación de severidad ────────────────────────────────────────────────
+# La lógica de bandas/factores (_BANDS, DET_FACTOR_*, ISOLATION_*, FULL_FRAME_*,
+# CRITICO_MIN_DETS, GARBAGE_SCORE_THRESHOLD, GARBAGE_SCORE_HARD_FLOOR, rescate de
+# pila única) vive ahora en ml_utils como fuente única de verdad. classify_severity
+# se invoca en el Paso 4; GARBAGE_SCORE_HARD_FLOOR se importa para el Paso 1b.
 
 # ── Volumen con profundidad monocular (MiDaS) ─────────────────────────────────
 # Activado con USE_MIDAS_VOLUME=true en el entorno del ml-worker.
@@ -464,72 +423,30 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
                 semantic_top,
             )
 
-        # ── Paso 1: effective_ratio base ─────────────────────────────────────────
-        # det_factor logarítmico: evita saturar en 1.0 con solo 3 cajas (antes lineal).
-        # Con k=0.5: n=1→0.39, n=3→0.78, n=5→0.92, tope 0.90.
-        # TODO(M-08): calibrar k y CEILING con dataset etiquetado antes de modificar bandas.
-        conf_factor     = min(1.0, confianza / CONF_NORMALIZATION_BASELINE)
-        det_factor      = min(DET_FACTOR_CEILING, 1.0 - math.exp(-DET_FACTOR_K * num_detecciones))
-        effective_ratio = coverage_ratio * conf_factor * det_factor
-
-        # ── Paso 2: corrección de ambigüedad de escala ───────────────────────────
-        # Caso 1a — FULL-FRAME: objeto único cubre > 85 % del encuadre (close-up evidente).
-        #   Penalización fuerte (×0.20) → banda BAJO. Aplica a: fundas, botellas, cualquier
-        #   objeto no-basura fotografiado de muy cerca que el modelo confunde con residuo.
-        # Caso 1b — ISOLATION: cobertura 55-85 %, detección única → penalización moderada.
-        # Caso 2 — múltiples bboxes concentrados (close-up con varias cajas superpuestas).
-        clustered = _is_clustered(detecciones, img_w, img_h)
-        is_single = (num_detecciones <= ISOLATION_DET_THRESHOLD)
-
-        if is_single and coverage_ratio > FULL_FRAME_COVERAGE_THRESHOLD:
-            # Penalización interpolada por garbage_score:
-            #   score=0.0 (objeto liso) → FULL_FRAME_PENALTY (0.20)
-            #   score≥GARBAGE_SCORE_THRESHOLD (basura real) → ISOLATION_PENALTY (0.65)
-            # Esto preserva la penalización máxima para fundas/bolsos lisos mientras
-            # reduce el castigo cuando el objeto sí tiene textura de residuo.
-            t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-            penalty = FULL_FRAME_PENALTY + (ISOLATION_PENALTY - FULL_FRAME_PENALTY) * t_score
-            effective_ratio *= penalty
-            scale_penalty_applied = True
-        elif (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
-            # Cobertura moderada o cluster: si hay textura de basura real, reducir penalización.
-            #   score=0.0 → ISOLATION_PENALTY (0.65)
-            #   score≥GARBAGE_SCORE_THRESHOLD → sin penalización (1.0)
-            t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-            penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
-            effective_ratio *= penalty
-            scale_penalty_applied = penalty < 0.999
-        else:
-            scale_penalty_applied = False
-
-        # ── Paso 3: ajuste por peligrosidad del tipo de residuo ──────────────────
-        class_weight    = CLASS_WEIGHTS.get(tipo_residuo, 1.00)
-        effective_ratio = min(1.0, effective_ratio * class_weight)
-
-        # ── Paso 3b: diversidad geométrica requerida para banda CRÍTICO ──────────
-        # CRITICO (effective_ratio ≥ 0.70) solo se confirma si hay ≥ CRITICO_MIN_DETS
-        # detecciones que NO estén concentradas en un cluster.
-        # Esto bloquea el caso "1–2 bboxes con coverage sintéticamente alto".
-        _CRITICO_MIN_RATIO = _BANDS[3][0]  # 0.70
-        if effective_ratio >= _CRITICO_MIN_RATIO:
-            well_spread = (
-                num_detecciones >= CRITICO_MIN_DETS
-                and not clustered
-            )
-            if not well_spread:
-                effective_ratio = _CRITICO_MIN_RATIO - 0.001  # degradar al techo de ALTO
-
-        # ── Paso 4: clasificación por bandas con interpolación lineal ────────────
-        metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
-        for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-            if effective_ratio < c_max or c_max == 1.00:
-                t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
-                metricas = {
-                    "nivel":     nivel,
-                    "prioridad": prioridad,
-                    "volumen":   round(v_min + t * (v_max - v_min), 2),
-                }
-                break
+        # ── Pasos 1-4: clasificación de severidad (fuente única en ml_utils) ─────
+        # Calcula effective_ratio (coverage·conf·det) con rescate de pila única,
+        # penalizaciones de escala interpoladas por garbage_score, peso por clase,
+        # guarda geométrica de CRÍTICO y mapeo a banda con interpolación de volumen.
+        metricas = _classify_severity(
+            coverage_ratio=coverage_ratio,
+            confianza=confianza,
+            num_detecciones=num_detecciones,
+            garbage_score=garbage_score,
+            tipo_residuo=tipo_residuo,
+            detecciones=detecciones,
+            img_w=img_w,
+            img_h=img_h,
+        )
+        clustered             = metricas["detections_clustered"]
+        scale_penalty_applied = metricas["scale_penalty_applied"]
+        pile_rescue_applied   = metricas["pile_rescue_applied"]
+        logger.info(
+            "[run_inference] clasificación: nivel=%s prioridad=%s eff=%.3f vol=%.2f "
+            "(n_dets=%d cov=%.3f score=%.3f pile_rescue=%s scale_penalty=%s)",
+            metricas["nivel"], metricas["prioridad"], metricas["effective_ratio"],
+            metricas["volumen"], num_detecciones, coverage_ratio, garbage_score,
+            pile_rescue_applied, scale_penalty_applied,
+        )
 
         # ── Paso 5 (opcional): volumen con profundidad monocular MiDaS ──────────
         # Si USE_MIDAS_VOLUME=true, substituye el volumen interpolado por banda con
@@ -567,6 +484,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             "coverage_ratio":        coverage_ratio,
             "detecciones":           detecciones,
             "scale_penalty_applied": scale_penalty_applied,
+            "pile_rescue_applied":   pile_rescue_applied,
             "detections_clustered":  clustered,
             "garbage_score":         garbage_score,
             # ── Campos de trazabilidad de los gates ────────────────────────────
