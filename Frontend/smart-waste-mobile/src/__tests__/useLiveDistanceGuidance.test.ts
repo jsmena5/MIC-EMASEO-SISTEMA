@@ -110,15 +110,20 @@ describe('Throttle — el hook no dispara onUpdate más de 5 veces/s', () => {
       callCount++
     }
 
-    // 10 llamadas en 50 ms (una cada 5 ms) → solo debería contar 1
-    for (let i = 0; i < 10; i++) {
-      throttledUpdate(i * 5)
-    }
-    // La primera a t=0 pasa (lastMs=0, diff=0, no < 200), las demás no
+    // Primer frame a t=1000 → pasa (1000 - 0 ≥ 200). En el hook real
+    // performance.now() devuelve un timestamp grande, así que el primer frame
+    // siempre supera el umbral; los siguientes dentro de la ventana se descartan.
+    throttledUpdate(1000)
     expect(callCount).toBe(1)
 
-    // Después de 200 ms ya puede pasar otra
-    throttledUpdate(200)
+    // 9 frames más dentro de la ventana de 200 ms (cada 5 ms) → todos descartados
+    for (let i = 1; i <= 9; i++) {
+      throttledUpdate(1000 + i * 5)
+    }
+    expect(callCount).toBe(1)
+
+    // Pasados 200 ms desde el último update → se permite otro
+    throttledUpdate(1200)
     expect(callCount).toBe(2)
   })
 })
