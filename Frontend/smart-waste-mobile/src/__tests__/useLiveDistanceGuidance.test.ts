@@ -5,7 +5,7 @@
  * en Jest. Se testea la lógica pura de los umbrales extrayéndola del hook.
  */
 
-import type { DistanceHint } from '../types/incident'
+import type { DistanceHint, LightingHint } from '../types/incident'
 
 // ─── Lógica pura extraída del hook (mismos valores que useLiveDistanceGuidance.ts) ──
 
@@ -16,6 +16,15 @@ function coverageToHint(coverage: number): DistanceHint {
   if (coverage < TOO_FAR_MAX)   return 'TOO_FAR'
   if (coverage > TOO_CLOSE_MIN) return 'TOO_CLOSE'
   return 'OPTIMAL'
+}
+
+const LIGHT_DARK_MAX   = 0.16
+const LIGHT_BRIGHT_MIN = 0.92
+
+function brightnessToLightingHint(brightness: number): LightingHint {
+  if (brightness < LIGHT_DARK_MAX)   return 'TOO_DARK'
+  if (brightness > LIGHT_BRIGHT_MIN) return 'TOO_BRIGHT'
+  return 'OK'
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -55,6 +64,36 @@ describe('coverageToHint — lógica de umbrales', () => {
 
   test('coverage 1.00 → TOO_CLOSE', () => {
     expect(coverageToHint(1.00)).toBe('TOO_CLOSE')
+  })
+})
+
+describe('brightnessToLightingHint — lógica de umbrales de iluminación', () => {
+  test('brillo 0.00 → TOO_DARK (negro total)', () => {
+    expect(brightnessToLightingHint(0.0)).toBe('TOO_DARK')
+  })
+
+  test('brillo 0.10 → TOO_DARK', () => {
+    expect(brightnessToLightingHint(0.10)).toBe('TOO_DARK')
+  })
+
+  test('brillo 0.16 → OK (límite inferior incluido)', () => {
+    expect(brightnessToLightingHint(0.16)).toBe('OK')
+  })
+
+  test('brillo 0.50 → OK (luz de calle típica)', () => {
+    expect(brightnessToLightingHint(0.50)).toBe('OK')
+  })
+
+  test('brillo 0.92 → OK (límite superior incluido)', () => {
+    expect(brightnessToLightingHint(0.92)).toBe('OK')
+  })
+
+  test('brillo 0.97 → TOO_BRIGHT (sobreexpuesto/reflejo)', () => {
+    expect(brightnessToLightingHint(0.97)).toBe('TOO_BRIGHT')
+  })
+
+  test('brillo 1.00 → TOO_BRIGHT (blanco total)', () => {
+    expect(brightnessToLightingHint(1.0)).toBe('TOO_BRIGHT')
   })
 })
 

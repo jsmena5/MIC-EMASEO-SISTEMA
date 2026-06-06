@@ -12,8 +12,7 @@ import {
   View,
 } from "react-native"
 import Animated, {
-  FadeIn,
-  FadeOut,
+  ZoomIn,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -21,12 +20,10 @@ import Animated, {
 import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera"
 
 import { colors } from "../theme/colors"
-import type { DistanceHint } from "../types/incident"
-import { useLiveDistanceGuidance } from "../hooks/useLiveDistanceGuidance"
+import type { DistanceHint, LightingHint } from "../types/incident"
+import { useLiveDistanceGuidance, brightnessToLightingHint } from "../hooks/useLiveDistanceGuidance"
 import ScanOverlay from "./ScanOverlay"
 import { SCAN_FRAME_SIZE, SCAN_OVERLAY_V } from "../utils/cropToScanFrame"
-
-type ScanPhase = "scanning" | "ready"
 
 export interface CameraCaptureProps {
   /**
@@ -39,17 +36,16 @@ export interface CameraCaptureProps {
   onBack?: () => void
 }
 
+// Color de feedback semafórico para cada estado
+const READY_COLOR = colors.secondary
+const WARN_COLOR  = "#FFA726"
+const NEAR_COLOR  = "#FF5252"
+
 // Posición X del indicador en la barra de distancia (pista de 120 px, sin el ancho del indicador)
 const HINT_POSITION: Record<DistanceHint, number> = {
   TOO_CLOSE: 4,    // extremo izquierdo (muy cerca)
   OPTIMAL:   52,   // centro
   TOO_FAR:   100,  // extremo derecho (muy lejos)
-}
-
-const HINT_LABEL: Record<DistanceHint, string> = {
-  TOO_CLOSE: "Muy cerca",
-  OPTIMAL:   "¡Distancia perfecta!",
-  TOO_FAR:   "Acércate más",
 }
 
 const HINT_COLOR: Record<DistanceHint, string> = {
@@ -66,10 +62,13 @@ export default function CameraCapture({
   onBack,
 }: CameraCaptureProps) {
   const cameraRef = useRef<InstanceType<typeof Camera>>(null)
-  const [phase, setPhase]           = useState<ScanPhase>("scanning")
   const [capturing, setCapturing]   = useState(false)
   const [hint, setHint]             = useState<DistanceHint>("TOO_FAR")
-  const [hintLabel, setHintLabel]   = useState(HINT_LABEL.TOO_FAR)
+  const [lighting, setLighting]     = useState<LightingHint>("OK")
+  // "Listo" = distancia óptima Y buena luz, sostenido un instante (anti-parpadeo).
+  const [isReady, setIsReady]       = useState(false)
+  // Cuenta regresiva de captura automática (3,2,1) o null si no está contando.
+  const [countdown, setCountdown]   = useState<number | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   // true mientras el frame processor (guía de distancia en vivo) esté operativo.
   // Si VisionCamera reporta que los frame processors no están disponibles
@@ -108,45 +107,12 @@ export default function CameraCapture({
     return () => clearTimeout(t)
   }, [hasPermission, device])
 
-  // ── Ref para acceder al hint actual desde el timer sin recrearlo ──
-  const hintRef = useRef<DistanceHint>("TOO_FAR")
-
-  // ── Timer de fase: "listo" a partir de 2.6 s, pero solo si OPTIMAL ──
-  // Si la guía en vivo no está disponible (fpEnabled=false), no se puede medir
-  // distancia: pasamos a "listo" tras un breve margen para no dejar al usuario
-  // atascado en "Buscando área óptima..." indefinidamente.
-  useEffect(() => {
-    if (!fpEnabled) {
-      const t = setTimeout(() => setPhase("ready"), 1200)
-      return () => clearTimeout(t)
-    }
-    const timer = setTimeout(() => {
-      // Revisar cada 500 ms si ya llegó al rango OPTIMAL
-      const poll = setInterval(() => {
-        if (hintRef.current === "OPTIMAL") {
-          clearInterval(poll)
-          setPhase("ready")
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-        }
-      }, 500)
-      // Si ya es OPTIMAL al cumplir los 2.6 s, activar inmediatamente
-      if (hintRef.current === "OPTIMAL") {
-        clearInterval(poll)
-        setPhase("ready")
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-      }
-      return () => clearInterval(poll)
-    }, 2600)
-    return () => clearTimeout(timer)
-  }, [fpEnabled])
-
-  // ── Callback del frame processor ──
+  // ── Callback del frame processor (distancia + iluminación en vivo) ──
   const handleGuidanceUpdate = useCallback(
-    (newHint: DistanceHint, coverage: number) => {
+    (newHint: DistanceHint, coverage: number, brightness: number) => {
       if (!guidanceLive) setGuidanceLive(true)
-      hintRef.current = newHint
       setHint(newHint)
-      setHintLabel(HINT_LABEL[newHint])
+      setLighting(brightnessToLightingHint(brightness))
       indicatorX.value = withSpring(HINT_POSITION[newHint], { damping: 15, stiffness: 100 })
       onCoverageUpdate?.(newHint, coverage)
     },
@@ -154,6 +120,48 @@ export default function CameraCapture({
   )
 
   const frameProcessor = useLiveDistanceGuidance(handleGuidanceUpdate)
+
+  // El encuadre es óptimo cuando la distancia es correcta Y hay buena luz.
+  const allGood = guidanceLive && hint === "OPTIMAL" && lighting === "OK"
+  // Captura automática armada solo si el sensor en vivo está disponible.
+  const autoCaptureArmed = fpEnabled && guidanceLive
+
+  // Ref a la última función de captura (evita closures obsoletas en los timers).
+  const captureRef = useRef<() => void>(() => {})
+
+  // ── "Listo" con anti-parpadeo: allGood sostenido ~350 ms ──
+  useEffect(() => {
+    if (allGood) {
+      const t = setTimeout(() => setIsReady(true), 350)
+      return () => clearTimeout(t)
+    }
+    setIsReady(false)
+  }, [allGood])
+
+  // ── Captura automática con cuenta regresiva 3-2-1, cancelable al moverse ──
+  // Si el encuadre deja de estar listo (el usuario se movió o cambió la luz),
+  // el cleanup limpia el intervalo y se reinicia la cuenta.
+  useEffect(() => {
+    if (!autoCaptureArmed || capturing || !isReady) {
+      setCountdown(null)
+      return
+    }
+    let n = 3
+    setCountdown(3)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+    const iv = setInterval(() => {
+      n -= 1
+      if (n <= 0) {
+        clearInterval(iv)
+        setCountdown(null)
+        captureRef.current()
+      } else {
+        setCountdown(n)
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
+      }
+    }, 700)
+    return () => clearInterval(iv)
+  }, [isReady, autoCaptureArmed, capturing])
 
   // ── Captura ──
   const handleCapture = async () => {
@@ -174,13 +182,41 @@ export default function CameraCapture({
     }
   }
 
+  // Mantener captureRef apuntando a la última handleCapture (para los timers).
+  useEffect(() => { captureRef.current = handleCapture })
+
   // ── Estilo animado del indicador ──
   const indicatorStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: indicatorX.value }],
   }))
 
-  const isReady    = phase === "ready"
-  const hintColor  = HINT_COLOR[hint]
+  const hintColor = HINT_COLOR[hint]
+
+  // Mensaje y color de feedback principal (prioriza: distancia → luz → listo).
+  let statusMsg: string
+  let statusColor: string
+  if (countdown != null) {
+    statusMsg = "Capturando…"
+    statusColor = READY_COLOR
+  } else if (!guidanceLive) {
+    statusMsg = "Posiciónate frente a la basura"
+    statusColor = "#fff"
+  } else if (hint === "TOO_FAR") {
+    statusMsg = "Acércate a la basura"
+    statusColor = WARN_COLOR
+  } else if (hint === "TOO_CLOSE") {
+    statusMsg = "Aléjate un poco"
+    statusColor = NEAR_COLOR
+  } else if (lighting === "TOO_DARK") {
+    statusMsg = "Necesitas más luz"
+    statusColor = WARN_COLOR
+  } else if (lighting === "TOO_BRIGHT") {
+    statusMsg = "Demasiado brillo o reflejo"
+    statusColor = WARN_COLOR
+  } else {
+    statusMsg = "¡Perfecto! Mantén la posición"
+    statusColor = READY_COLOR
+  }
 
   if (!hasPermission) {
     return (
@@ -255,21 +291,23 @@ export default function CameraCapture({
         <View style={{ width: 40 }} />
       </View>
 
-      {/* ── Status badge ── */}
-      <Animated.View
-        key={`status-${phase}`}
-        entering={FadeIn.duration(300)}
-        exiting={FadeOut.duration(200)}
-        style={[styles.statusBadge, isReady && styles.statusBadgeReady]}
-      >
-        <View style={[styles.statusDot, isReady ? styles.dotGreen : styles.dotBlue]} />
-        <Text style={styles.statusText}>
-          {isReady ? "¡Área lista! Pulsa para capturar" : "Buscando área óptima..."}
-        </Text>
-      </Animated.View>
+      {/* ── Status badge (mensaje de feedback en vivo) ── */}
+      <View style={[styles.statusBadge, isReady && styles.statusBadgeReady]}>
+        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+        <Text style={styles.statusText}>{statusMsg}</Text>
+      </View>
 
-      {/* ── Dark cutout overlay con frame y esquinas ── */}
+      {/* ── Dark cutout overlay con frame y esquinas (verde cuando está listo) ── */}
       <ScanOverlay scanning={!isReady} />
+
+      {/* ── Cuenta regresiva de captura automática, centrada en el recuadro ── */}
+      {countdown != null && (
+        <View style={styles.countdownWrap} pointerEvents="none">
+          <Animated.View key={countdown} entering={ZoomIn.duration(250)} style={styles.countdownCircle}>
+            <Text style={styles.countdownNum}>{countdown}</Text>
+          </Animated.View>
+        </View>
+      )}
 
       {/* ── Bottom controls ── */}
       <View style={styles.bottomControls}>
@@ -278,8 +316,8 @@ export default function CameraCapture({
         </View>
 
         <View style={styles.hintRow}>
-          <HintChip icon="resize-outline" label="1–2 metros del área" />
-          <HintChip icon="sunny-outline" label="Buena iluminación" />
+          <CheckChip icon="resize-outline" label="Distancia"    ok={hint === "OPTIMAL"} active={guidanceLive} />
+          <CheckChip icon="sunny-outline"  label="Iluminación"  ok={lighting === "OK"}  active={guidanceLive} />
         </View>
 
         {/* ── Barra de distancia dinámica (solo si el sensor entrega datos) ── */}
@@ -298,7 +336,7 @@ export default function CameraCapture({
               </View>
               <Text style={styles.distanceLabel}>LEJOS</Text>
             </View>
-            <Text style={[styles.hintText, { color: hintColor }]}>{hintLabel}</Text>
+            <Text style={[styles.hintText, { color: statusColor }]}>{statusMsg}</Text>
           </>
         ) : (
           <View style={styles.staticGuide}>
@@ -310,9 +348,9 @@ export default function CameraCapture({
         )}
 
         <Text style={styles.bottomHint}>
-          {isReady
-            ? "Presiona el botón cuando la basura esté bien encuadrada"
-            : "Centra la acumulación de basura en el marco"}
+          {autoCaptureArmed
+            ? "La foto se toma sola cuando todo esté en verde. Muévete para cancelar."
+            : "Centra la acumulación de basura en el marco y toma la foto"}
         </Text>
 
         {/* ── Botón de captura ── */}
@@ -329,23 +367,32 @@ export default function CameraCapture({
         </TouchableOpacity>
 
         <Text style={styles.shutterLabel}>
-          {capturing ? "Capturando..." : "Tomar foto"}
+          {capturing ? "Capturando..." : countdown != null ? "Captura automática…" : "Tomar foto"}
         </Text>
       </View>
     </View>
   )
 }
 
-// ─── Hint chip ───────────────────────────────────────────────────────────────
+// ─── Check chip (item de checklist que se pone verde al cumplirse) ────────────
 
-function HintChip({ icon, label }: {
+function CheckChip({ icon, label, ok, active }: {
   icon: React.ComponentProps<typeof Ionicons>["name"]
   label: string
+  ok: boolean
+  active: boolean
 }) {
+  const done = active && ok
   return (
-    <View style={styles.hintChip}>
-      <Ionicons name={icon} size={13} color="rgba(255,255,255,0.85)" />
-      <Text style={styles.hintChipText}>{label}</Text>
+    <View style={[styles.hintChip, done && styles.hintChipOk]}>
+      <Ionicons
+        name={done ? "checkmark-circle" : icon}
+        size={14}
+        color={done ? READY_COLOR : "rgba(255,255,255,0.85)"}
+      />
+      <Text style={[styles.hintChipText, done && { color: READY_COLOR, fontWeight: "700" }]}>
+        {label}
+      </Text>
     </View>
   )
 }
@@ -422,6 +469,27 @@ const styles = StyleSheet.create({
     paddingVertical: 6, paddingHorizontal: 10, borderRadius: 12,
   },
   hintChipText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "500" },
+  hintChipOk: {
+    backgroundColor: "rgba(0,168,89,0.18)",
+    borderWidth: 1, borderColor: "rgba(0,168,89,0.5)",
+  },
+
+  countdownWrap: {
+    position: "absolute",
+    top: SCAN_OVERLAY_V, left: 0, right: 0, height: SCAN_FRAME_SIZE,
+    justifyContent: "center", alignItems: "center",
+  },
+  countdownCircle: {
+    width: 96, height: 96, borderRadius: 48,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    borderWidth: 3, borderColor: READY_COLOR,
+    justifyContent: "center", alignItems: "center",
+  },
+  countdownNum: {
+    color: "#fff", fontSize: 52, fontWeight: "800",
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+  },
 
   distanceBar: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
   distanceLabel: {

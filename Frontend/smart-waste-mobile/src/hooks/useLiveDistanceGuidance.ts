@@ -3,7 +3,7 @@ import { Dimensions } from 'react-native'
 import { useFrameProcessor } from 'react-native-vision-camera'
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core'
 
-import type { DistanceHint } from '../types/incident'
+import type { DistanceHint, LightingHint } from '../types/incident'
 
 const { width: SW, height: SH } = Dimensions.get('window')
 
@@ -21,11 +21,28 @@ const TOO_CLOSE_MIN = 0.65
 // Throttle: mínimo ms entre actualizaciones de estado (5 fps máximo de UI updates)
 const THROTTLE_MS = 200
 
-export type { DistanceHint }
+// Umbrales de iluminación (brillo promedio del encuadre, normalizado 0–1).
+// Lenientes a propósito: solo marcan condiciones genuinamente problemáticas para
+// no molestar en exteriores con luz normal (calle típica ~0.3–0.7).
+export const LIGHT_DARK_MAX   = 0.16  // < esto → muy oscuro
+export const LIGHT_BRIGHT_MIN = 0.92  // > esto → sobreexpuesto / reflejo
+
+export type { DistanceHint, LightingHint }
 
 export interface DistanceGuidanceResult {
-  hint:     DistanceHint
-  coverage: number
+  hint:       DistanceHint
+  coverage:   number
+  brightness: number
+}
+
+/**
+ * Mapea el brillo promedio del encuadre (0–1) a una pista de iluminación.
+ * Función pura, sin worklet — testeable y reutilizable en la UI.
+ */
+export function brightnessToLightingHint(brightness: number): LightingHint {
+  if (brightness < LIGHT_DARK_MAX)   return 'TOO_DARK'
+  if (brightness > LIGHT_BRIGHT_MIN) return 'TOO_BRIGHT'
+  return 'OK'
 }
 
 /**
@@ -41,18 +58,20 @@ export interface DistanceGuidanceResult {
  *
  * El resultado se throttlea a ≤5 actualizaciones/s para no sobrecargar el render.
  *
- * @param onUpdate  Callback llamado en el hilo JS con (hint, coverage) cuando hay cambio.
+ * @param onUpdate  Callback llamado en el hilo JS con (hint, coverage, brightness) cuando hay cambio.
  * @returns         frameProcessor listo para pasar a <Camera frameProcessor={...} />
  */
 export function useLiveDistanceGuidance(
-  onUpdate: (hint: DistanceHint, coverage: number) => void,
+  onUpdate: (hint: DistanceHint, coverage: number, brightness: number) => void,
 ) {
   // Tiempo del último update (ms, worklet shared value para acceso thread-safe)
   const lastUpdateMs = useSharedValue(0)
 
   // useRunOnJS creates a worklet-callable wrapper that hops back to the JS thread
   const callOnJS = useRunOnJS(
-    (hint: DistanceHint, coverage: number) => { onUpdate(hint, coverage) },
+    (hint: DistanceHint, coverage: number, brightness: number) => {
+      onUpdate(hint, coverage, brightness)
+    },
     [onUpdate],
   )
 
@@ -88,6 +107,7 @@ export function useLiveDistanceGuidance(
 
       let edgeCount = 0
       let totalSampled = 0
+      let lumaSum = 0  // suma de luminancia para estimar el brillo del encuadre
 
       for (let y = startY; y < endY - STEP; y += STEP) {
         for (let x = startX; x < endX - STEP; x += STEP) {
@@ -110,6 +130,7 @@ export function useLiveDistanceGuidance(
 
           const grad = (L - LR < 0 ? LR - L : L - LR) + (L - LB < 0 ? LB - L : L - LB)
           if (grad > EDGE_GRAD_THRESHOLD) edgeCount++
+          lumaSum += L
           totalSampled++
         }
       }
@@ -118,6 +139,9 @@ export function useLiveDistanceGuidance(
 
       const edgeFraction = edgeCount / totalSampled
       const coverage = edgeFraction * NORM_FACTOR > 1.0 ? 1.0 : edgeFraction * NORM_FACTOR
+
+      // Brillo promedio del encuadre normalizado a [0, 1]
+      const brightness = (lumaSum / totalSampled) / 255
 
       let hint: DistanceHint
       if (coverage < TOO_FAR_MAX) {
@@ -128,7 +152,7 @@ export function useLiveDistanceGuidance(
         hint = 'OPTIMAL'
       }
 
-      callOnJS(hint, coverage)
+      callOnJS(hint, coverage, brightness)
     } catch {
       // Silenciar errores en el worklet — no afectan la UI
     }

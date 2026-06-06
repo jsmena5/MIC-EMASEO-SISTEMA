@@ -9,6 +9,9 @@
 /** Pista de distancia devuelta por el frame processor o el pre-check guidance. */
 export type DistanceHint = 'TOO_CLOSE' | 'OPTIMAL' | 'TOO_FAR'
 
+/** Pista de iluminación estimada en vivo por el frame processor (brillo del encuadre). */
+export type LightingHint = 'TOO_DARK' | 'OK' | 'TOO_BRIGHT'
+
 /**
  * Estados del ciclo de vida de una incidencia.
  *   PROCESANDO → PENDIENTE   (ML detectó residuos)
