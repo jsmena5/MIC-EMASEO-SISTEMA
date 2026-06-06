@@ -124,14 +124,12 @@ interface AnimatedInputProps {
   onSubmitEditing?: () => void
   inputRef?:       React.RefObject<TextInput | null>
   autoCorrect?:    boolean
-  hint?:           string
-  optional?:       boolean
 }
 
 const AnimatedInput = memo(function AnimatedInput({
   label, value, error, onChangeText, placeholder, keyboardType = "default",
   autoCapitalize = "words", maxLength, returnKeyType = "next", onSubmitEditing,
-  inputRef, autoCorrect = false, hint, optional,
+  inputRef, autoCorrect = false,
 }: AnimatedInputProps) {
   const borderColor = useRef(new Animated.Value(0)).current
   const shakeX      = useSharedValue(0)
@@ -144,10 +142,7 @@ const AnimatedInput = memo(function AnimatedInput({
 
   return (
     <View style={styles.fieldWrapper}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>{label}</Text>
-        {optional && <Text style={styles.optionalBadge}>opcional</Text>}
-      </View>
+      <Text style={styles.label}>{label}</Text>
       <Reanimated.View style={shakeStyle}>
         <Animated.View
           style={[styles.inputWrapper, { borderColor: error ? "#EF4444" : animatedBorder }]}
@@ -177,11 +172,7 @@ const AnimatedInput = memo(function AnimatedInput({
           />
         </Animated.View>
       </Reanimated.View>
-      {error ? (
-        <Text style={styles.errorText}>{error}</Text>
-      ) : hint ? (
-        <Text style={styles.hintText}>{hint}</Text>
-      ) : null}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   )
 })
@@ -257,13 +248,12 @@ function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPicke
           </Picker>
         </View>
       </View>
-      {error
-        ? <Text style={styles.errorText}>{error}</Text>
-        : <Text style={styles.hintText}>Elige tu fecha de nacimiento</Text>
-      }
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   )
 }
+
+// ─── SexoSelector ─────────────────────────────────────────────────────────────
 
 interface SexoSelectorProps {
   value: string
@@ -274,34 +264,21 @@ interface SexoSelectorProps {
 function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
   return (
     <View style={styles.fieldWrapper}>
-      <View style={styles.labelRow}>
-        <Text style={styles.label}>Sexo</Text>
-        <Text style={styles.requiredBadge}>requerido</Text>
+      <Text style={styles.label}>Sexo</Text>
+      <View style={[styles.inputWrapper, error ? { borderColor: "#EF4444" } : undefined]}>
+        <Picker
+          selectedValue={value || null}
+          onValueChange={(v) => { if (v) onChange(v as string) }}
+          style={styles.sexoPicker}
+          mode="dropdown"
+        >
+          <Picker.Item label="Selecciona una opción" value={null} color={colors.gray} />
+          {SEXO_OPCIONES.map(opt => (
+            <Picker.Item key={opt} label={opt} value={opt} />
+          ))}
+        </Picker>
       </View>
-      <View style={styles.optionGrid}>
-        {SEXO_OPCIONES.map((option) => {
-          const active = value === option
-          return (
-            <Pressable
-              key={option}
-              onPress={() => onChange(option)}
-              style={({ pressed }) => [
-                styles.optionChip,
-                active && styles.optionChipActive,
-                pressed && styles.optionChipPressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={`Seleccionar sexo ${option}`}
-              accessibilityState={{ selected: active }}
-            >
-              <Text style={[styles.optionChipText, active && styles.optionChipTextActive]}>
-                {option}
-              </Text>
-            </Pressable>
-          )
-        })}
-      </View>
-      {error ? <Text style={styles.errorText}>{error}</Text> : <Text style={styles.hintText}>Selecciona una opción</Text>}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   )
 }
@@ -457,7 +434,6 @@ export default function RegisterScreen({ navigation }: Props) {
             onChangeText={hNombres}
             returnKeyType="next"
             onSubmitEditing={() => apellidosRef.current?.focus()}
-            hint="Tus dos nombres (o uno), tal como en tu cédula"
           />
           <AnimatedInput
             label="Apellidos"
@@ -468,7 +444,6 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={apellidosRef}
             returnKeyType="next"
             onSubmitEditing={() => telefonoRef.current?.focus()}
-            hint="Tus dos apellidos (o uno), tal como en tu cédula"
           />
 
           {/* ── Información personal ── */}
@@ -492,7 +467,6 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={telefonoRef}
             returnKeyType="next"
             onSubmitEditing={() => cedulaRef.current?.focus()}
-            hint="Usa 09XXXXXXXX o +5939XXXXXXXX"
           />
 
           {/* ── Identificación ── */}
@@ -509,7 +483,6 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={cedulaRef}
             returnKeyType="next"
             onSubmitEditing={() => emailRef.current?.focus()}
-            hint="Cédula ecuatoriana válida (módulo 10)"
           />
           <AnimatedInput
             label="Correo electrónico"
@@ -522,7 +495,6 @@ export default function RegisterScreen({ navigation }: Props) {
             inputRef={emailRef}
             returnKeyType="done"
             onSubmitEditing={handleContinuar}
-            hint="Recibirás un código de verificación aquí"
           />
 
           <Reanimated.View style={buttonStyle}>
@@ -594,34 +566,13 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
   fieldWrapper: {
-    marginBottom: 12,
-  },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
+    marginBottom: 14,
   },
   label: {
     fontSize: 13,
     fontWeight: "600",
     color: colors.black,
-  },
-  optionalBadge: {
-    fontSize: 11,
-    color: colors.gray,
-    backgroundColor: colors.background,
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    borderRadius: 8,
-  },
-  requiredBadge: {
-    fontSize: 11,
-    color: colors.primary,
-    backgroundColor: "rgba(0, 91, 172, 0.08)",
-    paddingHorizontal: 7,
-    paddingVertical: 1,
-    borderRadius: 8,
+    marginBottom: 6,
   },
   inputWrapper: {
     borderWidth: 1.5,
@@ -635,47 +586,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.black,
   },
+  sexoPicker: {
+    height: 50,
+    color: colors.black,
+  },
   errorText: {
     marginTop: 4,
     fontSize: 12,
     color: "#EF4444",
     marginLeft: 2,
-  },
-  hintText: {
-    marginTop: 3,
-    fontSize: 11,
-    color: colors.gray,
-    marginLeft: 2,
-  },
-  optionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  optionChip: {
-    minHeight: 44,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.lightGray,
-    backgroundColor: colors.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  optionChipActive: {
-    backgroundColor: "rgba(0, 91, 172, 0.12)",
-    borderColor: colors.primary,
-  },
-  optionChipPressed: {
-    opacity: 0.88,
-  },
-  optionChipText: {
-    fontSize: 13,
-    color: colors.gray500,
-    fontWeight: "600",
-  },
-  optionChipTextActive: {
-    color: colors.primary,
   },
   button: {
     backgroundColor: colors.secondary,

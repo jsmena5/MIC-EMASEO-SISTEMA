@@ -5,7 +5,6 @@ import {
   Animated,
   Dimensions,
   Keyboard,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -36,10 +35,6 @@ const CURRENT_YEAR = new Date().getFullYear()
 const BIRTH_YEARS  = Array.from({ length: 90 }, (_, i) => CURRENT_YEAR - 13 - i)
 const SEXO_OPTS: Sexo[] = ["Masculino", "Femenino", "Otro", "Prefiero no decir"]
 
-const EMASEO_PHONE     = "+593 2 395-2800"
-const EMASEO_PHONE_URI = "tel:+59223952800"
-const EMASEO_EMAIL     = "contacto@emaseo.gob.ec"
-const EMASEO_WEB       = "https://www.emaseo.gob.ec"
 
 // ─── Helpers de fecha ──────────────────────────────────────────────────────────
 
@@ -292,7 +287,7 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
                         <View style={styles.lockedNote}>
                           <Ionicons name="lock-closed-outline" size={13} color={colors.textTertiary} />
                           <Text style={styles.lockedNoteText}>
-                            Tus datos personales no se pueden modificar. Si hay un error, contacta a EMASEO.
+                            Datos registrados al crear tu cuenta.
                           </Text>
                         </View>
                       </>
@@ -405,23 +400,6 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
                   </View>
                 )}
 
-                <SectionLabel text="Contacto EMASEO EP" />
-                <ContactRow icon="call-outline" bg="#ECFDF5" color="#059669"
-                  label="Atención ciudadana" value={EMASEO_PHONE}
-                  onPress={() => Linking.openURL(EMASEO_PHONE_URI)} />
-                <ContactRow icon="mail-outline" bg={colors.primaryLight} color={colors.primary}
-                  label="Correo electrónico" value={EMASEO_EMAIL}
-                  onPress={() => Linking.openURL(`mailto:${EMASEO_EMAIL}`)} />
-                <ContactRow icon="globe-outline" bg="#F5F3FF" color="#7C3AED"
-                  label="Sitio web oficial" value="www.emaseo.gob.ec"
-                  onPress={() => Linking.openURL(EMASEO_WEB)} />
-                <View style={[styles.fieldRow, { marginBottom: 4 }]}>
-                  <FieldIcon icon="time-outline" bg={colors.gray100} color={colors.textSecondary} />
-                  <View style={styles.fieldBody}>
-                    <Text style={styles.fieldLabel}>Horario de atención</Text>
-                    <Text style={styles.fieldValue}>Lunes a Viernes  ·  08:00 – 17:00</Text>
-                  </View>
-                </View>
               </>
             )}
 
@@ -490,22 +468,6 @@ function InfoRow({ icon, iconBg, iconColor, label, value }: {
         <Text style={styles.fieldValue}>{value}</Text>
       </View>
     </View>
-  )
-}
-
-function ContactRow({ icon, bg, color, label, value, onPress }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"]
-  bg: string; color: string; label: string; value: string; onPress: () => void
-}) {
-  return (
-    <TouchableOpacity style={styles.fieldRow} onPress={onPress} activeOpacity={0.7}>
-      <FieldIcon icon={icon} bg={bg} color={color} />
-      <View style={styles.fieldBody}>
-        <Text style={styles.fieldLabel}>{label}</Text>
-        <Text style={[styles.fieldValue, { color }]}>{value}</Text>
-      </View>
-      <Ionicons name="open-outline" size={16} color={colors.textTertiary} />
-    </TouchableOpacity>
   )
 }
 
