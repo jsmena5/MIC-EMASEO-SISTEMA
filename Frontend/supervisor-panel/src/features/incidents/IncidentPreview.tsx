@@ -82,24 +82,28 @@ export default function IncidentPreview({
       {/* ── Imagen + mini mapa lado a lado ───────────────────────
            La imagen usa object-cover centrado para eliminar las bandas negras.
            El mapa embebido (OpenStreetMap, sin API key) ocupa el espacio sobrante. ── */}
-      <div className="grid bg-slate-950" style={{
-        gridTemplateColumns: hasCoords ? "1fr 220px" : "1fr",
-        height: "42vh",
-        minHeight: 220,
-      }}>
+      {/* Tablet/desktop: imagen + mapa lado a lado.
+          Mobile (<640px): imagen arriba (3:2), mapa abajo (120px). */}
+      <div className={[
+        "bg-slate-950",
+        hasCoords ? "grid sm:grid-cols-[1fr_200px]" : "",
+      ].join(" ")}
+        style={{ minHeight: 220 }}
+      >
         {/* Imagen */}
         {imageUrl ? (
-          <div className="relative overflow-hidden">
+          <div className="relative overflow-hidden" style={{ minHeight: 200 }}>
             <button
               type="button"
               className="block h-full w-full cursor-zoom-in"
               onClick={() => setLightboxOpen(true)}
               title="Click para ampliar"
             >
+              {/* Desktop/tablet: altura fija 42vh. Mobile: aspect 4/3 para que se vea bien en vertical */}
               <img
                 src={imageUrl}
                 alt="Incidente"
-                className="h-full w-full object-cover object-center"
+                className="aspect-[4/3] w-full object-cover object-center sm:aspect-auto sm:h-[42vh]"
               />
             </button>
             <span className="absolute bottom-2 right-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
@@ -107,29 +111,28 @@ export default function IncidentPreview({
             </span>
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          <div className="flex aspect-[4/3] w-full items-center justify-center text-sm text-slate-500 sm:h-[42vh] sm:aspect-auto">
             Sin imagen
           </div>
         )}
 
-        {/* Mini mapa OpenStreetMap — solo si hay coordenadas */}
+        {/* Mini mapa OpenStreetMap — desktop: columna derecha; mobile: franja debajo */}
         {hasCoords && (
-          <div className="relative overflow-hidden border-l border-slate-800">
+          <div className="relative overflow-hidden border-t border-slate-800 sm:border-t-0 sm:border-l" style={{ minHeight: 140 }}>
             <iframe
               title="Ubicación del incidente"
               src={`https://www.openstreetmap.org/export/embed.html?bbox=${detail.longitud - 0.004},${detail.latitud - 0.003},${detail.longitud + 0.004},${detail.latitud + 0.003}&layer=mapnik&marker=${detail.latitud},${detail.longitud}`}
               className="h-full w-full"
+              style={{ minHeight: 140, border: 0, filter: "saturate(0.9)" }}
               loading="lazy"
-              style={{ border: 0, filter: "saturate(0.9)" }}
             />
-            {/* Link a mapa completo */}
             <a
               href={`https://www.openstreetmap.org/?mlat=${detail.latitud}&mlon=${detail.longitud}#map=17/${detail.latitud}/${detail.longitud}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="absolute bottom-2 left-0 right-0 mx-auto flex w-fit items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-white shadow"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-white shadow whitespace-nowrap"
             >
-              <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+              <svg className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
               </svg>
               Ver mapa
