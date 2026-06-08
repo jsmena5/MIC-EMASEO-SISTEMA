@@ -17,13 +17,20 @@ export const pool = new Pool({
   password:                process.env.DB_PASSWORD_IMAGE,
   port:                    Number(process.env.DB_PORT) || 5432,
   max:                     10,
+  min:                     1,
   connectionTimeoutMillis: 8_000,
   idleTimeoutMillis:       20_000,
   keepAlive:               true,
-  keepAliveInitialDelayMillis: 10_000,
+  keepAliveInitialDelayMillis: 5_000,
   ssl:                     process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
 })
 
 pool.on("error", (err) => {
   logger.error({ err: err.message }, "pg.Pool idle client error")
 })
+
+setInterval(() => {
+  pool.query("SELECT 1").catch((err) => {
+    logger.warn({ err: err.message }, "pg.Pool keepalive ping failed")
+  })
+}, 25_000)

@@ -10,17 +10,26 @@ export const pool = new Pool({
   password:                process.env.DB_PASSWORD_AUTH,
   port:                    Number(process.env.DB_PORT) || 5432,
   max:                     5,
+  min:                     1,
   connectionTimeoutMillis: 8_000,
-  // Supabase cierra conexiones idle en ~300 s. Usamos 60 s para descartar
-  // clientes del pool antes de que el servidor los mate silenciosamente.
+  // Supabase/PgBouncer cierra conexiones idle a nivel de aplicación ~30s.
+  // idleTimeoutMillis < 30s asegura que el pool descarta la conexión
+  // antes de que Supabase la cierre por su cuenta.
   idleTimeoutMillis:       20_000,
-  // keepAlive envía paquetes TCP periódicos para detectar conexiones muertas
-  // antes de que la siguiente consulta falle con "Connection terminated".
   keepAlive:               true,
-  keepAliveInitialDelayMillis: 10_000,
+  keepAliveInitialDelayMillis: 5_000,
   ssl:                     process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
 })
 
 pool.on("error", (err) => {
   logger.error({ err: err.message }, "pg.Pool idle client error")
 })
+
+// Ping activo cada 25 s para evitar que Supabase cierre conexiones inactivas.
+// El PgBouncer de Supabase tiene un timeout de ~30 s a nivel de aplicación
+// que no respeta TCP keepalive — un SELECT 1 periódico lo previene.
+setInterval(() => {
+  pool.query("SELECT 1").catch((err) => {
+    logger.warn({ err: err.message }, "pg.Pool keepalive ping failed")
+  })
+}, 25_000)
