@@ -5,8 +5,14 @@ Strategy:
 1. Fetch 28 urban parishes from GitHub Gist (has zone mapping property)
 2. Fetch rural parish geometries from Overpass (by known relation IDs)
 3. Merge urban + rural using hardcoded parroquia->zona mapping
-4. Union polygons per zone using shapely
+4. Union polygons per zone using shapely — keep as MultiPolygon (no convex hull)
+   The DB column geom is GEOMETRY without subtype restriction, accepts MultiPolygon.
 5. Generate 048_seed_zones_dmq.sql
+
+IMPORTANT: Do NOT use convex_hull. It creates huge blobs that cover areas not
+belonging to each zone. Use unary_union and store MultiPolygon or Polygon as-is.
+Remote rural parishes (Nanegal, Nono, Pacto, Gualea, Lloa, Atahualpa, Perucho,
+Chavezpamba, Puellaro) are excluded — they inflate zones far beyond EMASEO service area.
 """
 import json, requests
 from shapely.geometry import shape, mapping
@@ -26,7 +32,7 @@ PARROQUIA_ZONA = {
     "Calderon":          "Calderon",
     "Calderón":          "Calderon",
     "Llano Chico":       "Calderon",
-    # -- Eloy Alfaro (urban)
+    # -- Eloy Alfaro (urban; excluida Lloa — parroquia rural remota al SW)
     "Chilibulo":         "Eloy Alfaro",
     "Chimbacalle":       "Eloy Alfaro",
     "La Argelia":        "Eloy Alfaro",
@@ -48,7 +54,9 @@ PARROQUIA_ZONA = {
     "Rumipamba":         "Eugenio Espejo",
     "Zambiza":           "Eugenio Espejo",
     "Zámbiza":           "Eugenio Espejo",
-    # -- La Delicia (urban + rural noroccidental)
+    # -- La Delicia (urban + peri-urban; excluidas parroquias rurales remotas)
+    # Excluidas: Gualea, Nanegal, Nanegalito, Nono, Pacto, San José de Minas
+    # (están a >40 km del casco urbano y no son área de servicio de EMASEO)
     "Carcelen":          "La Delicia",
     "Carcelén":          "La Delicia",
     "Comite del Pueblo": "La Delicia",
@@ -58,15 +66,8 @@ PARROQUIA_ZONA = {
     "Cotocollao":        "La Delicia",
     "Calacali":          "La Delicia",
     "Calacalí":          "La Delicia",
-    "Gualea":            "La Delicia",
-    "Nanegal":           "La Delicia",
-    "Nanegalito":        "La Delicia",
-    "Nono":              "La Delicia",
-    "Pacto":             "La Delicia",
     "Pomasqui":          "La Delicia",
     "San Antonio":       "La Delicia",
-    "San Jose de Minas": "La Delicia",
-    "San José de Minas": "La Delicia",
     # -- Los Chillos
     "Alangasi":          "Los Chillos",
     "Alangasí":          "Los Chillos",
@@ -91,7 +92,8 @@ PARROQUIA_ZONA = {
     "La Ecuatoriana":    "Quitumbe",
     "Quitumbe":          "Quitumbe",
     "Turubamba":         "Quitumbe",
-    # -- Tumbaco (valley east)
+    # -- Tumbaco (valley east — solo parroquias del valle, no norteñas remotas)
+    # Excluidas: Atahualpa, Chavezpamba, Perucho, Puellaro, Lloa (muy remotas)
     "Cumbaya":           "Tumbaco",
     "Cumbayá":           "Tumbaco",
     "Tumbaco":           "Tumbaco",
@@ -99,16 +101,11 @@ PARROQUIA_ZONA = {
     "Checa":             "Tumbaco",
     "El Quinche":        "Tumbaco",
     "Guayllabamba":      "Tumbaco",
-    "Lloa":              "Tumbaco",
     "Pifo":              "Tumbaco",
     "Puembo":            "Tumbaco",
     "Tababela":          "Tumbaco",
     "Yaruqui":           "Tumbaco",
-    "Atahualpa (Babaspamba)": "Tumbaco",
-    "Chavezpamba":       "Tumbaco",
-    "Perucho":           "Tumbaco",
-    "Puellaro":          "Tumbaco",
-    "Puelaro":           "Tumbaco",
+    "Yaruquí":           "Tumbaco",
 }
 
 ZONE_CODES = {
@@ -138,27 +135,29 @@ ZONE_DISPLAY = {
 RURAL_RELATION_IDS = [
     2673274,  # Alangasi     -> Los Chillos
     8009658,  # Amaguana     -> Los Chillos
-    2673480,  # Calacali     -> La Delicia (close peri-urban)
+    2673480,  # Calacali     -> La Delicia (peri-urban)
     2673329,  # Calderon     -> Calderon
     2673415,  # Checa-Chilpa -> Tumbaco
     2673275,  # Conocoto     -> Los Chillos
-    2673307,  # Cumbaya      -> Tumbaco (already in gist too)
+    2673307,  # Cumbaya      -> Tumbaco
     2673416,  # El Quinche   -> Tumbaco
-    2673303,  # Guangopolo   -> Los Chillos (already in gist)
+    2673303,  # Guangopolo   -> Los Chillos
     2673363,  # Guayllabamba -> Tumbaco
-    2673245,  # La Merced    -> Los Chillos (already in gist)
+    2673245,  # La Merced    -> Los Chillos
     2673318,  # Llano Chico  -> Calderon
-    2673425,  # Lloa         -> Eloy Alfaro (near)
-    2673310,  # Nayon        -> Eugenio Espejo (already in gist)
+    # 2673425 Lloa EXCLUIDA (remota, no es área EMASEO)
+    2673310,  # Nayon        -> Eugenio Espejo
     2673246,  # Pifo         -> Tumbaco
-    2673247,  # Pintag       -> Los Chillos (already in gist)
+    2673247,  # Pintag       -> Los Chillos
     2673440,  # Pomasqui     -> La Delicia (peri-urban)
     2673409,  # Puembo       -> Tumbaco
     2673446,  # San Antonio  -> La Delicia (peri-urban)
     2673411,  # Tababela     -> Tumbaco
-    2673304,  # Tumbaco      -> Tumbaco (already in gist)
+    2673304,  # Tumbaco      -> Tumbaco
     2673412,  # Yaruqui      -> Tumbaco
-    2673315,  # Zambiza      -> Eugenio Espejo (already in gist)
+    2673315,  # Zambiza      -> Eugenio Espejo
+    # Excluidas: Atahualpa(2673...), Chavezpamba, Perucho, Puellaro
+    # Excluidas: Nanegal, Nanegalito, Nono, Pacto, Gualea, San José de Minas
 ]
 
 def fetch_parishes():
@@ -276,24 +275,18 @@ def build_zone_polygons(urban_features, rural_elements):
         if geom and not geom.is_empty:
             zone_geoms.setdefault(zone, []).append((name, geom))
 
-    # Union per zone, then ensure single Polygon for column constraint
+    # Union per zone — keep as MultiPolygon or Polygon, NO convex hull.
+    # The DB column geom is GEOMETRY (no subtype restriction) so MultiPolygon is OK.
     dissolved = {}
     for zone, items in zone_geoms.items():
-        names = [n for n, _ in items]
         geoms = [g for _, g in items]
         union = unary_union(geoms)
-        geom_type = union.geom_type
-        # Column is GEOMETRY(Polygon, 4326) — take convex hull to ensure single Polygon
-        # Convex hull covers full zone extent and is always a Polygon
-        if union.geom_type == "MultiPolygon":
-            hull = union.convex_hull
-            dissolved[zone] = hull
-            print(f"  {zone}: {len(items)} parishes -> convex hull Polygon "
-                  f"(area {hull.area:.4f} deg2)")
-        else:
-            dissolved[zone] = union
-            print(f"  {zone}: {len(items)} parishes -> {union.geom_type} "
-                  f"(area {union.area:.4f} deg2)")
+        # Remove very small slivers / artifacts from union
+        union = union.buffer(0)
+        dissolved[zone] = union
+        area_km2 = union.area * (111_320 ** 2) / 1_000_000  # rough deg2 to km2
+        print(f"  {zone}: {len(items)} parishes -> {union.geom_type} "
+              f"(~{area_km2:.0f} km²)")
     return dissolved
 
 
@@ -311,18 +304,22 @@ def geom_to_geojson_str(geom):
 
 
 def build_sql(zones):
+    from datetime import date
+    today = date.today().isoformat()
     lines = [
         "-- =========================================================================",
-        "-- Migration 048: Zonas operativas reales — DMQ Administraciones Zonales",
-        "-- Fuentes: parroquias-pichincha.geojson (github.com/emamut) +",
-        "--          Overpass API (OSM rural parishes)",
-        "-- Generado por _build_zones_migration.py — 2026-06-03",
+        "-- Migration 051: Zonas operativas DMQ — polígonos MultiPolygon correctos",
+        "-- Sin convex hull: unary_union real de parroquias (excluye rurales remotas)",
+        f"-- Generado por _build_zones_migration.py — {today}",
         "-- =========================================================================",
         "",
         "BEGIN;",
         "",
-        "-- Eliminar zonas placeholder del seed inicial",
+        "-- Reemplazar zonas existentes con polígonos corregidos",
         "DELETE FROM operations.zones;",
+        "",
+        "-- Re-aplicar backfill tras el DELETE",
+        "-- (se hace al final con UPDATE)",
         "",
         "INSERT INTO operations.zones (codigo, nombre, geom, activa)",
         "VALUES",
@@ -344,12 +341,26 @@ def build_sql(zones):
     lines.append(",\n\n".join(inserts) + ";")
     lines += [
         "",
+        "-- Backfill: re-asignar zona_id a todos los incidentes existentes",
+        "UPDATE incidents.incidents i",
+        "SET zona_id = (",
+        "    SELECT z.id FROM operations.zones z",
+        "    WHERE ST_Within(i.ubicacion::geometry, z.geom) AND z.activa = TRUE",
+        "    ORDER BY z.id LIMIT 1",
+        ")",
+        "WHERE i.ubicacion IS NOT NULL;",
+        "",
         "-- Verificacion post-import",
         "SELECT codigo, nombre,",
         "       ROUND((ST_Area(geom::geography)/1e6)::numeric, 1) AS area_km2,",
-        "       ST_IsValid(geom) AS valid",
-        "FROM operations.zones",
-        "ORDER BY nombre;",
+        "       ST_IsValid(geom) AS valid,",
+        "       ST_GeometryType(geom) AS tipo",
+        "FROM operations.zones ORDER BY nombre;",
+        "",
+        "SELECT z.nombre, COUNT(i.id) AS casos",
+        "FROM operations.zones z",
+        "LEFT JOIN incidents.incidents i ON i.zona_id = z.id",
+        "GROUP BY z.nombre ORDER BY casos DESC;",
         "",
         "COMMIT;",
     ]
@@ -366,7 +377,7 @@ def main():
     print(f"\nFinal: {len(zones)} zones: {sorted(zones.keys())}")
 
     sql = build_sql(zones)
-    sql_path = "Backend/database/048_seed_zones_dmq.sql"
+    sql_path = "Backend/database/051_fix_zones_multipolygon.sql"
     with open(sql_path, "w", encoding="utf-8") as f:
         f.write(sql)
     print(f"[OK] {sql_path} ({len(sql):,} bytes)")

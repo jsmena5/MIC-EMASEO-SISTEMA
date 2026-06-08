@@ -557,10 +557,18 @@ const INSERT_INCIDENT_SQL =
   `INSERT INTO incidents.incidents
    (reportado_por, descripcion, ubicacion, direccion, zona_id, estado, prioridad, ubicacion_aproximada, idempotency_key)
    SELECT $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5,
-          (SELECT id FROM operations.zones
-           WHERE ST_Within(ST_SetSRID(ST_MakePoint($3, $4), 4326), geom)
-             AND activa = TRUE
-           LIMIT 1),
+          COALESCE(
+            -- 1) Zona que contiene el punto
+            (SELECT id FROM operations.zones
+             WHERE ST_Within(ST_SetSRID(ST_MakePoint($3, $4), 4326), geom)
+               AND activa = TRUE
+             LIMIT 1),
+            -- 2) Fallback: zona más cercana (para puntos en bordes o fuera de polígonos)
+            (SELECT id FROM operations.zones
+             WHERE activa = TRUE
+             ORDER BY ST_Distance(ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography, geom::geography)
+             LIMIT 1)
+          ),
           'PROCESANDO', $6, $7, $8
    RETURNING id`
 
