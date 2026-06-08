@@ -19,8 +19,11 @@ export default function IncidentsPage() {
   const [params, setParams] = useSearchParams()
 
   const filtersFromUrl: IncidentFilters = useMemo(() => ({
-    estado:    (params.get("estado") as IncidentEstado | null) || "",
-    prioridad: (params.get("prioridad") as Prioridad | null)  || "",
+    estado:        (params.get("estado") as IncidentEstado | null) || "",
+    prioridad:     (params.get("prioridad") as Prioridad | null)  || "",
+    // Por defecto solo muestra incidencias sin supervisar → las ya revisadas no
+    // aparecen en la vista principal. El supervisor puede quitarlo con el filtro.
+    sin_supervisar: params.has("sin_supervisar") ? params.get("sin_supervisar") === "true" : true,
     page:  1,
     limit: 20,
     sort:  "priority",
@@ -100,6 +103,8 @@ export default function IncidentsPage() {
     const nextParams = new URLSearchParams()
     if (next.estado)    nextParams.set("estado",    next.estado)
     if (next.prioridad) nextParams.set("prioridad", next.prioridad)
+    // Persistir sin_supervisar en URL solo cuando NO es el default (true)
+    nextParams.set("sin_supervisar", next.sin_supervisar ? "true" : "false")
     if (selectedId)     nextParams.set("id",        selectedId)
     setParams(nextParams, { replace: true })
   }
@@ -113,7 +118,12 @@ export default function IncidentsPage() {
 
   const handleModalDone = () => {
     setReviewOpen(false); setRejectOpen(false)
-    refresh()
+    // Tras revisar: recargar lista (que excluirá el incidente con sin_supervisar=true)
+    // y auto-avanzar al siguiente de la lista actual para fluidez de revisión.
+    const currentIndex = incidents.findIndex((i) => i.id === selectedId)
+    const nextIncident = incidents[currentIndex + 1] ?? incidents[currentIndex - 1] ?? null
+    if (nextIncident) setSelectedId(nextIncident.id)
+    loadList(filters)
   }
 
   return (

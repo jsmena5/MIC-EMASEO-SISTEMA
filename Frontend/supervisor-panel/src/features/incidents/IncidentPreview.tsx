@@ -78,9 +78,9 @@ export default function IncidentPreview({
         </div>
       </div>
 
-      {/* ── Imagen — aspect-ratio fijo, object-cover, sin bandas negras ── */}
+      {/* ── Imagen — altura máxima 45vh, object-contain, sin bandas de overflow ── */}
       {imageUrl ? (
-        <div className="relative bg-slate-100">
+        <div className="relative bg-slate-950">
           <button
             type="button"
             className="block w-full cursor-zoom-in"
@@ -90,7 +90,7 @@ export default function IncidentPreview({
             <img
               src={imageUrl}
               alt="Incidente"
-              className="aspect-[4/3] w-full object-cover"
+              className="max-h-[45vh] w-full object-contain"
             />
           </button>
           <span className="absolute bottom-2 right-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
@@ -98,7 +98,7 @@ export default function IncidentPreview({
           </span>
         </div>
       ) : (
-        <div className="aspect-[4/3] w-full bg-slate-100 flex items-center justify-center text-sm text-slate-400">
+        <div className="flex h-32 w-full items-center justify-center bg-slate-100 text-sm text-slate-400">
           Sin imagen
         </div>
       )}
