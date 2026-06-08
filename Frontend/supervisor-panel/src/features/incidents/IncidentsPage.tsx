@@ -177,17 +177,16 @@ export default function IncidentsPage() {
           )}
 
           {detail && !detailLoading && !detailError && (
-            <div className="flex h-full flex-col">
-
-              {/* Preview principal — imagen grande + datos + botones */}
+            <div>
+              {/* Preview principal: header + imagen + strip de datos */}
               <IncidentPreview
                 detail={detail}
                 onReview={() => setReviewOpen(true)}
                 onReject={() => setRejectOpen(true)}
               />
 
-              {/* Paneles colapsables debajo de la imagen */}
-              <div className="shrink-0 grid gap-2 p-4 text-xs border-t border-slate-100">
+              {/* Paneles colapsables — contexto, diagnóstico, trazabilidad */}
+              <div className="grid gap-2 p-4 text-xs">
 
                 <details
                   open={showContext}
