@@ -11,46 +11,17 @@ import {
 } from "../../services/incident.service"
 import FiltersBar from "./FiltersBar"
 import IncidentRail from "./IncidentRail"
-import Stepper from "./Stepper"
-import Step1Validate from "./Step1Validate"
-import Step2Classify from "./Step2Classify"
-import IncidentReviewedView from "./IncidentReviewedView"
+import IncidentPreview from "./IncidentPreview"
+import ReviewModal from "./ReviewModal"
 import CaseTimeline from "./CaseTimeline"
-import { TIPO_LABEL, NIVEL_LABEL, fmtPercent, fmtVolume, fmtDate } from "./styles"
-
-type Step = 1 | 2
-
-function initialStepFor(detail: IncidentDetail | null): Step {
-  if (!detail) return 1
-  switch (detail.estado) {
-    case "PROCESANDO":
-    case "FALLIDO":
-    case "EN_REVISION":
-    case "DESCARTADO":
-      return 1
-    case "PENDIENTE":
-    case "REVISADO":
-    case "EN_ATENCION":
-    case "RESUELTA":
-    case "RECHAZADA":
-      return 2
-    default:
-      return 1
-  }
-}
-
-function reachableStepFor(detail: IncidentDetail | null): Step {
-  if (!detail) return 1
-  if (detail.estado === "DESCARTADO" || detail.estado === "FALLIDO") return 1
-  return 2
-}
+import { ESTADO_STYLE, fmtDate } from "./styles"
 
 export default function IncidentsPage() {
   const [params, setParams] = useSearchParams()
 
   const filtersFromUrl: IncidentFilters = useMemo(() => ({
     estado:    (params.get("estado") as IncidentEstado | null) || "",
-    prioridad: (params.get("prioridad") as Prioridad | null) || "",
+    prioridad: (params.get("prioridad") as Prioridad | null)  || "",
     page:  1,
     limit: 20,
     sort:  "priority",
@@ -65,17 +36,15 @@ export default function IncidentsPage() {
   const [listError,     setListError]     = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError,   setDetailError]   = useState<string | null>(null)
-  // Para incidentes REVISADO: permite desbloquear el formulario de edición
-  const [editingRevisado, setEditingRevisado] = useState(false)
 
-  const [step, setStep] = useState<Step>(1)
-  const [showTimeline, setShowTimeline] = useState(false)
-  const [showContext,  setShowContext]  = useState(false)
+  // Modal de revisión
+  const [reviewOpen,      setReviewOpen]      = useState(false)
+  const [rejectOpen,      setRejectOpen]      = useState(false)
+  const [showContext,     setShowContext]     = useState(false)
+  const [showDiagnostic,  setShowDiagnostic]  = useState(false)
+  const [showTimeline,    setShowTimeline]    = useState(false)
 
-  // La URL es fuente externa de filtros (links de Topbar/Home con ?estado=).
-  // Solo actualizamos los campos que VIENEN de la URL — así se evita borrar filtros
-  // locales (fecha, búsqueda de texto, etc.) cuando la URL cambia al seleccionar un
-  // incidente (que solo añade el parámetro ?id= pero no toca estado/prioridad).
+  // Sync URL → filtros (solo estado y prioridad, sin borrar filtros locales)
   useEffect(() => {
     setFilters(prev => ({
       ...prev,
@@ -86,8 +55,7 @@ export default function IncidentsPage() {
   }, [filtersFromUrl.estado, filtersFromUrl.prioridad])
 
   const loadList = useCallback(async (next: IncidentFilters) => {
-    setListLoading(true)
-    setListError(null)
+    setListLoading(true); setListError(null)
     try {
       const data = await getIncidents(next)
       setIncidents(data.incidents)
@@ -101,12 +69,10 @@ export default function IncidentsPage() {
   }, [selectedId])
 
   const loadDetail = useCallback(async (id: string) => {
-    setDetailLoading(true)
-    setDetailError(null)
+    setDetailLoading(true); setDetailError(null)
     try {
       const d = await getIncidentDetail(id)
       setDetail(d)
-      setStep(initialStepFor(d))
     } catch (err) {
       setDetail(null)
       setDetailError(err instanceof Error ? err.message : "No se pudo cargar el detalle.")
@@ -115,7 +81,6 @@ export default function IncidentsPage() {
     }
   }, [])
 
-  // Data fetching con auto-refresh: el setState ocurre tras la respuesta async.
   useEffect(() => {
     loadList(filters)
     const id = setInterval(() => loadList(filters), 30_000)
@@ -124,19 +89,15 @@ export default function IncidentsPage() {
 
   useEffect(() => {
     if (selectedId) {
-      setEditingRevisado(false)
+      setShowContext(false); setShowDiagnostic(false); setShowTimeline(false)
       loadDetail(selectedId)
     }
   }, [selectedId, loadDetail])
 
-  const refresh = () => {
-    loadList(filters)
-    if (selectedId) loadDetail(selectedId)
-  }
+  const refresh = () => { loadList(filters); if (selectedId) loadDetail(selectedId) }
 
   const handleFiltersChange = (next: IncidentFilters) => {
     setFilters(next)
-    // sync solo lo más importante a URL
     const nextParams = new URLSearchParams()
     if (next.estado)    nextParams.set("estado",    next.estado)
     if (next.prioridad) nextParams.set("prioridad", next.prioridad)
@@ -146,21 +107,20 @@ export default function IncidentsPage() {
 
   const handleSelect = (id: string) => {
     setSelectedId(id)
-    setShowContext(false)
-    setShowTimeline(false)
     const nextParams = new URLSearchParams(params)
     nextParams.set("id", id)
     setParams(nextParams, { replace: true })
   }
 
-  const reachable = reachableStepFor(detail)
+  const handleModalDone = () => {
+    setReviewOpen(false); setRejectOpen(false)
+    refresh()
+  }
 
-  // Layout viewport-fijo: FiltersBar arriba, debajo lista+detalle en paralelo con
-  // scroll interno en cada panel. No hay scroll de página — evita el problema de
-  // "click en incidencia del final → detail aparece arriba".
   return (
     <div className="flex h-full flex-col gap-3 overflow-hidden">
-      {/* Barra de filtros + botón actualizar */}
+
+      {/* ── Filtros + botón actualizar ─────────────────────────── */}
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
           <FiltersBar filters={filters} onChange={handleFiltersChange} />
@@ -177,8 +137,10 @@ export default function IncidentsPage() {
         </button>
       </div>
 
-      {/* Grid principal — ambos paneles con scroll interno, sin scroll de página */}
-      <div className="flex-1 min-h-0 grid gap-4 sm:grid-cols-[300px_minmax(0,1fr)]">
+      {/* ── Grid principal ─────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 grid gap-3 sm:grid-cols-[300px_minmax(0,1fr)]">
+
+        {/* Lista de incidencias */}
         <IncidentRail
           incidents={incidents}
           selectedId={selectedId}
@@ -190,72 +152,55 @@ export default function IncidentsPage() {
           onSortChange={(s) => handleFiltersChange({ ...filters, sort: s, page: 1 })}
         />
 
-        {/* Workspace — scroll interno para no mover la página */}
-        <div className="overflow-y-auto min-h-0 rounded-2xl border border-slate-200 bg-white p-5">
+        {/* Panel derecho */}
+        <div className="overflow-y-auto min-h-0 rounded-2xl border border-slate-200 bg-white">
+
           {detailLoading && (
-            <div className="py-16 text-center text-sm text-slate-500">Cargando detalle…</div>
+            <div className="flex h-full items-center justify-center">
+              <div className="text-sm text-slate-400">Cargando…</div>
+            </div>
           )}
+
           {detailError && !detailLoading && (
-            <div className="py-16 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-8">
               <div className="text-sm font-bold text-red-600">{detailError}</div>
-              <button
-                onClick={() => selectedId && loadDetail(selectedId)}
-                className="mt-3 rounded-lg bg-[#005BAC] px-3 py-2 text-xs font-bold text-white"
-              >
+              <button onClick={() => selectedId && loadDetail(selectedId)}
+                className="rounded-lg bg-[#005BAC] px-3 py-2 text-xs font-bold text-white">
                 Reintentar
               </button>
             </div>
           )}
+
           {!detailLoading && !detailError && !detail && (
-            <div className="py-16 text-center text-sm text-slate-500">
-              Selecciona un caso del listado para revisarlo.
+            <div className="flex h-full items-center justify-center text-sm text-slate-400">
+              Selecciona una incidencia de la lista
             </div>
           )}
 
           {detail && !detailLoading && !detailError && (
-            <div className="grid gap-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Caso #{detail.id.slice(0, 8)}
-                  </div>
-                  <h2 className="text-lg font-extrabold text-slate-900">
-                    {detail.zona_nombre ?? "Zona sin definir"}
-                  </h2>
-                  <div className="text-xs text-slate-500">
-                    {detail.ciudadano_nombre ?? "Ciudadano no disponible"} · {fmtDate(detail.created_at)}
-                  </div>
-                </div>
-                <Stepper current={step} reachable={reachable} onJump={(s) => setStep(s)} />
-              </div>
+            <div className="flex h-full flex-col">
 
-              {step === 1 && (
-                <Step1Validate detail={detail} onAdvance={() => setStep(2)} onRefresh={refresh} />
-              )}
-              {step === 2 && detail.estado === "REVISADO" && !editingRevisado ? (
-                <IncidentReviewedView
-                  detail={detail}
-                  onEdit={() => setEditingRevisado(true)}
-                />
-              ) : step === 2 && (
-                <Step2Classify detail={detail} onRefresh={refresh} />
-              )}
+              {/* Preview principal — imagen grande + datos + botones */}
+              <IncidentPreview
+                detail={detail}
+                onReview={() => setReviewOpen(true)}
+                onReject={() => setRejectOpen(true)}
+              />
 
-              {/* Paneles colapsables: contexto + diagnóstico + timeline */}
-              <div className="grid gap-2 text-xs">
+              {/* Paneles colapsables debajo de la imagen */}
+              <div className="shrink-0 grid gap-2 p-4 text-xs border-t border-slate-100">
+
                 <details
                   open={showContext}
                   onToggle={(e) => setShowContext((e.target as HTMLDetailsElement).open)}
                   className="rounded-xl border border-slate-200 bg-slate-50 p-3"
                 >
-                  <summary className="cursor-pointer font-bold text-slate-700">
-                    Contexto del reporte
-                  </summary>
+                  <summary className="cursor-pointer font-bold text-slate-700">Contexto del reporte</summary>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <KV label="Ciudadano"  value={detail.ciudadano_nombre ?? "—"} />
-                    <KV label="Correo"     value={detail.ciudadano_email ?? "—"} />
-                    <KV label="Zona"       value={detail.zona_nombre ?? "—"} />
-                    <KV label="Dirección"  value={detail.direccion ?? "Sin dirección"} />
+                    <KV label="Correo"     value={detail.ciudadano_email  ?? "—"} />
+                    <KV label="Zona"       value={detail.zona_nombre      ?? "—"} />
+                    <KV label="Dirección"  value={detail.direccion        ?? "Sin dirección"} />
                     <KV label="Latitud"    value={String(detail.latitud)} />
                     <KV label="Longitud"   value={String(detail.longitud)} />
                   </div>
@@ -264,17 +209,19 @@ export default function IncidentsPage() {
                   )}
                 </details>
 
-                <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <summary className="cursor-pointer font-bold text-slate-700">
-                    Diagnóstico IA
-                  </summary>
+                <details
+                  open={showDiagnostic}
+                  onToggle={(e) => setShowDiagnostic((e.target as HTMLDetailsElement).open)}
+                  className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                >
+                  <summary className="cursor-pointer font-bold text-slate-700">Diagnóstico IA</summary>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <KV label="Confianza"     value={fmtPercent(detail.confianza_decision ?? detail.confianza)} />
-                    <KV label="Tipo residuo"  value={detail.tipo_residuo ? TIPO_LABEL[detail.tipo_residuo] : "—"} />
-                    <KV label="Acumulación"   value={detail.nivel_acumulacion ? NIVEL_LABEL[detail.nivel_acumulacion] : "—"} />
-                    <KV label="Volumen"       value={fmtVolume(detail.volumen_estimado_m3)} />
-                    <KV label="Detecciones"   value={String(detail.num_detecciones ?? detail.detecciones?.length ?? 0)} />
-                    <KV label="Tiempo IA"     value={detail.tiempo_inferencia_ms ? `${detail.tiempo_inferencia_ms} ms` : "—"} />
+                    <KV label="Confianza"    value={`${Math.round((detail.confianza_decision ?? detail.confianza ?? 0) * 100)}%`} />
+                    <KV label="Tipo residuo" value={detail.tipo_residuo ? ({ DOMESTICO:"Doméstico",ORGANICO:"Orgánico",RECICLABLE:"Reciclable",ESCOMBROS:"Escombros",PELIGROSO:"Peligroso",MIXTO:"Mixto",OTRO:"Otro" }[detail.tipo_residuo] ?? detail.tipo_residuo) : "—"} />
+                    <KV label="Acumulación"  value={detail.nivel_acumulacion ? ({ BAJO:"Bajo",MEDIO:"Medio",ALTO:"Alto",CRITICO:"Crítico" }[detail.nivel_acumulacion] ?? detail.nivel_acumulacion) : "—"} />
+                    <KV label="Volumen"      value={detail.volumen_estimado_m3 != null ? `${Number(detail.volumen_estimado_m3).toFixed(2)} m³ (ref.)` : "Sin dato"} />
+                    <KV label="Detecciones"  value={String(detail.num_detecciones ?? 0)} />
+                    <KV label="Tiempo IA"    value={detail.tiempo_inferencia_ms ? `${detail.tiempo_inferencia_ms} ms` : "—"} />
                   </div>
                 </details>
 
@@ -283,9 +230,7 @@ export default function IncidentsPage() {
                   onToggle={(e) => setShowTimeline((e.target as HTMLDetailsElement).open)}
                   className="rounded-xl border border-slate-200 bg-slate-50 p-3"
                 >
-                  <summary className="cursor-pointer font-bold text-slate-700">
-                    Trazabilidad del caso
-                  </summary>
+                  <summary className="cursor-pointer font-bold text-slate-700">Trazabilidad del caso</summary>
                   <div className="mt-3">
                     <CaseTimeline detail={detail} />
                   </div>
@@ -296,27 +241,34 @@ export default function IncidentsPage() {
         </div>
       </div>
 
+      {/* Paginación */}
       {pagination.pages > 1 && (
         <div className="flex shrink-0 items-center justify-between text-xs text-slate-500">
           <span>{pagination.total} casos en total</span>
           <div className="flex items-center gap-3">
-            <button
-              disabled={pagination.page <= 1}
+            <button disabled={pagination.page <= 1}
               onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 1) - 1 }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold disabled:opacity-40"
-            >
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold disabled:opacity-40">
               ← Anterior
             </button>
             <span className="font-bold text-slate-700">Página {pagination.page} de {pagination.pages}</span>
-            <button
-              disabled={pagination.page >= pagination.pages}
+            <button disabled={pagination.page >= pagination.pages}
               onClick={() => setFilters((f) => ({ ...f, page: (f.page ?? 1) + 1 }))}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold disabled:opacity-40"
-            >
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold disabled:opacity-40">
               Siguiente →
             </button>
           </div>
         </div>
+      )}
+
+      {/* Modal de revisión / clasificación */}
+      {(reviewOpen || rejectOpen) && detail && (
+        <ReviewModal
+          detail={detail}
+          initialStep={rejectOpen ? "reject" : "validate"}
+          onClose={() => { setReviewOpen(false); setRejectOpen(false) }}
+          onDone={handleModalDone}
+        />
       )}
     </div>
   )
