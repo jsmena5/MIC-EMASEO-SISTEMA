@@ -50,11 +50,12 @@ export default function FiltersBar({
     <div style={{ background: "#fff", border: `1px solid #E2E8F0`, borderRadius: 14, padding: "10px 14px" }}>
       {/* ── Fila 1: chips de acceso rápido + toggle filtros avanzados ── */}
       <div className="flex flex-wrap items-center gap-2">
-        <Chip label="Por validar"     active={filters.estado === "PENDIENTE"}   onClick={() => set({ estado: filters.estado === "PENDIENTE"   ? "" : "PENDIENTE" })}   color={palette.warning} />
-        <Chip label="En revisión IA"  active={filters.estado === "EN_REVISION"} onClick={() => set({ estado: filters.estado === "EN_REVISION" ? "" : "EN_REVISION" })} color="#C2410C" />
-        <Chip label="Descartados"     active={filters.estado === "DESCARTADO"}  onClick={() => set({ estado: filters.estado === "DESCARTADO"  ? "" : "DESCARTADO" })}  color={palette.muted} />
+        <Chip label="Por validar"     active={filters.estado === "PENDIENTE"}   onClick={() => set({ estado: filters.estado === "PENDIENTE"   ? "" : "PENDIENTE",   sin_supervisar: false })}   color={palette.warning} />
+        <Chip label="Revisado"        active={filters.estado === "REVISADO"}    onClick={() => set({ estado: filters.estado === "REVISADO"    ? "" : "REVISADO",    sin_supervisar: false })}   color="#0369A1" />
+        <Chip label="En revisión IA"  active={filters.estado === "EN_REVISION"} onClick={() => set({ estado: filters.estado === "EN_REVISION" ? "" : "EN_REVISION", sin_supervisar: false })} color="#C2410C" />
+        <Chip label="Descartados"     active={filters.estado === "DESCARTADO"}  onClick={() => set({ estado: filters.estado === "DESCARTADO"  ? "" : "DESCARTADO",  sin_supervisar: false })}  color={palette.muted} />
         <Chip label="IA incorrecta"   active={Boolean(filters.ia_incorrecta)}   onClick={() => set({ ia_incorrecta: !filters.ia_incorrecta })}                          color={palette.danger} />
-        <Chip label="Sin revisar"     active={Boolean(filters.sin_supervisar)}  onClick={() => set({ sin_supervisar: !filters.sin_supervisar })}                        color={palette.primary} />
+        <Chip label="Sin revisar"     active={Boolean(filters.sin_supervisar)}  onClick={() => set({ sin_supervisar: !filters.sin_supervisar, estado: "" })}             color={palette.primary} />
 
         <div className="ml-auto flex items-center gap-2">
           {active && (

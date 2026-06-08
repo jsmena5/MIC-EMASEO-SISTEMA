@@ -24,9 +24,9 @@ export default function IncidentRail({
   onSortChange: (s: SortOrder) => void
 }) {
   return (
-    <div className="flex h-full min-w-0 flex-col">
+    <div className="flex min-w-0 flex-col gap-2">
       {/* Header de la bandeja */}
-      <div className="flex items-center justify-between px-2 pb-2 pt-1 shrink-0">
+      <div className="flex items-center justify-between px-1">
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Bandeja</span>
         <div className="flex overflow-hidden rounded-lg border border-slate-200 text-[11px]">
           {(["priority", "newest"] as SortOrder[]).map((s) => (
@@ -40,8 +40,8 @@ export default function IncidentRail({
         </div>
       </div>
 
-      {/* Lista */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white">
+      {/* Lista — max-height para scroll propio sin bloquear la página */}
+      <div className="max-h-[calc(100vh-180px)] overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white">
         {loading && (
           <div className="p-6 text-center text-xs text-slate-400">Cargando casos…</div>
         )}

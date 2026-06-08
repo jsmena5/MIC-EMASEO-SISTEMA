@@ -127,7 +127,9 @@ export default function IncidentsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-hidden">
+    // Layout de página normal (sin overflow-hidden) — el scroll lo maneja el
+    // main del DashboardLayout. La lista usa sticky para permanecer visible.
+    <div className="flex flex-col gap-3">
 
       {/* ── Filtros + botón actualizar ─────────────────────────── */}
       <div className="flex items-start gap-2">
@@ -146,23 +148,25 @@ export default function IncidentsPage() {
         </button>
       </div>
 
-      {/* ── Grid principal ─────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 grid gap-3 sm:grid-cols-[300px_minmax(0,1fr)]">
+      {/* ── Grid principal: lista sticky izquierda, detalle fluye con página ── */}
+      <div className="grid gap-3 items-start sm:grid-cols-[300px_minmax(0,1fr)]">
 
-        {/* Lista de incidencias */}
-        <IncidentRail
-          incidents={incidents}
-          selectedId={selectedId}
-          onSelect={handleSelect}
-          loading={listLoading}
-          error={listError}
-          onRetry={() => loadList(filters)}
-          sort={filters.sort ?? "priority"}
-          onSortChange={(s) => handleFiltersChange({ ...filters, sort: s, page: 1 })}
-        />
+        {/* Lista sticky — se queda fija mientras el usuario scrollea el detalle */}
+        <div className="sm:sticky sm:top-4">
+          <IncidentRail
+            incidents={incidents}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+            loading={listLoading}
+            error={listError}
+            onRetry={() => loadList(filters)}
+            sort={filters.sort ?? "priority"}
+            onSortChange={(s) => handleFiltersChange({ ...filters, sort: s, page: 1 })}
+          />
+        </div>
 
-        {/* Panel derecho */}
-        <div className="overflow-y-auto min-h-0 rounded-2xl border border-slate-200 bg-white">
+        {/* Panel derecho — flujo natural de página, sin overflow bloqueante */}
+        <div className="rounded-2xl border border-slate-200 bg-white">
 
           {detailLoading && (
             <div className="flex h-full items-center justify-center">

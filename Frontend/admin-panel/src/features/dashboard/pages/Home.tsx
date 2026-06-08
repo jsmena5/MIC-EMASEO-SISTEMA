@@ -25,11 +25,12 @@ const ESTADO_COLOR: Record<string, string> = {
 
 interface KpiState {
   loading: boolean
-  pendientes: number
-  enRevision: number
+  pendientes:   number
+  revisados:    number
+  enRevision:   number
   asignadosHoy: number
   resueltosHoy: number
-  criticos: IncidentListItem[]
+  criticos:     IncidentListItem[]
   error: string | null
 }
 
@@ -38,7 +39,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10)
 export default function Home() {
   const user = getStoredUser()
   const [kpi, setKpi] = useState<KpiState>({
-    loading: true, pendientes: 0, enRevision: 0,
+    loading: true, pendientes: 0, revisados: 0, enRevision: 0,
     asignadosHoy: 0, resueltosHoy: 0, criticos: [], error: null,
   })
   const [zonas, setZonas] = useState<ZonaStats[]>([])
@@ -55,8 +56,9 @@ export default function Home() {
     const load = async () => {
       try {
         const today = todayIso()
-        const [pend, rev, asig, res, crit] = await Promise.all([
+        const [pend, revisado, rev, asig, res, crit] = await Promise.all([
           getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
+          getIncidents({ estado: "REVISADO",    limit: 1, page: 1 }),
           getIncidents({ estado: "EN_REVISION", limit: 1, page: 1 }),
           getIncidents({ estado: "EN_ATENCION", limit: 1, page: 1, fecha_desde: today }),
           getIncidents({ estado: "RESUELTA",    limit: 1, page: 1, fecha_desde: today }),
@@ -66,6 +68,7 @@ export default function Home() {
         setKpi({
           loading: false,
           pendientes:   pend.pagination.total,
+          revisados:    revisado.pagination.total,
           enRevision:   rev.pagination.total,
           asignadosHoy: asig.pagination.total,
           resueltosHoy: res.pagination.total,
@@ -91,10 +94,10 @@ export default function Home() {
   }, [])
 
   const kpis = [
-    { label: "Pendientes",     value: kpi.pendientes,   hint: "Casos por revisar",     href: "", accent: "#4F46E5" },
-    { label: "En revisión IA", value: kpi.enRevision,   hint: "Esperan validación",    href: "", accent: "#C2410C" },
-    { label: "Asignados hoy",  value: kpi.asignadosHoy, hint: "Despachados al campo",  href: "", accent: "#7C3AED" },
-    { label: "Resueltos hoy",  value: kpi.resueltosHoy, hint: "Cerrados hoy",          href: "", accent: "#16A34A" },
+    { label: "Pendientes",      value: kpi.pendientes,   hint: "Sin revisar",           accent: "#F59E0B" },
+    { label: "Revisados",       value: kpi.revisados,    hint: "Validados por supervisor", accent: "#0EA5E9" },
+    { label: "En revisión IA",  value: kpi.enRevision,   hint: "Ambiguos, esperan",     accent: "#F97316" },
+    { label: "Resueltos hoy",   value: kpi.resueltosHoy, hint: "Cerrados en el día",    accent: "#16A34A" },
   ]
 
   return (
@@ -110,17 +113,46 @@ export default function Home() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {kpis.map((k) => (
           <div key={k.label} className="rounded-2xl border border-slate-200 bg-white p-5">
-            <div className="flex items-center justify-between">
-              <span className="h-2 w-2 rounded-full" style={{ background: k.accent }} />
-            </div>
+            <span className="h-2.5 w-2.5 rounded-full block" style={{ background: k.accent }} />
             <div className="mt-3 text-3xl font-black text-slate-900 tabular-nums">
-              {kpi.loading ? "—" : k.value}
+              {kpi.loading ? <span className="text-slate-300">—</span> : k.value}
             </div>
             <div className="mt-1 text-xs font-semibold text-slate-700">{k.label}</div>
             <div className="mt-0.5 text-[11px] text-slate-500">{k.hint}</div>
           </div>
         ))}
       </div>
+
+      {/* Barra de distribución de estados */}
+      {!kpi.loading && (kpi.pendientes + kpi.revisados + kpi.enRevision + kpi.resueltosHoy) > 0 && (() => {
+        const total = kpi.pendientes + kpi.revisados + kpi.enRevision + kpi.resueltosHoy
+        const segs = [
+          { label: "Pendientes", value: kpi.pendientes,   color: "#F59E0B" },
+          { label: "Revisados",  value: kpi.revisados,    color: "#0EA5E9" },
+          { label: "En rev. IA", value: kpi.enRevision,   color: "#F97316" },
+          { label: "Resueltos",  value: kpi.resueltosHoy, color: "#22C55E" },
+        ].filter(s => s.value > 0)
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <div className="text-sm font-extrabold text-slate-900 mb-3">Distribución de casos activos</div>
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-slate-100">
+              {segs.map(s => (
+                <div key={s.label} title={`${s.label}: ${s.value}`}
+                  style={{ width: `${Math.round((s.value/total)*100)}%`, background: s.color }} />
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+              {segs.map(s => (
+                <div key={s.label} className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+                  <span className="text-xs text-slate-600"><span className="font-bold">{s.value}</span> {s.label}</span>
+                </div>
+              ))}
+              <span className="ml-auto text-xs text-slate-400">{total} activos</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Quick access */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
