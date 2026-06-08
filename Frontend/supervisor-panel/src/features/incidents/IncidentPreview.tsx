@@ -17,8 +17,7 @@ export default function IncidentPreview({
   onReview: () => void
   onReject: () => void
 }) {
-  const imageUrl  = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
-  const hasCoords = detail.latitud != null && detail.longitud != null
+  const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const status   = ESTADO_STYLE[detail.estado] ?? { bg: "#E2E8F0", text: "#475569" }
@@ -79,67 +78,30 @@ export default function IncidentPreview({
         </div>
       </div>
 
-      {/* ── Imagen + mini mapa lado a lado ───────────────────────
-           La imagen usa object-cover centrado para eliminar las bandas negras.
-           El mapa embebido (OpenStreetMap, sin API key) ocupa el espacio sobrante. ── */}
-      {/* Tablet/desktop: imagen + mapa lado a lado.
-          Mobile (<640px): imagen arriba (3:2), mapa abajo (120px). */}
-      <div className={[
-        "bg-slate-950",
-        hasCoords ? "grid sm:grid-cols-[1fr_200px]" : "",
-      ].join(" ")}
-        style={{ minHeight: 220 }}
-      >
-        {/* Imagen */}
-        {imageUrl ? (
-          <div className="relative overflow-hidden" style={{ minHeight: 200 }}>
-            <button
-              type="button"
-              className="block h-full w-full cursor-zoom-in"
-              onClick={() => setLightboxOpen(true)}
-              title="Click para ampliar"
-            >
-              {/* Desktop/tablet: altura fija 42vh. Mobile: aspect 4/3 para que se vea bien en vertical */}
-              <img
-                src={imageUrl}
-                alt="Incidente"
-                className="aspect-[4/3] w-full object-cover object-center sm:aspect-auto sm:h-[42vh]"
-              />
-            </button>
-            <span className="absolute bottom-2 right-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
-              🔍 Ampliar
-            </span>
-          </div>
-        ) : (
-          <div className="flex aspect-[4/3] w-full items-center justify-center text-sm text-slate-500 sm:h-[42vh] sm:aspect-auto">
-            Sin imagen
-          </div>
-        )}
-
-        {/* Mini mapa OpenStreetMap — desktop: columna derecha; mobile: franja debajo */}
-        {hasCoords && (
-          <div className="relative overflow-hidden border-t border-slate-800 sm:border-t-0 sm:border-l" style={{ minHeight: 140 }}>
-            <iframe
-              title="Ubicación del incidente"
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${detail.longitud - 0.004},${detail.latitud - 0.003},${detail.longitud + 0.004},${detail.latitud + 0.003}&layer=mapnik&marker=${detail.latitud},${detail.longitud}`}
-              className="h-full w-full"
-              style={{ minHeight: 140, border: 0, filter: "saturate(0.9)" }}
-              loading="lazy"
+      {/* ── Imagen — altura máxima 45vh, object-contain, sin bandas de overflow ── */}
+      {imageUrl ? (
+        <div className="relative bg-slate-950">
+          <button
+            type="button"
+            className="block w-full cursor-zoom-in"
+            onClick={() => setLightboxOpen(true)}
+            title="Click para ampliar"
+          >
+            <img
+              src={imageUrl}
+              alt="Incidente"
+              className="max-h-[45vh] w-full object-contain"
             />
-            <a
-              href={`https://www.openstreetmap.org/?mlat=${detail.latitud}&mlon=${detail.longitud}#map=17/${detail.latitud}/${detail.longitud}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-[10px] font-bold text-slate-700 hover:bg-white shadow whitespace-nowrap"
-            >
-              <svg className="h-3 w-3 shrink-0" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-              </svg>
-              Ver mapa
-            </a>
-          </div>
-        )}
-      </div>
+          </button>
+          <span className="absolute bottom-2 right-2 rounded-md bg-black/50 px-2 py-0.5 text-[10px] text-white">
+            🔍 Ampliar
+          </span>
+        </div>
+      ) : (
+        <div className="flex h-32 w-full items-center justify-center bg-slate-100 text-sm text-slate-400">
+          Sin imagen
+        </div>
+      )}
 
       {/* ── Datos IA en grid limpio ────────────────────────────── */}
       <div className="grid grid-cols-3 gap-px bg-slate-100 border-y border-slate-100">
