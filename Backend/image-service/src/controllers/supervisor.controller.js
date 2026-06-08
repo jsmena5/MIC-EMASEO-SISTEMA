@@ -658,7 +658,11 @@ export const mapaZonas = async (req, res) => {
           z.codigo,
           z.nombre,
           NULL::TEXT                 AS supervisor_nombre,
-          ST_AsGeoJSON(z.geom)::json AS geometry,
+          -- Simplificar geometría para el mapa: reduce vértices sin perder forma
+          -- 0.001° ≈ 100m — suficiente para visualización, elimina fragmentos diminutos
+          ST_AsGeoJSON(
+            ST_SimplifyPreserveTopology(z.geom, 0.001)
+          )::json AS geometry,
           COUNT(i.id) FILTER (
             WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
           ) AS incidentes_activos,
