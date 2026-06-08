@@ -45,6 +45,8 @@ export default function IncidentsPage() {
   const [showContext,     setShowContext]     = useState(false)
   const [showDiagnostic,  setShowDiagnostic]  = useState(false)
   const [showTimeline,    setShowTimeline]    = useState(false)
+  // Móvil: alterna entre vista de lista y vista de detalle
+  const [mobileView, setMobileView] = useState<"list" | "detail">("list")
 
   // Sync URL → filtros (solo estado y prioridad, sin borrar filtros locales)
   useEffect(() => {
@@ -111,6 +113,7 @@ export default function IncidentsPage() {
 
   const handleSelect = (id: string) => {
     setSelectedId(id)
+    setMobileView("detail") // en móvil: ir al detalle al tocar una card
     const nextParams = new URLSearchParams(params)
     nextParams.set("id", id)
     setParams(nextParams, { replace: true })
@@ -148,11 +151,16 @@ export default function IncidentsPage() {
         </button>
       </div>
 
-      {/* ── Grid principal: lista sticky izquierda, detalle fluye con página ── */}
+      {/* ── Grid principal ──────────────────────────────────────────────────
+           Desktop/tablet (sm+): lista sticky izquierda + detalle derecha
+           Móvil (<sm): lista O detalle (uno a la vez), con botón "Volver" ── */}
       <div className="grid gap-3 items-start sm:grid-cols-[300px_minmax(0,1fr)]">
 
-        {/* Lista sticky — se queda fija mientras el usuario scrollea el detalle */}
-        <div className="sm:sticky sm:top-4">
+        {/* Lista — visible en desktop siempre; en móvil solo cuando mobileView='list' */}
+        <div className={[
+          "sm:sticky sm:top-4",
+          mobileView === "list" ? "block" : "hidden sm:block",
+        ].join(" ")}>
           <IncidentRail
             incidents={incidents}
             selectedId={selectedId}
@@ -165,8 +173,11 @@ export default function IncidentsPage() {
           />
         </div>
 
-        {/* Panel derecho — flujo natural de página, sin overflow bloqueante */}
-        <div className="rounded-2xl border border-slate-200 bg-white">
+        {/* Panel derecho — en móvil solo cuando mobileView='detail' */}
+        <div className={[
+          "rounded-2xl border border-slate-200 bg-white",
+          mobileView === "detail" ? "block" : "hidden sm:block",
+        ].join(" ")}>
 
           {detailLoading && (
             <div className="flex h-full items-center justify-center">
@@ -188,6 +199,19 @@ export default function IncidentsPage() {
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               Selecciona una incidencia de la lista
             </div>
+          )}
+
+          {/* Botón volver — solo en móvil cuando se está viendo el detalle */}
+          {mobileView === "detail" && (
+            <button
+              onClick={() => setMobileView("list")}
+              className="sm:hidden flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-bold text-[#005BAC]"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Volver a la lista
+            </button>
           )}
 
           {detail && !detailLoading && !detailError && (
