@@ -14,7 +14,6 @@ import IncidentRail from "./IncidentRail"
 import IncidentPreview from "./IncidentPreview"
 import ReviewModal from "./ReviewModal"
 import CaseTimeline from "./CaseTimeline"
-import { ESTADO_STYLE, fmtDate } from "./styles"
 
 export default function IncidentsPage() {
   const [params, setParams] = useSearchParams()

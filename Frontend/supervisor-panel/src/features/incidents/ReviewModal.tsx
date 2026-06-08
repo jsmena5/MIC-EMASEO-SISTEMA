@@ -4,13 +4,11 @@
  * Mantiene su propia máquina de estados (step, reject mode) sin contaminar la bandeja.
  */
 import { useEffect, useRef, useState } from "react"
-import type { IncidentDetail, MotivoRechazo } from "../../services/incident.service"
-import { cambiarEstado, cambiarEstado as cambiarEstadoSvc, revisionIA } from "../../services/incident.service"
-import type { RevisionIAPayload, NivelAcum, TipoResiduo } from "../../services/incident.service"
+import type { IncidentDetail, RevisionIAPayload, NivelAcum, TipoResiduo } from "../../services/incident.service"
+import { cambiarEstado, revisionIA } from "../../services/incident.service"
 import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import { NIVEL_LABEL, TIPO_LABEL, fieldStyle, labelStyle } from "./styles"
-import { MOTIVO_RECHAZO_LABEL } from "../../types/incident"
-import type { MotivoRechazo as MR } from "../../types/incident"
+import { MOTIVO_RECHAZO_LABEL, type MotivoRechazo as MR } from "../../types/incident"
 
 type ModalStep = "validate" | "classify" | "reject"
 
@@ -71,7 +69,7 @@ export default function ReviewModal({
     if (!motivoRechazo) { setError("Selecciona un motivo."); return }
     setSaving(true); setError(null)
     try {
-      await cambiarEstadoSvc(detail.id, "RECHAZADA", { motivo_rechazo: motivoRechazo as MR, observaciones: observaciones.trim() || undefined })
+      await cambiarEstado(detail.id, "RECHAZADA", { motivo_rechazo: motivoRechazo as MR, observaciones: observaciones.trim() || undefined })
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo rechazar.")
