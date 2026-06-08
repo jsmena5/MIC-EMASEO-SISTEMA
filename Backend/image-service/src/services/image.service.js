@@ -555,8 +555,13 @@ function normalizeIdempotencyKey(raw) {
 
 const INSERT_INCIDENT_SQL =
   `INSERT INTO incidents.incidents
-   (reportado_por, descripcion, ubicacion, direccion, estado, prioridad, ubicacion_aproximada, idempotency_key)
-   VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5, 'PROCESANDO', $6, $7, $8)
+   (reportado_por, descripcion, ubicacion, direccion, zona_id, estado, prioridad, ubicacion_aproximada, idempotency_key)
+   SELECT $1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326), $5,
+          (SELECT id FROM operations.zones
+           WHERE ST_Within(ST_SetSRID(ST_MakePoint($3, $4), 4326), geom)
+             AND activa = TRUE
+           LIMIT 1),
+          'PROCESANDO', $6, $7, $8
    RETURNING id`
 
 // Crea el incidente. Sin clave de idempotencia usa el camino clásico (INSERT

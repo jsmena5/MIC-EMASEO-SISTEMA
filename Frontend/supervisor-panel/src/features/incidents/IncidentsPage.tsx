@@ -209,15 +209,31 @@ export default function IncidentsPage() {
                 >
                   <summary className="cursor-pointer font-bold text-slate-700">Contexto del reporte</summary>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <KV label="Ciudadano"  value={detail.ciudadano_nombre ?? "—"} />
-                    <KV label="Correo"     value={detail.ciudadano_email  ?? "—"} />
-                    <KV label="Zona"       value={detail.zona_nombre      ?? "—"} />
-                    <KV label="Dirección"  value={detail.direccion        ?? "Sin dirección"} />
-                    <KV label="Latitud"    value={String(detail.latitud)} />
-                    <KV label="Longitud"   value={String(detail.longitud)} />
+                    <KV label="Ciudadano"    value={detail.ciudadano_nombre ?? "—"} />
+                    <KV label="Correo"       value={detail.ciudadano_email  ?? "—"} />
+                    <KV label="Zona"         value={detail.zona_nombre      ?? "Sin zona asignada"} />
+                    {detail.direccion && detail.direccion !== "Sin dirección" && (
+                      <KV label="Dirección"  value={detail.direccion} />
+                    )}
+                    <div className="rounded-lg bg-white p-2 sm:col-span-2">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Coordenadas GPS</div>
+                      <div className="mt-0.5 flex items-center gap-3 text-xs font-semibold text-slate-800">
+                        <span>{detail.latitud?.toFixed(6) ?? "—"}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{detail.longitud?.toFixed(6) ?? "—"}</span>
+                        <a
+                          href={`https://www.google.com/maps?q=${detail.latitud},${detail.longitud}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-auto text-[#005BAC] hover:underline text-[11px]"
+                        >
+                          Ver en mapa →
+                        </a>
+                      </div>
+                    </div>
                   </div>
                   {detail.descripcion && (
-                    <div className="mt-3 rounded-lg bg-white p-3 text-slate-700 italic">"{detail.descripcion}"</div>
+                    <div className="mt-2 rounded-lg bg-white p-3 text-slate-700 italic text-xs">"{detail.descripcion}"</div>
                   )}
                 </details>
 
