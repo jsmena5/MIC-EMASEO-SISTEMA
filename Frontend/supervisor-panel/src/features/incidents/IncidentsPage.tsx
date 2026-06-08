@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   getIncidentDetail,
@@ -14,6 +14,7 @@ import IncidentRail from "./IncidentRail"
 import Stepper from "./Stepper"
 import Step1Validate from "./Step1Validate"
 import Step2Classify from "./Step2Classify"
+import IncidentReviewedView from "./IncidentReviewedView"
 import CaseTimeline from "./CaseTimeline"
 import { TIPO_LABEL, NIVEL_LABEL, fmtPercent, fmtVolume, fmtDate } from "./styles"
 
@@ -64,7 +65,8 @@ export default function IncidentsPage() {
   const [listError,     setListError]     = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError,   setDetailError]   = useState<string | null>(null)
-  const workspaceRef = useRef<HTMLDivElement>(null)
+  // Para incidentes REVISADO: permite desbloquear el formulario de edición
+  const [editingRevisado, setEditingRevisado] = useState(false)
 
   const [step, setStep] = useState<Step>(1)
   const [showTimeline, setShowTimeline] = useState(false)
@@ -121,15 +123,11 @@ export default function IncidentsPage() {
   }, [filters, loadList])
 
   useEffect(() => {
-    if (selectedId) loadDetail(selectedId)
-  }, [selectedId, loadDetail])
-
-  // Scroll automático al workspace cuando se selecciona un incidente
-  useEffect(() => {
     if (selectedId) {
-      workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+      setEditingRevisado(false)
+      loadDetail(selectedId)
     }
-  }, [selectedId])
+  }, [selectedId, loadDetail])
 
   const refresh = () => {
     loadList(filters)
@@ -157,11 +155,30 @@ export default function IncidentsPage() {
 
   const reachable = reachableStepFor(detail)
 
+  // Layout viewport-fijo: FiltersBar arriba, debajo lista+detalle en paralelo con
+  // scroll interno en cada panel. No hay scroll de página — evita el problema de
+  // "click en incidencia del final → detail aparece arriba".
   return (
-    <div className="grid gap-4">
-      <FiltersBar filters={filters} onChange={handleFiltersChange} />
+    <div className="flex h-full flex-col gap-3 overflow-hidden">
+      {/* Barra de filtros + botón actualizar */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <FiltersBar filters={filters} onChange={handleFiltersChange} />
+        </div>
+        <button
+          onClick={refresh}
+          title="Actualizar incidencias"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          Actualizar
+        </button>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+      {/* Grid principal — ambos paneles con scroll interno, sin scroll de página */}
+      <div className="flex-1 min-h-0 grid gap-4 sm:grid-cols-[300px_minmax(0,1fr)]">
         <IncidentRail
           incidents={incidents}
           selectedId={selectedId}
@@ -173,8 +190,8 @@ export default function IncidentsPage() {
           onSortChange={(s) => handleFiltersChange({ ...filters, sort: s, page: 1 })}
         />
 
-        {/* Workspace */}
-        <div ref={workspaceRef} className="rounded-2xl border border-slate-200 bg-white p-5">
+        {/* Workspace — scroll interno para no mover la página */}
+        <div className="overflow-y-auto min-h-0 rounded-2xl border border-slate-200 bg-white p-5">
           {detailLoading && (
             <div className="py-16 text-center text-sm text-slate-500">Cargando detalle…</div>
           )}
@@ -215,7 +232,12 @@ export default function IncidentsPage() {
               {step === 1 && (
                 <Step1Validate detail={detail} onAdvance={() => setStep(2)} onRefresh={refresh} />
               )}
-              {step === 2 && (
+              {step === 2 && detail.estado === "REVISADO" && !editingRevisado ? (
+                <IncidentReviewedView
+                  detail={detail}
+                  onEdit={() => setEditingRevisado(true)}
+                />
+              ) : step === 2 && (
                 <Step2Classify detail={detail} onRefresh={refresh} />
               )}
 
@@ -275,7 +297,7 @@ export default function IncidentsPage() {
       </div>
 
       {pagination.pages > 1 && (
-        <div className="flex items-center justify-between text-xs text-slate-500">
+        <div className="flex shrink-0 items-center justify-between text-xs text-slate-500">
           <span>{pagination.total} casos en total</span>
           <div className="flex items-center gap-3">
             <button

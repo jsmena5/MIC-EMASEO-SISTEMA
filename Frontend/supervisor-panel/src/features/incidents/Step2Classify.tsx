@@ -6,6 +6,7 @@ import type {
   TipoResiduo,
 } from "../../services/incident.service"
 import { cambiarEstado, revisionIA } from "../../services/incident.service"
+import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import { NIVEL_LABEL, TIPO_LABEL, fieldStyle, labelStyle } from "./styles"
 
 function getInitialForm(detail: IncidentDetail): RevisionIAPayload {
@@ -26,6 +27,8 @@ export default function Step2Classify({
   const [form, setForm] = useState<RevisionIAPayload>(getInitialForm(detail))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+  const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
 
   const handleSave = async (markRevisado: boolean) => {
     setSaving(true)
@@ -45,10 +48,48 @@ export default function Step2Classify({
 
   return (
     <div className="grid gap-5">
+      {/* Imagen con lightbox */}
+      {imageUrl && (
+        <>
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="block w-full cursor-zoom-in overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+            title="Click para ver en grande"
+          >
+            <img
+              src={imageUrl}
+              alt="Incidente"
+              className="aspect-video w-full object-contain"
+            />
+          </button>
+          {lightboxOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
+              onClick={() => setLightboxOpen(false)}
+            >
+              <button
+                type="button"
+                className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30"
+                onClick={() => setLightboxOpen(false)}
+              >
+                ✕
+              </button>
+              <img
+                src={imageUrl}
+                alt="Incidente ampliado"
+                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+        </>
+      )}
+
       <div>
         <h3 className="text-base font-extrabold text-slate-900">Validar la clasificación de la IA</h3>
         <p className="mt-1 text-xs text-slate-500">
-          La IA propuso un tipo de residuo y un nivel de acumulación. Confirma o corrige antes de despachar al campo.
+          La IA propuso un tipo de residuo y un nivel de acumulación. Confirma o corrige antes de guardar.
         </p>
       </div>
 
@@ -122,19 +163,23 @@ export default function Step2Classify({
       {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{error}</div>}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="mr-auto text-xs text-slate-500">
+          <strong>Guardar borrador</strong>: guarda sin cambiar estado.<br />
+          <strong>Confirmar revisión</strong>: guarda y marca el caso como <em>REVISADO</em>.
+        </div>
         <button
           disabled={saving}
           onClick={() => handleSave(false)}
           className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
-          {saving ? "Guardando…" : "Solo guardar"}
+          {saving ? "Guardando…" : "Guardar borrador"}
         </button>
         <button
           disabled={saving}
           onClick={() => handleSave(true)}
           className="rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E] disabled:opacity-50"
         >
-          {saving ? "Guardando…" : "Guardar"}
+          {saving ? "Guardando…" : "Confirmar revisión"}
         </button>
       </div>
     </div>
