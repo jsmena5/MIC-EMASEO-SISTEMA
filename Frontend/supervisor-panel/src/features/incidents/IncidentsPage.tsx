@@ -134,15 +134,17 @@ export default function IncidentsPage() {
     // main del DashboardLayout. La lista usa sticky para permanecer visible.
     <div className="flex flex-col gap-3">
 
-      {/* ── Filtros + botón actualizar ─────────────────────────── */}
-      <div className="flex items-start gap-2">
+      {/* ── Filtros + botón actualizar ─────────────────────────────────────
+           Móvil: FiltersBar ancho completo (chips sin comprimir) + botón debajo
+           Desktop: lado a lado ── */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
         <div className="flex-1 min-w-0">
           <FiltersBar filters={filters} onChange={handleFiltersChange} />
         </div>
         <button
           onClick={refresh}
           title="Actualizar incidencias"
-          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition sm:py-2.5 sm:shrink-0"
         >
           <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

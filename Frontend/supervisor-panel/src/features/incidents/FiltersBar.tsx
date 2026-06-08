@@ -48,7 +48,9 @@ export default function FiltersBar({
 
   return (
     <div style={{ background: "#fff", border: `1px solid #E2E8F0`, borderRadius: 14, padding: "10px 14px" }}>
-      {/* ── Chips de acceso rápido — fila horizontal con scroll en móvil ── */}
+      {/* ── Chips de acceso rápido — fila horizontal con scroll en móvil ──
+           El gradiente derecho indica visualmente que hay más chips al deslizar ── */}
+      <div className="relative">
       <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <Chip label="Sin revisar"     active={Boolean(filters.sin_supervisar)}  onClick={() => set({ sin_supervisar: !filters.sin_supervisar, estado: "" })}             color={palette.primary} />
         <Chip label="Por validar"     active={filters.estado === "PENDIENTE"}   onClick={() => set({ estado: filters.estado === "PENDIENTE"   ? "" : "PENDIENTE",   sin_supervisar: false })}   color={palette.warning} />
@@ -73,6 +75,9 @@ export default function FiltersBar({
             <span className="hidden sm:inline">Filtros</span>
           </button>
         </div>
+      </div>
+      {/* Gradiente que indica chips adicionales al deslizar */}
+      <div className="pointer-events-none absolute right-0 top-0 h-full w-8 bg-gradient-to-l from-white sm:hidden" />
       </div>
 
       {/* ── Fila 2: filtros avanzados (colapsables) ── */}
