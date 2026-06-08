@@ -20,7 +20,8 @@ import { pool } from "../db.js"
 //    FALLIDO      → (terminal)
 
 const TRANSICIONES_VALIDAS = {
-  PENDIENTE:   ["EN_ATENCION", "RECHAZADA"],
+  PENDIENTE:   ["REVISADO", "EN_ATENCION", "RECHAZADA"],
+  REVISADO:    [],                           // terminal en el alcance actual del supervisor
   EN_ATENCION: ["RESUELTA", "RECHAZADA", "PENDIENTE"],
   EN_REVISION: ["PENDIENTE", "RECHAZADA"],   // supervisor valida o descarta
   DESCARTADO:  ["PENDIENTE"],                // supervisor puede anular rechazo automático
@@ -158,7 +159,7 @@ export const getIncidentDetail = async (req, res) => {
          z.id AS zona_id, z.nombre AS zona_nombre, z.codigo AS zona_codigo,
          c.nombre || ' ' || c.apellido AS ciudadano_nombre,
          c.cedula AS ciudadano_cedula,
-         NULL::TEXT AS ciudadano_email,
+         u.email AS ciudadano_email,
          ii.image_url,
          ar.modelo_nombre, ar.tipo_residuo, ar.nivel_acumulacion,
          ar.volumen_estimado_m3, ar.confianza, ar.detecciones,
@@ -171,6 +172,7 @@ export const getIncidentDetail = async (req, res) => {
        FROM incidents.incidents i
        LEFT JOIN operations.zones z       ON z.id = i.zona_id
        LEFT JOIN public.ciudadanos c      ON c.user_id = i.reportado_por
+       LEFT JOIN app_auth.users u         ON u.id = i.reportado_por
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar   ON ar.incident_id = i.id
        WHERE i.id = $1`,

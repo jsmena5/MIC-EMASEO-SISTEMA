@@ -25,6 +25,7 @@ export const palette = {
 export const ESTADO_STYLE: Record<string, { bg: string; text: string }> = {
   PROCESANDO:  { bg: "#DBEAFE", text: "#1D4ED8" },
   PENDIENTE:   { bg: "#FEF3C7", text: "#B45309" },
+  REVISADO:    { bg: "#E0F2FE", text: "#0369A1" },
   EN_ATENCION: { bg: "#EDE9FE", text: "#6D28D9" },
   RESUELTA:    { bg: "#DCFCE7", text: "#166534" },
   RECHAZADA:   { bg: "#FEE2E2", text: "#991B1B" },
@@ -123,5 +124,5 @@ export const fmtPercent = (value: number | string | null) => {
 export const fmtVolume = (value: number | string | null) => {
   if (value == null) return "Sin dato"
   const n = Number(value)
-  return Number.isFinite(n) ? `${n.toFixed(2)} m³` : "Sin dato"
+  return Number.isFinite(n) ? `${n.toFixed(2)} m³ (ref.)` : "Sin dato"
 }

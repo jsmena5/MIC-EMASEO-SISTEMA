@@ -5,7 +5,7 @@ import type {
   RevisionIAPayload,
   TipoResiduo,
 } from "../../services/incident.service"
-import { revisionIA } from "../../services/incident.service"
+import { cambiarEstado, revisionIA } from "../../services/incident.service"
 import { NIVEL_LABEL, TIPO_LABEL, fieldStyle, labelStyle } from "./styles"
 
 function getInitialForm(detail: IncidentDetail): RevisionIAPayload {
@@ -18,23 +18,24 @@ function getInitialForm(detail: IncidentDetail): RevisionIAPayload {
 }
 
 export default function Step2Classify({
-  detail, onAdvance, onRefresh,
+  detail, onRefresh,
 }: {
   detail: IncidentDetail
-  onAdvance: () => void
   onRefresh: () => void
 }) {
   const [form, setForm] = useState<RevisionIAPayload>(getInitialForm(detail))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleSave = async (advance: boolean) => {
+  const handleSave = async (markRevisado: boolean) => {
     setSaving(true)
     setError(null)
     try {
       await revisionIA(detail.id, form)
+      if (markRevisado && detail.estado === "PENDIENTE") {
+        await cambiarEstado(detail.id, "REVISADO")
+      }
       onRefresh()
-      if (advance) onAdvance()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar.")
     } finally {
@@ -133,7 +134,7 @@ export default function Step2Classify({
           onClick={() => handleSave(true)}
           className="rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E] disabled:opacity-50"
         >
-          {saving ? "Guardando…" : "Guardar y asignar →"}
+          {saving ? "Guardando…" : "Guardar"}
         </button>
       </div>
     </div>

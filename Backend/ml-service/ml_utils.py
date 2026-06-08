@@ -27,11 +27,16 @@ COLOR_QUANTIZE_STEP  = 8    # paso de cuantización: 256 // 8 = 32 niveles por c
 
 # ── Constantes de clasificación de severidad ─────────────────────────────────
 # Bandas de severidad: (cov_min, cov_max, vol_min, vol_max, nivel, prioridad)
+# Calibradas para acumulaciones en aceras de Quito (valores reales típicos):
+#   BAJO    → 1-3 bolsas pequeñas / objetos aislados   (0.02–0.10 m³)
+#   MEDIO   → varias bolsas / un costal lleno           (0.10–0.40 m³)
+#   ALTO    → montón mediano, varios costales            (0.40–1.20 m³)
+#   CRITICO → acumulación grande, escombros              (1.20–4.00 m³)
 _BANDS = [
-    (0.00, 0.15, 0.1,  0.5,  "BAJO",    "BAJA"),
-    (0.15, 0.40, 0.5,  2.0,  "MEDIO",   "MEDIA"),
-    (0.40, 0.70, 2.0,  5.0,  "ALTO",    "ALTA"),
-    (0.70, 1.00, 5.0, 15.0,  "CRITICO", "CRITICA"),
+    (0.00, 0.15, 0.02, 0.10, "BAJO",    "BAJA"),
+    (0.15, 0.40, 0.10, 0.40, "MEDIO",   "MEDIA"),
+    (0.40, 0.70, 0.40, 1.20, "ALTO",    "ALTA"),
+    (0.70, 1.00, 1.20, 4.00, "CRITICO", "CRITICA"),
 ]
 
 CONF_NORMALIZATION_BASELINE = 0.60  # confianza ≥ este valor → conf_factor = 1.0

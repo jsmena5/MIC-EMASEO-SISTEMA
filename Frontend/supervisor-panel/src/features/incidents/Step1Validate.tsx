@@ -21,6 +21,7 @@ export default function Step1Validate({
   const [observaciones, setObservaciones] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [imgFailed, setImgFailed] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
 
   const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const decision = detail.decision_automatica ? DECISION_STYLE[detail.decision_automatica] : null
@@ -53,21 +54,50 @@ export default function Step1Validate({
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
-      {/* Imagen grande */}
+      {/* Imagen grande — click abre lightbox */}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-900">
         {imageUrl && !imgFailed ? (
-          <img
-            src={imageUrl}
-            alt="Incidente"
-            className="aspect-[4/3] h-full w-full object-contain"
-            onError={() => setImgFailed(true)}
-          />
+          <button
+            type="button"
+            className="block h-full w-full cursor-zoom-in"
+            onClick={() => setLightboxOpen(true)}
+            title="Click para ver en grande"
+          >
+            <img
+              src={imageUrl}
+              alt="Incidente"
+              className="aspect-[4/3] h-full w-full object-contain"
+              onError={() => setImgFailed(true)}
+            />
+          </button>
         ) : (
           <div className="flex aspect-[4/3] items-center justify-center text-sm text-slate-300">
             Sin imagen disponible
           </div>
         )}
       </div>
+
+      {/* Lightbox */}
+      {lightboxOpen && imageUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white hover:bg-white/30"
+            onClick={() => setLightboxOpen(false)}
+          >
+            ✕
+          </button>
+          <img
+            src={imageUrl}
+            alt="Incidente ampliado"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
 
       {/* Acciones */}
       <div className="grid content-start gap-4">
@@ -106,7 +136,7 @@ export default function Step1Validate({
               ].join(" ")}
             >
               <div className="text-sm font-extrabold text-green-700">✓ Es un reporte real</div>
-              <div className="mt-1 text-xs text-slate-600">Pasa a clasificar y asignar al equipo.</div>
+              <div className="mt-1 text-xs text-slate-600">Pasa a clasificar la incidencia.</div>
               {iaSugiereReal && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-green-600">Sugerido por IA</div>}
             </button>
 

@@ -43,7 +43,7 @@ const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE 
 // Backend/ml-service/tasks.py. Sirven para detectar inconsistencias volumen/nivel
 // (p.ej. MiDaS infla el volumen pero la banda dice MEDIO). Si volumen > techo×tolerancia
 // el incidente se marca EN_REVISION en lugar de PENDIENTE para que el supervisor lo valide.
-const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.5, MEDIO: 2.0, ALTO: 5.0, CRITICO: 15.0 }
+const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.12, MEDIO: 0.50, ALTO: 1.50, CRITICO: 5.0 }
 const VOLUME_COHERENCE_TOLERANCE = 1.10  // +10% sobre el techo
 
 // Formato UUID (cualquier versión) para validar la clave de idempotencia del

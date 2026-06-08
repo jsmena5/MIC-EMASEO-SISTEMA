@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   getIncidentDetail,
   getIncidents,
-  getOperarios,
   type IncidentDetail,
   type IncidentEstado,
   type IncidentFilters,
   type IncidentListItem,
-  type OperarioItem,
   type Prioridad,
 } from "../../services/incident.service"
 import FiltersBar from "./FiltersBar"
@@ -16,11 +14,10 @@ import IncidentRail from "./IncidentRail"
 import Stepper from "./Stepper"
 import Step1Validate from "./Step1Validate"
 import Step2Classify from "./Step2Classify"
-import Step3Assign from "./Step3Assign"
 import CaseTimeline from "./CaseTimeline"
 import { TIPO_LABEL, NIVEL_LABEL, fmtPercent, fmtVolume, fmtDate } from "./styles"
 
-type Step = 1 | 2 | 3
+type Step = 1 | 2
 
 function initialStepFor(detail: IncidentDetail | null): Step {
   if (!detail) return 1
@@ -31,12 +28,11 @@ function initialStepFor(detail: IncidentDetail | null): Step {
     case "DESCARTADO":
       return 1
     case "PENDIENTE":
-      // si la IA ya fue validada (correctamente o no), saltar a paso 3
-      return detail.ia_fue_correcta != null ? 3 : 2
+    case "REVISADO":
     case "EN_ATENCION":
     case "RESUELTA":
     case "RECHAZADA":
-      return 3
+      return 2
     default:
       return 1
   }
@@ -45,7 +41,7 @@ function initialStepFor(detail: IncidentDetail | null): Step {
 function reachableStepFor(detail: IncidentDetail | null): Step {
   if (!detail) return 1
   if (detail.estado === "DESCARTADO" || detail.estado === "FALLIDO") return 1
-  return 3
+  return 2
 }
 
 export default function IncidentsPage() {
@@ -64,20 +60,28 @@ export default function IncidentsPage() {
   const [pagination, setPagination] = useState({ total: 0, page: 1, pages: 1, limit: 20 })
   const [selectedId, setSelectedId] = useState<string | null>(params.get("id"))
   const [detail,     setDetail]     = useState<IncidentDetail | null>(null)
-  const [operarios,  setOperarios]  = useState<OperarioItem[]>([])
   const [listLoading,   setListLoading]   = useState(true)
   const [listError,     setListError]     = useState<string | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError,   setDetailError]   = useState<string | null>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
 
   const [step, setStep] = useState<Step>(1)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showContext,  setShowContext]  = useState(false)
 
   // La URL es fuente externa de filtros (links de Topbar/Home con ?estado=).
+  // Solo actualizamos los campos que VIENEN de la URL — así se evita borrar filtros
+  // locales (fecha, búsqueda de texto, etc.) cuando la URL cambia al seleccionar un
+  // incidente (que solo añade el parámetro ?id= pero no toca estado/prioridad).
   useEffect(() => {
-    setFilters(filtersFromUrl)
-  }, [filtersFromUrl])
+    setFilters(prev => ({
+      ...prev,
+      estado:    filtersFromUrl.estado,
+      prioridad: filtersFromUrl.prioridad,
+    }))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersFromUrl.estado, filtersFromUrl.prioridad])
 
   const loadList = useCallback(async (next: IncidentFilters) => {
     setListLoading(true)
@@ -98,9 +102,8 @@ export default function IncidentsPage() {
     setDetailLoading(true)
     setDetailError(null)
     try {
-      const [d, ops] = await Promise.all([getIncidentDetail(id), getOperarios()])
+      const d = await getIncidentDetail(id)
       setDetail(d)
-      setOperarios(ops.operarios)
       setStep(initialStepFor(d))
     } catch (err) {
       setDetail(null)
@@ -120,6 +123,13 @@ export default function IncidentsPage() {
   useEffect(() => {
     if (selectedId) loadDetail(selectedId)
   }, [selectedId, loadDetail])
+
+  // Scroll automático al workspace cuando se selecciona un incidente
+  useEffect(() => {
+    if (selectedId) {
+      workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
+  }, [selectedId])
 
   const refresh = () => {
     loadList(filters)
@@ -164,7 +174,7 @@ export default function IncidentsPage() {
         />
 
         {/* Workspace */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+        <div ref={workspaceRef} className="rounded-2xl border border-slate-200 bg-white p-5">
           {detailLoading && (
             <div className="py-16 text-center text-sm text-slate-500">Cargando detalle…</div>
           )}
@@ -206,10 +216,7 @@ export default function IncidentsPage() {
                 <Step1Validate detail={detail} onAdvance={() => setStep(2)} onRefresh={refresh} />
               )}
               {step === 2 && (
-                <Step2Classify detail={detail} onAdvance={() => setStep(3)} onRefresh={refresh} />
-              )}
-              {step === 3 && (
-                <Step3Assign detail={detail} operarios={operarios} onRefresh={refresh} />
+                <Step2Classify detail={detail} onRefresh={refresh} />
               )}
 
               {/* Paneles colapsables: contexto + diagnóstico + timeline */}

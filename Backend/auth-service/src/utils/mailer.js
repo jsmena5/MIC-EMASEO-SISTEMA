@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer"
 import dotenv from "dotenv"
+import { logger } from "./logger.js"
 
 dotenv.config()
 
@@ -24,7 +25,7 @@ const transporter = nodemailer.createTransport({
  * @param {string} otpCode  - Código OTP de 6 dígitos
  */
 export const sendPasswordResetEmail = async (toEmail, otpCode) => {
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from:    process.env.EMAIL_FROM || "EMASEO EP <noreply.emaseo@gmail.com>",
     to:      toEmail,
     subject: "Recuperación de contraseña — EMASEO EP",
@@ -50,4 +51,5 @@ export const sendPasswordResetEmail = async (toEmail, otpCode) => {
       </div>
     `,
   })
+  logger.info({ to: toEmail, messageId: info.messageId }, "Email de recuperación enviado")
 }

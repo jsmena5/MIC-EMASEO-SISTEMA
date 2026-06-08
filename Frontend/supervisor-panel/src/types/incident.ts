@@ -14,12 +14,14 @@
  *   PROCESANDO → FALLIDO     (error técnico)
  *   EN_REVISION → PENDIENTE | RECHAZADA
  *   DESCARTADO  → PENDIENTE
- *   PENDIENTE   → EN_ATENCION | RECHAZADA
+ *   PENDIENTE   → REVISADO | EN_ATENCION | RECHAZADA
+ *   REVISADO    → (terminal dentro del alcance actual del supervisor)
  *   EN_ATENCION → RESUELTA | RECHAZADA | PENDIENTE
  */
 export type IncidentEstado =
   | 'PROCESANDO'
   | 'PENDIENTE'
+  | 'REVISADO'
   | 'EN_ATENCION'
   | 'RESUELTA'
   | 'RECHAZADA'

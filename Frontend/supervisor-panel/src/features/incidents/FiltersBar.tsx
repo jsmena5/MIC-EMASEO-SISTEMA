@@ -69,6 +69,7 @@ export default function FiltersBar({
         <select value={filters.estado ?? ""} onChange={(e) => set({ estado: (e.target.value as IncidentEstado) || "" })} style={fieldStyle}>
           <option value="">Todos los estados</option>
           <option value="PENDIENTE">Pendiente</option>
+          <option value="REVISADO">Revisado</option>
           <option value="EN_ATENCION">En atención</option>
           <option value="EN_REVISION">En revisión</option>
           <option value="RESUELTA">Resuelta</option>

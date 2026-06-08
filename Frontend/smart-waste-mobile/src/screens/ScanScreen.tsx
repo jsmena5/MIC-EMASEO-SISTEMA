@@ -642,12 +642,19 @@ export default function ScanScreen() {
         if (status.estado === "DESCARTADO") {
           setPollProgress(0)
           setPhase("idle")
+          await persistProcessingTask(taskId)
           Alert.alert(
             "Sin acumulación detectada",
-            "La imagen analizada no muestra una acumulación de basura detectable. Asegúrate de enfocar bien los residuos y vuelve a intentarlo.",
+            "La imagen analizada no muestra una acumulación de basura detectable. Asegúrate de enfocar bien los residuos y vuelve a intentarlo. El reporte quedó registrado en tu historial.",
             [
-              { text: "Cancelar", style: "cancel", onPress: handleCancelToHome },
               { text: "Tomar otra foto", onPress: retake },
+              {
+                text: "Ver historial",
+                onPress: () => {
+                  retake()
+                  navigation.reset({ index: 0, routes: [{ name: "Historial" }] })
+                },
+              },
             ],
           )
           return

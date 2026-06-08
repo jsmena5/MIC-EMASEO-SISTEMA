@@ -1,4 +1,4 @@
-type Step = 1 | 2 | 3
+type Step = 1 | 2
 
 export default function Stepper({
   current,
@@ -12,7 +12,6 @@ export default function Stepper({
   const steps: { n: Step; label: string }[] = [
     { n: 1, label: "Validar" },
     { n: 2, label: "Clasificar" },
-    { n: 3, label: "Asignar" },
   ]
 
   return (
