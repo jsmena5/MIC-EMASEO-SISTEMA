@@ -40,16 +40,31 @@ URBAN_TO_ZONE = {
     90014:  "La Delicia", 90084: "La Delicia",
 }
 
-# Rural parishes (admin_level=8) -> zone (near-valley / peri-urban only)
+# Rural parishes (admin_level=8) -> zone.
+# Solo los nucleos poblados de cada valle, para zonas COMPACTAS estilo Uber.
+# Excluidas las parroquias rurales extensas que generaban "colas" enormes:
+#   Pintag (Los Chillos, se extiende al Antisana)
+#   El Quinche, Checa, Tababela, Yaruqui, Guayllabamba (Tumbaco, lejos al NE)
+#   Calacali (La Delicia, lejos al NO)
 RURAL_TO_ZONE = {
-    2673275: "Los Chillos", 2673303: "Los Chillos", 2673274: "Los Chillos",
-    2673245: "Los Chillos", 2673247: "Los Chillos", 8009658: "Los Chillos",
-    2673304: "Tumbaco", 2673307: "Tumbaco", 2673409: "Tumbaco",
-    2673246: "Tumbaco", 2673415: "Tumbaco", 2673411: "Tumbaco",
-    2673412: "Tumbaco", 2673416: "Tumbaco", 2673363: "Tumbaco",
-    2673329: "Calderon", 2673318: "Calderon",
-    2673310: "Eugenio Espejo", 2673315: "Eugenio Espejo",
-    2673440: "La Delicia", 2673446: "La Delicia", 2673480: "La Delicia",
+    # Los Chillos — nucleo urbano del valle (Conocoto/Sangolqui)
+    2673275: "Los Chillos",   # Conocoto
+    2673303: "Los Chillos",   # Guangopolo
+    2673274: "Los Chillos",   # Alangasi
+    8009658: "Los Chillos",   # Amaguana
+    # Tumbaco — nucleo urbano del valle (Cumbaya/Tumbaco)
+    2673304: "Tumbaco",       # Tumbaco
+    2673307: "Tumbaco",       # Cumbaya
+    2673409: "Tumbaco",       # Puembo
+    # Calderon
+    2673329: "Calderon",      # Calderon
+    2673318: "Calderon",      # Llano Chico
+    # Eugenio Espejo — extensiones del valle adyacente
+    2673310: "Eugenio Espejo",# Nayon
+    2673315: "Eugenio Espejo",# Zambiza
+    # La Delicia — periurbano norte
+    2673440: "La Delicia",    # Pomasqui
+    2673446: "La Delicia",    # San Antonio
 }
 
 ZONE_CODES = {
@@ -180,9 +195,9 @@ def main():
 
     lines = [
         "-- =========================================================================",
-        "-- Migration 052: Zonas DMQ desde fuente unica OSM (sin slivers)",
-        "-- Urbanas admin_level=9 + rurales admin_level=8, todas de OSM.",
-        "-- Topologia consistente => unary_union limpio. Reemplaza migracion 051.",
+        "-- Migration 053: Zonas DMQ compactas (nucleos poblados) desde OSM",
+        "-- Urbanas admin_level=9 + valles poblados admin_level=8. Sin colas rurales.",
+        "-- Topologia consistente => unary_union limpio. Reemplaza migracion 052.",
         "-- Generado por _build_zones_v2.py — " + date.today().isoformat(),
         "-- =========================================================================",
         "",
@@ -230,9 +245,9 @@ def main():
         "COMMIT;",
     ]
     sql = "\n".join(lines)
-    with open("Backend/database/052_zones_osm_clean.sql", "w", encoding="utf-8") as f:
+    with open("Backend/database/053_zones_compact.sql", "w", encoding="utf-8") as f:
         f.write(sql)
-    print("\n[OK] Backend/database/052_zones_osm_clean.sql (%d bytes)" % len(sql), file=sys.stderr)
+    print("\n[OK] Backend/database/053_zones_compact.sql (%d bytes)" % len(sql), file=sys.stderr)
 
     # Also emit a geojson for inspection
     fc = {"type": "FeatureCollection", "features": [

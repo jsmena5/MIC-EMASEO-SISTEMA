@@ -78,6 +78,21 @@ const FILTROS = [
   { value: 'EN_ATENCION', label: 'En atención' },
 ]
 
+// ── Capas base disponibles ───────────────────────────────────────────────────
+const BASEMAPS = {
+  claro: {
+    label: 'Claro',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
+  },
+  oscuro: {
+    label: 'Oscuro',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
+  },
+} as const
+type BasemapKey = keyof typeof BASEMAPS
+
 export default function MapaZonas() {
   const [datos, setDatos]           = useState<MapaZonasResponse | null>(null)
   const [loading, setLoading]       = useState(true)
@@ -85,6 +100,7 @@ export default function MapaZonas() {
   const [zonaPanel, setZonaPanel]   = useState<ZonaProperties | null>(null)
   const [filtro, setFiltro]         = useState('TODOS')
   const [horaUpdate, setHoraUpdate] = useState('')
+  const [basemap, setBasemap]       = useState<BasemapKey>('claro')
 
   const cargar = useCallback(async () => {
     try {
@@ -178,7 +194,7 @@ export default function MapaZonas() {
       position: 'relative', height: 'calc(100vh - 130px)', minHeight: 500,
       borderRadius: 20, overflow: 'hidden', border: '1px solid #e2e8f0',
     }}>
-      {/* CSS para tooltips y labels */}
+      {/* CSS para tooltips y labels — adapta según basemap claro/oscuro */}
       <style>{`
         .zona-tooltip {
           background: rgba(255,255,255,0.95); border: 1px solid #e2e8f0;
@@ -187,9 +203,12 @@ export default function MapaZonas() {
         }
         .zona-tooltip::before { border-top-color: rgba(255,255,255,0.95); }
         .zona-label {
-          font-size: 12px; font-weight: 800; color: #0f172a;
+          font-size: 12px; font-weight: 800; ${
+            basemap === 'oscuro'
+              ? 'color: rgba(255,255,255,0.95); text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 0 4px rgba(0,0,0,0.9), 0 1px 3px rgba(0,0,0,0.8);'
+              : 'color: #0f172a; text-shadow: 0 0 4px white, 0 0 4px white, 0 1px 3px rgba(255,255,255,0.9);'
+          }
           text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
-          text-shadow: 0 0 4px white, 0 0 4px white, 0 1px 3px rgba(255,255,255,0.9);
           pointer-events: none;
         }
       `}</style>
@@ -216,11 +235,33 @@ export default function MapaZonas() {
         <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>⟳ {horaUpdate}</span>
       </div>
 
-      {/* Mapa — basemap colorido CartoDB Voyager */}
+      {/* Toggle de fondo claro/oscuro — esquina superior derecha */}
+      <div style={{
+        position: 'absolute', top: 14, right: 14, zIndex: 1000,
+        background: 'white', borderRadius: 20, padding: 3,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex',
+        border: '1px solid #e2e8f0',
+      }}>
+        {(Object.keys(BASEMAPS) as BasemapKey[]).map(key => (
+          <button key={key} onClick={() => setBasemap(key)}
+            style={{
+              padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
+              fontSize: 11, fontWeight: basemap === key ? 700 : 500,
+              background: basemap === key ? (key === 'oscuro' ? '#1e293b' : '#f97316') : 'transparent',
+              color:      basemap === key ? 'white' : '#64748b',
+              transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4,
+            }}>
+            {key === 'oscuro' ? '🌙' : '☀️'} {BASEMAPS[key].label}
+          </button>
+        ))}
+      </div>
+
+      {/* Mapa — basemap conmutable claro/oscuro */}
       <MapContainer center={[-0.22, -78.50]} zoom={11} style={{ height: '100%', width: '100%' }} zoomControl>
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          key={basemap}
+          attribution={BASEMAPS[basemap].attribution}
+          url={BASEMAPS[basemap].url}
           subdomains="abcd"
           maxZoom={19}
         />
