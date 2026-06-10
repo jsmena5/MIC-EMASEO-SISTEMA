@@ -40,10 +40,13 @@ const TEMP_PRIORIDAD = 'BAJA'
 const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE ?? "0.70")
 
 // Techos de volumen por nivel (en m³) — deben estar en sync con _BANDS de
-// Backend/ml-service/tasks.py. Sirven para detectar inconsistencias volumen/nivel
+// Backend/ml-service/ml_utils.py. Sirven para detectar inconsistencias volumen/nivel
 // (p.ej. MiDaS infla el volumen pero la banda dice MEDIO). Si volumen > techo×tolerancia
 // el incidente se marca EN_REVISION en lugar de PENDIENTE para que el supervisor lo valide.
-const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.12, MEDIO: 0.50, ALTO: 1.50, CRITICO: 5.0 }
+// Actualizados (2026-06-10) al subir las bandas de volumen (ALTO 1.3–1.9, CRÍTICO 1.9–6.0).
+// Con el clamp medir+acotar de tasks.py el volumen ya nunca excede vol_max de su banda,
+// así que este chequeo queda como segunda red de seguridad (debe coincidir con vol_max).
+const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.50, MEDIO: 1.30, ALTO: 1.90, CRITICO: 6.0 }
 const VOLUME_COHERENCE_TOLERANCE = 1.10  // +10% sobre el techo
 
 // Formato UUID (cualquier versión) para validar la clave de idempotencia del

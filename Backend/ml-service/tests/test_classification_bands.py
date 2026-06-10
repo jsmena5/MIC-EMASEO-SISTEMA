@@ -565,7 +565,7 @@ class TestPileRescue:
             f"(eff={r['effective_ratio']:.3f}, vol={r['volumen']})"
         )
         assert r["prioridad"] == "ALTA"
-        assert r["volumen"] > 2.0  # la banda ALTO arranca en 2.0 m³
+        assert r["volumen"] >= 1.30  # la banda ALTO arranca en 1.30 m³ (recalibrada 2026-06-10)
 
     def test_large_pile_capped_at_alto_not_critico(self):
         """Pila grande única (cov 0.75, score 0.65) → ALTO, nunca CRÍTICO."""

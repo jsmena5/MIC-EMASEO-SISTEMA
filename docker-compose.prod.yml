@@ -252,7 +252,10 @@ services:
     restart: unless-stopped
     environment:
       <<: *ml-env
-      USE_MIDAS_VOLUME: "false"
+      # Estimación de volumen real con MiDaS (medir+acotar). El resultado se acota
+      # al rango de la banda del nivel en tasks.py, así que no puede inflar el
+      # volumen de forma incoherente con el nivel. MiDaS se precarga en el warmup.
+      USE_MIDAS_VOLUME: "true"
       UPLOADS_DIR: /app/uploads
       # 2 threads por inferencia RT-DETR × 2 tareas concurrentes = 4 threads
       # máximo, que caben justo en los 4 vCPU del VPS sin desbordar.

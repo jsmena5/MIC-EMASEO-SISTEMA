@@ -15,6 +15,7 @@ from ml_utils import (
     compute_garbage_score  as _compute_garbage_score,
     compute_blur_score     as _compute_blur_score,
     estimate_volume_midas  as _estimate_volume_midas,
+    warm_up_midas          as _warm_up_midas,
     classify_severity      as _classify_severity,
     GARBAGE_SCORE_HARD_FLOOR,
 )
@@ -158,7 +159,11 @@ def _submit_warmup_tasks(**kwargs):
     time_limit=360,
 )
 def warmup_clip_task():
-    """Pre-carga CLIP en el worker (ejecuta en contexto de task, no en fork)."""
+    """Pre-carga CLIP (y MiDaS si está activo) en el worker.
+
+    Ejecuta en contexto de task normal (no en el fork de worker_process_init),
+    por eso es seguro cargar modelos pesados aquí sin el deadlock TCP/fork.
+    """
     if DUMMY_MODE:
         return
     ok = _warm_up_clip()
@@ -166,6 +171,12 @@ def warmup_clip_task():
         logger.info("[warmup_clip] CLIP listo en este worker")
     else:
         logger.warning("[warmup_clip] CLIP falló al cargar — se reintentará en el primer request real")
+    # MiDaS solo se precarga si la estimación de volumen real está activa.
+    if USE_MIDAS_VOLUME:
+        if _warm_up_midas():
+            logger.info("[warmup_clip] MiDaS listo en este worker")
+        else:
+            logger.warning("[warmup_clip] MiDaS falló al cargar — se cargará en el primer request real")
 
 
 @celery.task(
@@ -505,7 +516,19 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
             midas_vol = _estimate_volume_midas(img, detecciones, img_w, img_h,
                                                ground_depth_m_override=ground_m)
             if midas_vol is not None:
-                metricas["volumen"] = round(min(20.0, midas_vol), 2)
+                # ── Medir + acotar ────────────────────────────────────────────
+                # La medición real de MiDaS define el volumen, PERO se acota al
+                # rango [vol_min, vol_max] de la banda del nivel para mantener
+                # coherencia nivel/volumen y evitar el inflado de MiDaS en
+                # interiores. Si MiDaS falla (None), queda el volumen interpolado.
+                v_lo = metricas["vol_band_min"]
+                v_hi = metricas["vol_band_max"]
+                clamped = max(v_lo, min(v_hi, midas_vol))
+                metricas["volumen"] = round(clamped, 2)
+                logger.info(
+                    "[tasks] MiDaS vol_real=%.2f → acotado a [%.2f, %.2f] = %.2f m³ (nivel=%s)",
+                    midas_vol, v_lo, v_hi, metricas["volumen"], metricas["nivel"],
+                )
 
         result = {
             "success":               True,

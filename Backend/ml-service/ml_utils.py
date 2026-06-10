@@ -27,16 +27,21 @@ COLOR_QUANTIZE_STEP  = 8    # paso de cuantización: 256 // 8 = 32 niveles por c
 
 # ── Constantes de clasificación de severidad ─────────────────────────────────
 # Bandas de severidad: (cov_min, cov_max, vol_min, vol_max, nivel, prioridad)
-# Calibradas para acumulaciones en aceras de Quito (valores reales típicos):
-#   BAJO    → 1-3 bolsas pequeñas / objetos aislados   (0.02–0.10 m³)
-#   MEDIO   → varias bolsas / un costal lleno           (0.10–0.40 m³)
-#   ALTO    → montón mediano, varios costales            (0.40–1.20 m³)
-#   CRITICO → acumulación grande, escombros              (1.20–4.00 m³)
+# Calibradas para acumulaciones en aceras de Quito (valores reales típicos).
+# Los rangos de VOLUMEN se subieron (2026-06-10) para reflejar la escala real
+# percibida en campo: una pila de varias fundas en la acera ronda 1.3–1.5 m³.
+#   BAJO    → 1-2 bolsas pequeñas / objetos aislados    (0.05–0.50 m³)
+#   MEDIO   → varias bolsas / un costal lleno            (0.50–1.30 m³)
+#   ALTO    → montón mediano, varios costales            (1.30–1.90 m³)
+#   CRITICO → acumulación grande, escombros              (1.90–6.00 m³)
+# El nivel sale del effective_ratio (heurístico visual); el volumen mostrado se
+# interpola dentro de la banda y, si USE_MIDAS_VOLUME=true, se reemplaza por la
+# medición real de MiDaS ACOTADA a [vol_min, vol_max] de la banda (medir+acotar).
 _BANDS = [
-    (0.00, 0.15, 0.02, 0.10, "BAJO",    "BAJA"),
-    (0.15, 0.40, 0.10, 0.40, "MEDIO",   "MEDIA"),
-    (0.40, 0.70, 0.40, 1.20, "ALTO",    "ALTA"),
-    (0.70, 1.00, 1.20, 4.00, "CRITICO", "CRITICA"),
+    (0.00, 0.15, 0.05, 0.50, "BAJO",    "BAJA"),
+    (0.15, 0.40, 0.50, 1.30, "MEDIO",   "MEDIA"),
+    (0.40, 0.70, 1.30, 1.90, "ALTO",    "ALTA"),
+    (0.70, 1.00, 1.90, 6.00, "CRITICO", "CRITICA"),
 ]
 
 CONF_NORMALIZATION_BASELINE = 0.60  # confianza ≥ este valor → conf_factor = 1.0
@@ -332,14 +337,21 @@ def classify_severity(
             effective_ratio = _critico_min_ratio - 0.001  # degradar al techo de ALTO
 
     # ── Paso 4: clasificación por bandas con interpolación lineal ─────────────
-    metricas = {"nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 15.0}
+    # vol_band_min/max se exponen para que tasks.py pueda ACOTAR el volumen real
+    # de MiDaS al rango coherente con el nivel (estrategia medir+acotar).
+    metricas = {
+        "nivel": "CRITICO", "prioridad": "CRITICA", "volumen": 3.0,
+        "vol_band_min": _BANDS[3][2], "vol_band_max": _BANDS[3][3],
+    }
     for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
         if effective_ratio < c_max or c_max == 1.00:
             t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
             metricas = {
-                "nivel":     nivel,
-                "prioridad": prioridad,
-                "volumen":   round(v_min + t * (v_max - v_min), 2),
+                "nivel":        nivel,
+                "prioridad":    prioridad,
+                "volumen":      round(v_min + t * (v_max - v_min), 2),
+                "vol_band_min": v_min,
+                "vol_band_max": v_max,
             }
             break
 
@@ -350,6 +362,8 @@ def classify_severity(
         "detections_clustered":  clustered,
         "pile_rescue_applied":   pile_rescue_applied,
     }
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -391,6 +405,20 @@ def _load_midas():
 
     logger.info("[MiDaS] Modelo listo en %s", device)
     return midas, transform, device
+
+
+def warm_up_midas() -> bool:
+    """Pre-carga MiDaS al arrancar el worker (elimina cold-start de la 1ª medición).
+
+    Retorna True si cargó correctamente, False si hubo error (no crítico: el
+    pipeline cae al volumen interpolado por banda si MiDaS no está disponible).
+    """
+    try:
+        _load_midas()
+        return True
+    except Exception as exc:
+        logger.warning("[MiDaS] warm_up falló — se cargará en el primer uso: %s", exc)
+        return False
 
 
 def estimate_volume_midas(
