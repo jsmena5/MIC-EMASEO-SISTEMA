@@ -154,8 +154,8 @@ def _submit_warmup_tasks(**kwargs):
     queue="ml_queue",
     max_retries=0,
     ignore_result=True,
-    soft_time_limit=120,
-    time_limit=150,
+    soft_time_limit=300,  # CLIP en este VPS: ~41s carga + ~80s encode_text = ~120s total
+    time_limit=360,
 )
 def warmup_clip_task():
     """Pre-carga CLIP en el worker (ejecuta en contexto de task, no en fork)."""
