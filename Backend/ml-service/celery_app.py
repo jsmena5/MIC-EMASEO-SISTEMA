@@ -57,6 +57,7 @@ celery.conf.update(
     task_default_queue="ml_queue",
     task_routes={
         "ml_worker.run_inference":      {"queue": "ml_queue"},
+        "ml_worker.warmup_clip":        {"queue": "ml_queue"},
         "ml_worker.handle_dead_letter": {"queue": "dead_letter"},
     },
 )

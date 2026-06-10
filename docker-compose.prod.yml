@@ -265,6 +265,7 @@ services:
       HUGGINGFACE_HUB_OFFLINE: "1"
       HF_HUB_OFFLINE: "1"
       HF_HUB_DISABLE_TELEMETRY: "1"
+      WORKER_CONCURRENCY: "2"   # debe coincidir con --concurrency en command
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro

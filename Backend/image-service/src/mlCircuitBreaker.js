@@ -10,9 +10,9 @@ const DEGRADED_MESSAGE =
   "El servicio de análisis visual está temporalmente degradado. Intenta nuevamente en unos minutos."
 
 const POLL_BASE_MS      = 500
-const POLL_MAX_MS       = 8_000
+const POLL_MAX_MS       = 2_000     // era 8000 — techo bajo para detectar completitud más rápido
 const CB_SUBMIT_TIMEOUT = 15_000    // timeout solo del POST de envío de la tarea
-export const POLL_TIMEOUT_MS = 120_000  // presupuesto máximo de polling (fuera del CB)
+export const POLL_TIMEOUT_MS = 180_000  // era 120000 — 3 min para cubrir CLIP cold-start (~90s)
 
 // ─── submitMlTask ─────────────────────────────────────────────────────────────
 // Encola la tarea en el ML-service y retorna { task_id } de inmediato.

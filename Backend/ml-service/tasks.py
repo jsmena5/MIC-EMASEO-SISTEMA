@@ -133,6 +133,41 @@ def _preload_model_on_startup(**kwargs):
         _get_model()
 
 
+@signals.worker_ready.connect
+def _submit_warmup_tasks(**kwargs):
+    """Envía tareas de warm-up de CLIP justo cuando los workers están listos.
+
+    worker_ready fires en el PROCESO PADRE (no en un ForkPoolWorker), por eso
+    no hay riesgo de deadlock TCP/fork. Las tareas de warm-up se encolan en
+    Redis y cada worker las toma en contexto de ejecución normal (seguro).
+    Resultado: CLIP queda cargado antes de que llegue el primer request real.
+    """
+    if not DUMMY_MODE:
+        concurrency = int(os.environ.get("WORKER_CONCURRENCY", "2"))
+        for _ in range(concurrency):
+            warmup_clip_task.delay()
+        logger.info("[startup] %d tarea(s) de warm-up CLIP enviadas", concurrency)
+
+
+@celery.task(
+    name="ml_worker.warmup_clip",
+    queue="ml_queue",
+    max_retries=0,
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+)
+def warmup_clip_task():
+    """Pre-carga CLIP en el worker (ejecuta en contexto de task, no en fork)."""
+    if DUMMY_MODE:
+        return
+    ok = _warm_up_clip()
+    if ok:
+        logger.info("[warmup_clip] CLIP listo en este worker")
+    else:
+        logger.warning("[warmup_clip] CLIP falló al cargar — se reintentará en el primer request real")
+
+
 @celery.task(
     bind=True,
     name="ml_worker.handle_dead_letter",
