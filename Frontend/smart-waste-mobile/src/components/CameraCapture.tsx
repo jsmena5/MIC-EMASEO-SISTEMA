@@ -137,6 +137,15 @@ export default function CameraCapture({
   // Captura automática armada solo si el sensor en vivo está disponible.
   const autoCaptureArmed = fpEnabled && guidanceLive
 
+  // ── Bloqueo de captura por encuadre ──────────────────────────────────────────
+  // Si el sensor de distancia está activo, SOLO se permite disparar cuando el
+  // encuadre está "listo" (ÓPTIMO + buena luz, sostenido por isReady con
+  // anti-parpadeo de 350 ms). Esto fuerza al usuario a alejarse 1-2 m y encuadrar
+  // bien antes de capturar, evitando close-ups que gastan recursos del servidor.
+  // Si el sensor NO está disponible (worklets off), NO se bloquea: el usuario
+  // debe poder capturar de todos modos.
+  const captureBlocked = guidanceLive && !isReady
+
   // Ref a la última función de captura (evita closures obsoletas en los timers).
   const captureRef = useRef<() => void>(() => {})
 
@@ -177,6 +186,13 @@ export default function CameraCapture({
   // ── Captura ──
   const handleCapture = async () => {
     if (!cameraRef.current || capturing) return
+    // Gate de encuadre: si el sensor está activo y el encuadre no está listo,
+    // no se captura. Damos feedback háptico de advertencia; el badge de estado
+    // ya muestra el motivo ("Acércate" / "Aléjate" / "Necesitas más luz").
+    if (captureBlocked) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {})
+      return
+    }
     setCapturing(true)
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
@@ -377,20 +393,29 @@ export default function CameraCapture({
         </Text>
 
         {/* ── Botón de captura ── */}
+        {/* disabled solo cubre `capturing`: cuando está bloqueado por encuadre el
+            botón SIGUE recibiendo el tap para dar feedback háptico en handleCapture,
+            pero se muestra atenuado. */}
         <TouchableOpacity
-          style={[styles.shutterBtn, capturing && styles.shutterBtnDisabled]}
+          style={[styles.shutterBtn, (capturing || captureBlocked) && styles.shutterBtnDisabled]}
           onPress={handleCapture}
           disabled={capturing}
           activeOpacity={0.8}
         >
           {capturing
             ? <ActivityIndicator size="large" color="#fff" />
-            : <View style={styles.shutterInner} />
+            : <View style={[styles.shutterInner, captureBlocked && styles.shutterInnerBlocked]} />
           }
         </TouchableOpacity>
 
         <Text style={styles.shutterLabel}>
-          {capturing ? "Capturando..." : countdown != null ? "Captura automática…" : "Tomar foto"}
+          {capturing
+            ? "Capturando..."
+            : captureBlocked
+              ? "Ajusta el encuadre para tomar la foto"
+              : countdown != null
+                ? "Captura automática…"
+                : "Tomar foto"}
         </Text>
       </View>
     </View>
@@ -556,6 +581,7 @@ const styles = StyleSheet.create({
   },
   shutterBtnDisabled: { borderColor: "rgba(255,255,255,0.35)", opacity: 0.7 },
   shutterInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#fff" },
+  shutterInnerBlocked: { backgroundColor: "rgba(255,255,255,0.45)" },
   shutterLabel: {
     color: "rgba(255,255,255,0.65)", fontSize: 12,
     fontWeight: "600", marginTop: 8, letterSpacing: 0.5,

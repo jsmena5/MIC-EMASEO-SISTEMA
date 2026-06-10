@@ -44,6 +44,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated"
 
+import BrandLogo from "../components/BrandLogo"
 import { colors } from "../theme/colors"
 
 const { width: W } = Dimensions.get("window")
@@ -159,8 +160,8 @@ export default function SplashScreen({ onFinish: _onFinish }: Props) {
         <Animated.View style={[styles.ring, r2Style]} />
         <Animated.View style={[styles.ring, r1Style]} />
 
-        <Animated.View style={[styles.logoBadge, logoStyle]}>
-          <Text style={styles.logoLetter}>E</Text>
+        <Animated.View style={logoStyle}>
+          <BrandLogo size={BADGE} background={colors.secondary} />
         </Animated.View>
       </View>
 
@@ -169,6 +170,9 @@ export default function SplashScreen({ onFinish: _onFinish }: Props) {
         <Text style={styles.brandName}>EMASEO</Text>
         <View style={styles.epBadge}>
           <Text style={styles.epText}>EP</Text>
+        </View>
+        <View style={styles.iaBadge}>
+          <Text style={styles.iaBadgeText}>IA</Text>
         </View>
       </Animated.View>
 
@@ -293,26 +297,6 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.secondary,
   },
-  logoBadge: {
-    width: BADGE,
-    height: BADGE,
-    borderRadius: BADGE / 2,
-    backgroundColor: colors.secondary,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 16,
-    shadowColor: colors.secondary,
-    shadowOpacity: 0.55,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 6 },
-  },
-  logoLetter: {
-    fontSize: 56,
-    fontWeight: "800",
-    color: "#fff",
-    letterSpacing: -2,
-  },
-
   // Marca
   brandRow: {
     flexDirection: "row",
@@ -334,6 +318,21 @@ const styles = StyleSheet.create({
   },
   epText: {
     color: "#fff",
+    fontWeight: "800",
+    fontSize: 13,
+    letterSpacing: 1,
+  },
+  iaBadge: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: colors.secondary,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginTop: 8,
+  },
+  iaBadgeText: {
+    color: colors.secondary,
     fontWeight: "800",
     fontSize: 13,
     letterSpacing: 1,

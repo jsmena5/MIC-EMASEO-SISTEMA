@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native"
+import BrandLogo from "../components/BrandLogo"
 import ButtonPrimary from "../components/ButtonPrimary"
 import { useAuth } from "../contexts/AuthContext"
 import { useConnectivity } from "../hooks/useConnectivity"
@@ -160,11 +161,11 @@ export default function LoginScreen({ navigation }: Props) {
         >
           {/* ── logo / brand ──────────────────────────────────────────── */}
           <View style={styles.brandRow}>
-            <View style={styles.logoCircle}>
-              <Ionicons name="leaf" size={28} color={colors.white} />
+            <View style={styles.logoWrap}>
+              <BrandLogo size={48} background={colors.primary} showIA={false} />
             </View>
             <View style={styles.brandText}>
-              <Text style={styles.brandName}>EMASEO</Text>
+              <Text style={styles.brandName}>EMASEO EP IA</Text>
               <Text style={styles.brandSub}>Sistema Inteligente de Residuos</Text>
             </View>
           </View>
@@ -347,13 +348,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
   },
-  logoCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: colors.primary,
-    justifyContent: "center",
-    alignItems: "center",
+  logoWrap: {
     marginRight: 12,
   },
   brandText: {
