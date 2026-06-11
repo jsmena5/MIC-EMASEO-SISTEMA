@@ -15,9 +15,14 @@ const STEP = 4
 const EDGE_GRAD_THRESHOLD = 20
 // Normalización: edgeFraction * NORM_FACTOR, luego clamp a [0, 1] (igual al server)
 const NORM_FACTOR = 3.0
-// Umbrales para mapear coverage → hint (idénticos a coverage_to_distance_hint en ml_utils.py)
-const TOO_FAR_MAX   = 0.15
-const TOO_CLOSE_MIN = 0.65
+// Umbrales para mapear coverage → hint. SOLO afectan la etiqueta de guía en vivo y
+// el armado de la auto-captura — NO el valor de coverage que se envía al server como
+// client_coverage_ratio (ese sale de NORM_FACTOR, no lo tocar). Lenientes a propósito:
+// el heurístico de bordes se satura en escenas con textura (basura real), así que
+// ensanchamos OPTIMAL para no marcar "aléjate" todo el tiempo. La validación real de
+// basura/coverage la hace el server (coverage_to_distance_hint allí es solo otra pista).
+const TOO_FAR_MAX   = 0.12
+const TOO_CLOSE_MIN = 0.90
 // Throttle por conteo de frames: procesa 1 de cada FRAME_STRIDE (~5 fps a 30 fps de cámara).
 // Evitamos performance.now()/Date.now(): no están garantizados en el runtime del worklet.
 const FRAME_STRIDE = 6

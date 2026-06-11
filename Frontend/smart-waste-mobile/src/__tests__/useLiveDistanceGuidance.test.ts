@@ -9,8 +9,8 @@ import type { DistanceHint, LightingHint } from '../types/incident'
 
 // ─── Lógica pura extraída del hook (mismos valores que useLiveDistanceGuidance.ts) ──
 
-const TOO_FAR_MAX   = 0.15
-const TOO_CLOSE_MIN = 0.65
+const TOO_FAR_MAX   = 0.12
+const TOO_CLOSE_MIN = 0.90
 
 function coverageToHint(coverage: number): DistanceHint {
   if (coverage < TOO_FAR_MAX)   return 'TOO_FAR'
@@ -34,32 +34,24 @@ describe('coverageToHint — lógica de umbrales', () => {
     expect(coverageToHint(0.00)).toBe('TOO_FAR')
   })
 
-  test('coverage 0.10 → TOO_FAR', () => {
-    expect(coverageToHint(0.10)).toBe('TOO_FAR')
+  test('coverage 0.11 → TOO_FAR (justo bajo el límite)', () => {
+    expect(coverageToHint(0.11)).toBe('TOO_FAR')
   })
 
-  test('coverage 0.14 → TOO_FAR (justo bajo el límite)', () => {
-    expect(coverageToHint(0.14)).toBe('TOO_FAR')
+  test('coverage 0.12 → OPTIMAL (límite inferior incluido)', () => {
+    expect(coverageToHint(0.12)).toBe('OPTIMAL')
   })
 
-  test('coverage 0.15 → OPTIMAL (límite inferior incluido)', () => {
-    expect(coverageToHint(0.15)).toBe('OPTIMAL')
+  test('coverage 0.50 → OPTIMAL (punto medio)', () => {
+    expect(coverageToHint(0.50)).toBe('OPTIMAL')
   })
 
-  test('coverage 0.40 → OPTIMAL (punto medio)', () => {
-    expect(coverageToHint(0.40)).toBe('OPTIMAL')
+  test('coverage 0.90 → OPTIMAL (límite superior incluido)', () => {
+    expect(coverageToHint(0.90)).toBe('OPTIMAL')
   })
 
-  test('coverage 0.65 → OPTIMAL (límite superior incluido)', () => {
-    expect(coverageToHint(0.65)).toBe('OPTIMAL')
-  })
-
-  test('coverage 0.66 → TOO_CLOSE (justo sobre el límite)', () => {
-    expect(coverageToHint(0.66)).toBe('TOO_CLOSE')
-  })
-
-  test('coverage 0.75 → TOO_CLOSE', () => {
-    expect(coverageToHint(0.75)).toBe('TOO_CLOSE')
+  test('coverage 0.91 → TOO_CLOSE (justo sobre el límite)', () => {
+    expect(coverageToHint(0.91)).toBe('TOO_CLOSE')
   })
 
   test('coverage 1.00 → TOO_CLOSE', () => {
