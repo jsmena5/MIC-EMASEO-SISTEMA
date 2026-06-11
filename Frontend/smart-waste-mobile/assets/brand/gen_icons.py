@@ -74,13 +74,18 @@ def _sc(pts, k):
     return [(x * k, y * k) for (x, y) in pts]
 
 
-def draw_mark(img, k, include_ia=True, details=True, leaf_fill=WHITE):
+def draw_mark(img, k, include_ia=True, details=True, leaf_fill=WHITE, leaf_outline=None):
     d = ImageDraw.Draw(img, "RGBA")
     # Pecíolo (tallo corto) detrás de la hoja
     if details:
         d.line(_sc(_petiole(), k), fill=GREEN + (255,), width=max(1, int(24 * k)), joint="curve")
-    # Hoja
-    d.polygon(_sc(_leaf_outline(), k), fill=leaf_fill)
+    # Hoja. leaf_outline (opcional) dibuja un contorno: invisible sobre el fondo
+    # navy del adaptive icon, pero define la hoja blanca si un launcher la pinta
+    # sobre un plato claro (themed icons / OEM que ignora el background).
+    if leaf_outline:
+        d.polygon(_sc(_leaf_outline(), k), fill=leaf_fill, outline=leaf_outline, width=max(1, int(12 * k)))
+    else:
+        d.polygon(_sc(_leaf_outline(), k), fill=leaf_fill)
     # Nervaduras (sobre overlay para translucidez sobre la hoja)
     if details:
         mid, sides = _veins()
@@ -115,9 +120,10 @@ def gradient_rounded_bg(W):
     return out
 
 
-def render_mark_only(W, include_ia=True, details=True, leaf_fill=WHITE):
+def render_mark_only(W, include_ia=True, details=True, leaf_fill=WHITE, leaf_outline=None):
     img = Image.new("RGBA", (W, W), (0, 0, 0, 0))
-    draw_mark(img, W / 1024.0, include_ia=include_ia, details=details, leaf_fill=leaf_fill)
+    draw_mark(img, W / 1024.0, include_ia=include_ia, details=details,
+              leaf_fill=leaf_fill, leaf_outline=leaf_outline)
     return img
 
 
@@ -152,9 +158,12 @@ def main():
     draw_mark(splash, Ws / 1024.0)
     save(splash, "splash-icon.png", 512)
 
-    save(centered(render_mark_only(W), W, 0.62), "android-icon-foreground.png", 1024)
+    # Foreground con contorno navy: robusto si el launcher ignora el background.
+    save(centered(render_mark_only(W, leaf_outline=NAVY + (255,)), W, 0.60),
+         "android-icon-foreground.png", 1024)
     save(Image.new("RGBA", (W, W), NAVY + (255,)), "android-icon-background.png", 1024)
-    save(centered(render_mark_only(W, include_ia=False, details=False), W, 0.60),
+    # Monocromo (themed icons): silueta sólida y más grande para que la hoja se lea al tintarse.
+    save(centered(render_mark_only(W, include_ia=False, details=False), W, 0.66),
          "android-icon-monochrome.png", 1024)
 
     print("Listo.")
