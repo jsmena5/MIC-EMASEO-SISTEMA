@@ -1,5 +1,10 @@
 // Mocks globales para módulos nativos que Jest no puede ejecutar directamente.
 
+// env.ts exige EXPO_PUBLIC_API_URL al importarse (sin fallback). En tests no hay
+// .env cargado, así que definimos una URL dummy: la red está mockeada (utils/api),
+// el valor nunca se usa para peticiones reales.
+process.env.EXPO_PUBLIC_API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://test.local/api'
+
 // expo-haptics
 jest.mock('expo-haptics', () => ({
   impactAsync: jest.fn(),

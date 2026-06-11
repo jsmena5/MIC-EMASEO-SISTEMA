@@ -247,7 +247,7 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
                     {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo as MotivoRechazo]}
                   </Text>
                   {incident.observaciones_rechazo ? (
-                    <Text style={styles.rechazoObs}>"{incident.observaciones_rechazo}"</Text>
+                    <Text style={styles.rechazoObs}>{`"${incident.observaciones_rechazo}"`}</Text>
                   ) : null}
                 </View>
               </View>
