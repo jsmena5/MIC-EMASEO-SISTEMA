@@ -51,4 +51,9 @@ backups/
 ML/logs/
 ML/reporte_labels.txt
 
+# ── Datos temporales de desarrollo (caches, blobs binarios) ─────────────────
+_*.b64
+_*_cache.json
+*.pytest_cache/
+
 .deploy_creds*
