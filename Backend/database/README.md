@@ -1,73 +1,52 @@
-# EMASEO DB Migrations
+# EMASEO DB — Migraciones
 
-Gestión de migraciones de base de datos usando [node-pg-migrate](https://salsita.github.io/node-pg-migrate/).
+Migraciones SQL manuales del sistema MIC-EMASEO. Se aplican directamente sobre PostgreSQL/Supabase en orden numérico.
 
-## Configuración inicial
+## Estructura
+
+```
+Backend/database/
+├── migrations/          # Todos los scripts SQL, ordenados numéricamente
+│   ├── 001_init_schema.sql          # Esquema completo inicial (reemplaza 001–007)
+│   ├── 002_seed_data.sql            # Datos iniciales del sistema
+│   ├── 008_refresh_tokens.sql
+│   │   ...
+│   ├── 053_zones_compact.sql
+│   ├── 054_fix_supervisado_fk.sql   # (era 040b — renumerada para evitar conflicto)
+│   └── dmq_zones.geojson            # Datos geoespaciales para migración 051–053
+├── scripts/
+│   └── 012_db_users_isolation.sh    # Crea usuarios PostgreSQL por microservicio
+├── seeds/
+│   └── insert_qa_user.sql           # Usuario de prueba (QA)
+├── package.json                     # node-pg-migrate (para migraciones futuras en JS)
+└── .env.example
+```
+
+## Aplicar migraciones
+
+Las migraciones se ejecutan de forma **manual y secuencial** directamente en la base de datos:
+
+```bash
+psql $DATABASE_URL -f Backend/database/migrations/001_init_schema.sql
+psql $DATABASE_URL -f Backend/database/migrations/002_seed_data.sql
+# ... continuar en orden numérico
+```
+
+## node-pg-migrate (migraciones futuras)
+
+Para crear nuevas migraciones usando el tooling:
 
 ```bash
 cd Backend/database
+cp .env.example .env   # configurar DATABASE_URL
 npm install
-```
-
-Copia el archivo de entorno y configura tu conexión:
-
-```bash
-cp .env.example .env
-```
-
-Edita `.env` con tus credenciales reales:
-
-```
-DATABASE_URL=postgresql://postgres:tu_password@localhost:5432/emaseo_db
-```
-
-> `.env` está en `.gitignore`. Nunca lo subas al repositorio.
-
-## Comandos
-
-### Aplicar todas las migraciones pendientes
-
-```bash
-npm run migrate:up
-```
-
-### Revertir la última migración
-
-```bash
-npm run migrate:down
-```
-
-### Crear una nueva migración
-
-```bash
 npm run migrate:create -- nombre-de-la-migracion
 ```
 
-Esto genera un archivo en `migrations/` con timestamp, por ejemplo:
-`migrations/1715000000000_nombre-de-la-migracion.js`
+Genera un archivo en `migrations/` con timestamp. Las nuevas migraciones JS coexisten con los archivos SQL existentes.
 
-Edita ese archivo para definir los cambios `up` y `down`:
+## Notas
 
-```js
-exports.up = (pgm) => {
-  pgm.createTable('ejemplo', {
-    id: 'id',
-    nombre: { type: 'varchar(100)', notNull: true },
-  });
-};
-
-exports.down = (pgm) => {
-  pgm.dropTable('ejemplo');
-};
-```
-
-## Estado de migraciones
-
-node-pg-migrate crea automáticamente la tabla `pgmigrations` en la base de datos
-para registrar qué migraciones se han aplicado y cuándo.
-
-## Migraciones SQL existentes
-
-Los archivos `.sql` en este directorio (`01_init_schema.sql`, etc.) son migraciones
-manuales anteriores a la adopción de este tooling. No se ejecutan con `npm run migrate:up`.
-Su conversión al formato node-pg-migrate es una tarea pendiente separada.
+- `001_init_schema.sql` consolida los esquemas originales 001–007 en estado final.
+- La migración `054` corresponde a la original `040_fix_supervisado_fk` (renumerada para evitar conflicto con `040_register_profile_fields`).
+- `docs/queries_reference.sql` contiene consultas de referencia frecuentes (no es una migración).
