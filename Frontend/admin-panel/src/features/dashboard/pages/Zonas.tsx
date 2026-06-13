@@ -171,6 +171,28 @@ function parseGeoJsonFile(file: File): Promise<Feature<Polygon | MultiPolygon>[]
   })
 }
 
+function ImportSuccessView({ count, onClose }: { count: number; onClose: () => void }) {
+  return (
+    <Modal title="Importación completada" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+          <div className="text-3xl font-black text-emerald-700">{count}</div>
+          <div className="text-sm font-semibold text-emerald-600">
+            zona{count !== 1 ? "s" : ""} importada{count !== 1 ? "s" : ""}
+          </div>
+          <div className="mt-2 text-xs text-emerald-500">Las zonas ya existentes fueron actualizadas; las nuevas fueron creadas.</div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition"
+        >
+          Cerrar
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [importing, setImporting] = useState(false)
   const [error, setError]         = useState("")
@@ -202,25 +224,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
   }
 
   if (result) {
-    return (
-      <Modal title="Importación completada" onClose={() => { onImported(); onClose() }}>
-        <div className="space-y-4">
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
-            <div className="text-3xl font-black text-emerald-700">{result.imported}</div>
-            <div className="text-sm font-semibold text-emerald-600">
-              zona{result.imported !== 1 ? "s" : ""} importada{result.imported !== 1 ? "s" : ""}
-            </div>
-            <div className="mt-2 text-xs text-emerald-500">Las zonas ya existentes fueron actualizadas; las nuevas fueron creadas.</div>
-          </div>
-          <button
-            onClick={() => { onImported(); onClose() }}
-            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition"
-          >
-            Cerrar
-          </button>
-        </div>
-      </Modal>
-    )
+    return <ImportSuccessView count={result.imported} onClose={() => { onImported(); onClose() }} />
   }
 
   return (

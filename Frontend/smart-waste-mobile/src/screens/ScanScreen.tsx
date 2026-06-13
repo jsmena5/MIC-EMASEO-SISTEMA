@@ -86,6 +86,36 @@ function pollRetryMessage(isRateLimited: boolean, isNetworkError: boolean, attem
 // complejidad cognitiva; toda la lógica vive en el componente padre vía callbacks.
 // Vista de la cámara con banner de reportes pendientes. Extraída de ScanScreen para
 // reducir su complejidad cognitiva.
+// Indicador de estado de ubicación GPS (cargando / disponible / error).
+function LocationIndicator({
+  isLocationLoading, hasLocation, locError,
+}: { isLocationLoading: boolean; hasLocation: boolean; locError: string | null }) {
+  return (
+    <View style={styles.locationStatus}>
+      {isLocationLoading ? (
+        <>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
+        </>
+      ) : hasLocation ? (
+        <>
+          <Ionicons name="location" size={16} color={colors.success} />
+          <Text style={[styles.locationStatusText, styles.locationSuccess]}>
+            Ubicación disponible
+          </Text>
+        </>
+      ) : locError ? (
+        <>
+          <Ionicons name="warning" size={16} color={colors.critico} />
+          <Text style={[styles.locationStatusText, styles.locationError]}>
+            {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
+          </Text>
+        </>
+      ) : null}
+    </View>
+  )
+}
+
 function CameraView({
   phase, pendingCount, onPictureTaken, onCoverageUpdate, onBack,
 }: {
@@ -177,28 +207,11 @@ function PhotoReviewScreen({
         </View>
 
         {/* Indicador de estado de ubicación */}
-        <View style={styles.locationStatus}>
-          {isLocationLoading ? (
-            <>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
-            </>
-          ) : hasLocation ? (
-            <>
-              <Ionicons name="location" size={16} color={colors.success} />
-              <Text style={[styles.locationStatusText, styles.locationSuccess]}>
-                Ubicación disponible
-              </Text>
-            </>
-          ) : locError ? (
-            <>
-              <Ionicons name="warning" size={16} color={colors.critico} />
-              <Text style={[styles.locationStatusText, styles.locationError]}>
-                {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
-              </Text>
-            </>
-          ) : null}
-        </View>
+        <LocationIndicator
+          isLocationLoading={isLocationLoading}
+          hasLocation={hasLocation}
+          locError={locError}
+        />
 
         <TouchableOpacity
           style={[
