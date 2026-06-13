@@ -126,7 +126,7 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 32 }}>
           {digits.map((digit, i) => (
             <TextInput
-              key={i}
+              key={`otp-${i}`}
               ref={(ref) => { inputs.current[i] = ref }}
               style={{
                 width: 44,

@@ -32,6 +32,7 @@ export default function IncidentReviewedView({
           </button>
           {lightboxOpen && (
             <div
+              role="presentation"
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
               onClick={() => setLightboxOpen(false)}
             >
@@ -46,7 +47,6 @@ export default function IncidentReviewedView({
                 src={imageUrl}
                 alt="Incidente ampliado"
                 className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
               />
             </div>
           )}

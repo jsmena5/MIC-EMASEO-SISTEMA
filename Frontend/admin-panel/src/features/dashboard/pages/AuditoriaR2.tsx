@@ -31,13 +31,12 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+    <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       onClick={onClose}>
       <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white text-xl hover:bg-white/30"
         onClick={onClose}>✕</button>
       <img src={url} alt="Evidencia ampliada"
-        className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain shadow-2xl"
-        onClick={(e) => e.stopPropagation()} />
+        className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain shadow-2xl" />
     </div>
   )
 }
@@ -78,7 +77,7 @@ function ImageCard({
         style={{ borderColor: cfg.color + "40" }}
       >
         {/* Imagen — click abre lightbox */}
-        <div className="relative bg-slate-900 cursor-zoom-in" style={{ height: 180 }}
+        <button type="button" className="relative bg-slate-900 cursor-zoom-in w-full" style={{ height: 180 }}
           onClick={() => imageUrl && setLightboxOpen(true)}>
           {imageUrl ? (
             <img src={imageUrl} alt="Evidencia"
@@ -107,7 +106,7 @@ function ImageCard({
           {imageUrl && (
             <span className="absolute bottom-2 right-2 rounded-md bg-black/50 px-1.5 py-0.5 text-[9px] text-white">🔍</span>
           )}
-        </div>
+        </button>
 
         {/* Meta IA */}
         <div className="px-3 pt-2 pb-1">
@@ -274,7 +273,7 @@ export default function AuditoriaR2() {
           return (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
+                <div key={`skeleton-${i}`} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
               ))}
             </div>
           )

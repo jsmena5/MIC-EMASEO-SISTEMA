@@ -79,7 +79,7 @@ export default function ReviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+    <div role="presentation" className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
       <div
         ref={dialogRef}
         className="relative flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
@@ -179,8 +179,9 @@ export default function ReviewModal({
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1">
-                  <label style={labelStyle}>Tipo de residuo</label>
+                  <label htmlFor="rm-tipo" style={labelStyle}>Tipo de residuo</label>
                   <select
+                    id="rm-tipo"
                     value={form.tipo_residuo_supervisor ?? ""}
                     onChange={(e) => setForm({ ...form, tipo_residuo_supervisor: (e.target.value as TipoResiduo) || null })}
                     style={fieldStyle}
@@ -190,8 +191,9 @@ export default function ReviewModal({
                   </select>
                 </div>
                 <div className="grid gap-1">
-                  <label style={labelStyle}>Nivel de acumulación</label>
+                  <label htmlFor="rm-nivel" style={labelStyle}>Nivel de acumulación</label>
                   <select
+                    id="rm-nivel"
                     value={form.nivel_acumulacion_supervisor ?? ""}
                     onChange={(e) => setForm({ ...form, nivel_acumulacion_supervisor: (e.target.value as NivelAcum) || null })}
                     style={fieldStyle}
@@ -203,8 +205,9 @@ export default function ReviewModal({
               </div>
 
               <div className="grid gap-1">
-                <label style={labelStyle}>Comentario para auditoría <span className="text-slate-300">(opcional)</span></label>
+                <label htmlFor="rm-comentario" style={labelStyle}>Comentario para auditoría <span className="text-slate-300">(opcional)</span></label>
                 <textarea
+                  id="rm-comentario"
                   rows={3}
                   value={form.comentario ?? ""}
                   onChange={(e) => setForm({ ...form, comentario: e.target.value })}
@@ -220,8 +223,9 @@ export default function ReviewModal({
             <div className="grid gap-4">
               <p className="text-sm text-slate-600">Indica por qué el reporte no puede ser atendido.</p>
               <div className="grid gap-1">
-                <label style={labelStyle}>Motivo <span className="text-red-500">*</span></label>
+                <label htmlFor="rm-motivo" style={labelStyle}>Motivo <span className="text-red-500">*</span></label>
                 <select
+                  id="rm-motivo"
                   value={motivoRechazo}
                   onChange={(e) => { setMotivoRechazo(e.target.value as MR | ""); setError(null) }}
                   style={fieldStyle}
@@ -233,8 +237,9 @@ export default function ReviewModal({
                 </select>
               </div>
               <div className="grid gap-1">
-                <label style={labelStyle}>Observaciones <span className="text-slate-300">(opcional)</span></label>
+                <label htmlFor="rm-obs" style={labelStyle}>Observaciones <span className="text-slate-300">(opcional)</span></label>
                 <textarea
+                  id="rm-obs"
                   rows={3}
                   value={observaciones}
                   onChange={(e) => setObservaciones(e.target.value)}
@@ -294,11 +299,12 @@ export default function ReviewModal({
       {/* Lightbox */}
       {lightboxOpen && imageUrl && (
         <div
+          role="presentation"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={() => setLightboxOpen(false)}
         >
           <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white text-lg" onClick={() => setLightboxOpen(false)}>✕</button>
-          <img src={imageUrl} alt="ampliado" className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain" onClick={(e) => e.stopPropagation()} />
+          <img src={imageUrl} alt="ampliado" className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain" />
         </div>
       )}
     </div>

@@ -65,6 +65,7 @@ export default function Step2Classify({
           </button>
           {lightboxOpen && (
             <div
+              role="presentation"
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
               onClick={() => setLightboxOpen(false)}
             >
@@ -94,7 +95,7 @@ export default function Step2Classify({
       </div>
 
       <div className="grid gap-2">
-        <label style={labelStyle}>¿La IA acertó?</label>
+        <span style={labelStyle}>¿La IA acertó?</span>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => setForm({ ...form, es_correcta_ia: true })}
@@ -125,8 +126,9 @@ export default function Step2Classify({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="grid gap-1">
-          <label style={labelStyle}>Tipo de residuo final</label>
+          <label htmlFor="s2-tipo" style={labelStyle}>Tipo de residuo final</label>
           <select
+            id="s2-tipo"
             value={form.tipo_residuo_supervisor ?? ""}
             onChange={(e) => setForm({ ...form, tipo_residuo_supervisor: (e.target.value as TipoResiduo) || null })}
             style={fieldStyle}
@@ -137,8 +139,9 @@ export default function Step2Classify({
         </div>
 
         <div className="grid gap-1">
-          <label style={labelStyle}>Nivel de acumulación</label>
+          <label htmlFor="s2-nivel" style={labelStyle}>Nivel de acumulación</label>
           <select
+            id="s2-nivel"
             value={form.nivel_acumulacion_supervisor ?? ""}
             onChange={(e) => setForm({ ...form, nivel_acumulacion_supervisor: (e.target.value as NivelAcum) || null })}
             style={fieldStyle}
@@ -150,8 +153,9 @@ export default function Step2Classify({
       </div>
 
       <div className="grid gap-1">
-        <label style={labelStyle}>Comentario para auditoría</label>
+        <label htmlFor="s2-comentario" style={labelStyle}>Comentario para auditoría</label>
         <textarea
+          id="s2-comentario"
           rows={4}
           value={form.comentario ?? ""}
           onChange={(e) => setForm({ ...form, comentario: e.target.value })}

@@ -128,8 +128,8 @@ export default function Step3Assign({
         <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="grid gap-3">
             <div className="grid gap-1">
-              <label style={labelStyle}>Operario</label>
-              <select value={selected} onChange={(e) => setSelected(e.target.value)} style={fieldStyle}>
+              <label htmlFor="s3-operario" style={labelStyle}>Operario</label>
+              <select id="s3-operario" value={selected} onChange={(e) => setSelected(e.target.value)} style={fieldStyle}>
                 <option value="">Selecciona un operario</option>
                 {operarios.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -142,8 +142,9 @@ export default function Step3Assign({
             </div>
 
             <div className="grid gap-1">
-              <label style={labelStyle}>Notas para la cuadrilla</label>
+              <label htmlFor="s3-notas" style={labelStyle}>Notas para la cuadrilla</label>
               <textarea
+                id="s3-notas"
                 rows={3}
                 value={notas}
                 onChange={(e) => setNotas(e.target.value)}

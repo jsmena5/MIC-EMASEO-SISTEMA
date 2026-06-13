@@ -23,6 +23,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div
       ref={overlay}
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === overlay.current) onClose() }}
     >
@@ -188,8 +189,9 @@ function EditModal({ sup, onClose, onSaved }: { sup: Supervisor; onClose: () => 
         </div>
         <Field label="Teléfono" name="telefono" value={form.telefono ?? ""} onChange={set("telefono")} />
         <div>
-          <label className="mb-1 block text-xs font-semibold text-slate-600">Estado</label>
+          <label htmlFor="sup-estado" className="mb-1 block text-xs font-semibold text-slate-600">Estado</label>
           <select
+            id="sup-estado"
             value={form.estado}
             onChange={(e) => setForm((f) => ({ ...f, estado: e.target.value as UpdateSupervisorPayload["estado"] }))}
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
@@ -438,7 +440,10 @@ function CiudadanosTab() {
                           : "border-emerald-200 text-emerald-700 hover:bg-emerald-50",
                       ].join(" ")}
                     >
-                      {savingId === c.id ? "…" : c.estado === "ACTIVO" ? "Desactivar" : "Activar"}
+                      {(() => {
+                        if (savingId === c.id) return "…"
+                        return c.estado === "ACTIVO" ? "Desactivar" : "Activar"
+                      })()}
                     </button>
                     <button
                       onClick={() => { setPwModal({ id: c.id, nombre: c.primer_nombre }); setTempPwd(null) }}
@@ -475,6 +480,7 @@ function CiudadanosTab() {
       {/* Modal reset de contraseña */}
       {pwModal && (
         <div
+          role="presentation"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={(e) => { if (e.target === e.currentTarget) { setPwModal(null); setTempPwd(null) } }}
         >

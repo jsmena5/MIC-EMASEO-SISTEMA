@@ -80,6 +80,7 @@ export default function Step1Validate({
       {/* Lightbox */}
       {lightboxOpen && imageUrl && (
         <div
+          role="presentation"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
           onClick={() => setLightboxOpen(false)}
         >
@@ -94,7 +95,6 @@ export default function Step1Validate({
             src={imageUrl}
             alt="Incidente ampliado"
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
           />
         </div>
       )}
@@ -157,10 +157,11 @@ export default function Step1Validate({
         ) : (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 grid gap-3">
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-red-700">
+              <label htmlFor="s1-motivo" className="text-xs font-bold uppercase tracking-wider text-red-700">
                 Motivo de rechazo <span className="text-red-500">*</span>
               </label>
               <select
+                id="s1-motivo"
                 value={motivoRechazo}
                 onChange={(e) => { setMotivoRechazo(e.target.value as MotivoRechazo | ""); setError(null) }}
                 className="mt-1.5 w-full rounded-lg border border-red-200 bg-white px-3 py-2 text-sm outline-none focus:border-red-400"
@@ -174,10 +175,11 @@ export default function Step1Validate({
 
             {motivoRechazo === "OTRO" && (
               <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-red-700">
+                <label htmlFor="s1-obs" className="text-xs font-bold uppercase tracking-wider text-red-700">
                   Observaciones
                 </label>
                 <textarea
+                  id="s1-obs"
                   rows={2}
                   value={observaciones}
                   onChange={(e) => setObservaciones(e.target.value)}

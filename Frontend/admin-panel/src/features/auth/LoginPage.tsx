@@ -111,8 +111,9 @@ export default function LoginPage() {
 
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-indigo-200 uppercase tracking-wider">Correo electrónico</label>
+              <label htmlFor="login-email" className="mb-1.5 block text-xs font-semibold text-indigo-200 uppercase tracking-wider">Correo electrónico</label>
               <input
+                id="login-email"
                 type="email"
                 autoComplete="email"
                 value={email}
@@ -124,9 +125,10 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-xs font-semibold text-indigo-200 uppercase tracking-wider">Contraseña</label>
+              <label htmlFor="login-password" className="mb-1.5 block text-xs font-semibold text-indigo-200 uppercase tracking-wider">Contraseña</label>
               <div className="relative">
                 <input
+                  id="login-password"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

@@ -7,8 +7,8 @@ const { Pool } = pkg
 // Convertimos a float en el driver para que el frontend reciba números JS directamente.
 // OID 1700 = NUMERIC/DECIMAL  (volumen_estimado_m3, confianza, confianza_decision, …)
 // OID 701  = FLOAT8/DOUBLE PRECISION  (resultado de ST_X / ST_Y → latitud, longitud)
-pkg.types.setTypeParser(1700, parseFloat)
-pkg.types.setTypeParser(701,  parseFloat)
+pkg.types.setTypeParser(1700, Number.parseFloat)
+pkg.types.setTypeParser(701,  Number.parseFloat)
 
 export const pool = new Pool({
   user:                    process.env.DB_USER_IMAGE,

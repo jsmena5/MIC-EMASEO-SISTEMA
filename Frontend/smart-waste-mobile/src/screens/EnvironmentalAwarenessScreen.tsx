@@ -101,8 +101,8 @@ export default function EnvironmentalAwarenessScreen({ navigation }: Props) {
           La tecnología detrás de la app
         </Animated.Text>
         <Animated.View entering={FadeInDown.delay(160).duration(450)} style={styles.factsRow}>
-          {FACTS.map((f, i) => (
-            <View key={i} style={styles.factCard}>
+          {FACTS.map((f) => (
+            <View key={f.label} style={styles.factCard}>
               <Text style={styles.factValue}>{f.value}</Text>
               <Text style={styles.factLabel}>{f.label}</Text>
             </View>
@@ -116,7 +116,7 @@ export default function EnvironmentalAwarenessScreen({ navigation }: Props) {
 
         {TIPS.map((tip, i) => (
           <Animated.View
-            key={i}
+            key={tip.icon}
             entering={FadeInDown.delay(300 + i * 80).duration(400)}
           >
             <View style={styles.tipCard}>

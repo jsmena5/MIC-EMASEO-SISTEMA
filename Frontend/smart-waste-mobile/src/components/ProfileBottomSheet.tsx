@@ -416,7 +416,7 @@ function PerfilTabContent(p: {
               <Text style={styles.dateColLabel}>Mes</Text>
               <Picker selectedValue={p.birthMonth} onValueChange={v => p.setBirthMonth(Number(v))}
                 style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
-                {MONTH_LABELS.map((m, i) => <Picker.Item key={i} label={m[0].toUpperCase() + m.slice(1)} value={i + 1} />)}
+                {MONTH_LABELS.map((m, i) => <Picker.Item key={m} label={m[0].toUpperCase() + m.slice(1)} value={i + 1} />)}
               </Picker>
             </View>
             <View style={[styles.dateCol, { flex: 1.4 }]}>

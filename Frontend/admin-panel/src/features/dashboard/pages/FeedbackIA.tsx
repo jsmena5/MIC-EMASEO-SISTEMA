@@ -57,10 +57,10 @@ function ErroresTipoTable({ rows }: { rows: ErrorTipo[] }) {
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {rows.map((r, i) => {
+        {rows.map((r) => {
           const pct = Math.round((Number.parseInt(r.total) / maxTotal) * 100)
           return (
-            <tr key={i} className="hover:bg-slate-50">
+            <tr key={`${r.tipo_ml ?? "null"}-${r.tipo_real ?? "null"}`} className="hover:bg-slate-50">
               <td className="px-4 py-2.5">
                 <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-[11px] font-bold text-red-700">
                   {r.tipo_ml ?? "—"}
@@ -105,8 +105,8 @@ function ErroresNivelTable({ rows }: { rows: ErrorNivel[] }) {
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {rows.map((r, i) => (
-          <tr key={i} className="hover:bg-slate-50">
+        {rows.map((r) => (
+          <tr key={`${r.nivel_ml ?? "null"}-${r.nivel_real ?? "null"}`} className="hover:bg-slate-50">
             <td className="px-4 py-2.5">
               <span className="font-bold text-xs" style={{ color: NIVEL_COLOR[r.nivel_ml ?? ""] ?? "#6B7280" }}>
                 {r.nivel_ml ?? "—"}

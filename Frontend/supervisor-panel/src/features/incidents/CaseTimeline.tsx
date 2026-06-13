@@ -47,7 +47,7 @@ export default function CaseTimeline({ detail }: { detail: IncidentDetail }) {
       <div className="absolute left-[7px] top-2 bottom-2 w-px bg-slate-200" />
 
       {all.map((e, i) => (
-        <li key={i} className="relative grid grid-cols-[1px_1fr] gap-4 pb-4">
+        <li key={`${e.meta}-${e.title}-${i}`} className="relative grid grid-cols-[1px_1fr] gap-4 pb-4">
           {/* Dot */}
           <div className="relative flex justify-center pt-1">
             <span className="h-2.5 w-2.5 rounded-full border-2 border-white shadow-sm z-10"

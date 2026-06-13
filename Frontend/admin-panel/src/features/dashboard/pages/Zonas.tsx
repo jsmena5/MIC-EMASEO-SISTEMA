@@ -26,6 +26,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div
       ref={overlay}
+      role="presentation"
       className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === overlay.current) onClose() }}
     >
@@ -74,16 +75,18 @@ function AssignModal({
       <div className="space-y-3">
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
         <div>
-          <label className="mb-1 block text-xs font-semibold text-slate-600">Nombre</label>
+          <label htmlFor="zona-nombre" className="mb-1 block text-xs font-semibold text-slate-600">Nombre</label>
           <input
+            id="zona-nombre"
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-semibold text-slate-600">Descripción</label>
+          <label htmlFor="zona-desc" className="mb-1 block text-xs font-semibold text-slate-600">Descripción</label>
           <textarea
+            id="zona-desc"
             value={desc}
             onChange={(e) => setDesc(e.target.value)}
             rows={2}
@@ -91,8 +94,9 @@ function AssignModal({
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-semibold text-slate-600">Supervisor asignado</label>
+          <label htmlFor="zona-supervisor" className="mb-1 block text-xs font-semibold text-slate-600">Supervisor asignado</label>
           <select
+            id="zona-supervisor"
             value={supId}
             onChange={(e) => setSupId(e.target.value)}
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
@@ -241,8 +245,9 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
 
         {/* File picker area */}
-        <div
-          className={`flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 cursor-pointer transition ${
+        <button
+          type="button"
+          className={`flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-8 cursor-pointer transition ${
             preview ? "border-emerald-400 bg-emerald-50/40" : "border-slate-300 bg-slate-50 hover:border-indigo-400 hover:bg-indigo-50/30"
           }`}
           onClick={() => fileRef.current?.click()}
@@ -260,7 +265,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
             }
           </div>
           {!preview && <div className="text-xs text-slate-500">Formatos: .geojson, .json</div>}
-        </div>
+        </button>
 
         {/* Preview table */}
         {preview && (
@@ -270,7 +275,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
             </div>
             <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
               {preview.map((f, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-2">
+                <div key={(f.properties?.codigo as string | undefined) ?? `zona-${i}`} className="flex items-center gap-3 px-4 py-2">
                   <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-mono font-semibold text-indigo-700">
                     {(f.properties?.codigo as string | undefined) ?? "sin código"}
                   </span>
@@ -447,11 +452,14 @@ export default function Zonas() {
             {zonas.map((z) => (
               <div
                 key={z.id}
+                role="button"
+                tabIndex={0}
                 className={[
                   "flex items-center justify-between px-4 py-3 cursor-pointer transition",
                   selected?.id === z.id ? "bg-indigo-50" : "hover:bg-slate-50",
                 ].join(" ")}
                 onClick={() => setSelected(z)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelected(z) }}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

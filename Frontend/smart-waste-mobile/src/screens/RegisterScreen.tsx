@@ -224,7 +224,7 @@ function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPicke
             mode="dropdown"
           >
             {MONTH_LABELS.map((m, i) => (
-              <Picker.Item key={i} label={m} value={i + 1} />
+              <Picker.Item key={m} label={m} value={i + 1} />
             ))}
           </Picker>
         </View>

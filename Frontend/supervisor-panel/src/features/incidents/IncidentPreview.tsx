@@ -115,13 +115,12 @@ export default function IncidentPreview({
 
       {/* Lightbox */}
       {lightboxOpen && imageUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+        <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={() => setLightboxOpen(false)}>
           <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white text-xl"
             onClick={() => setLightboxOpen(false)}>✕</button>
           <img src={imageUrl} alt="ampliado"
-            className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain"
-            onClick={(e) => e.stopPropagation()} />
+            className="max-h-[92vh] max-w-[92vw] rounded-xl object-contain" />
         </div>
       )}
     </>
