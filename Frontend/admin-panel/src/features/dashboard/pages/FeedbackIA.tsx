@@ -10,7 +10,10 @@ function fmtTime(iso: string) {
 }
 
 function PrecisionBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? "#16A34A" : pct >= 60 ? "#CA8A04" : "#DC2626"
+  let color: string
+  if (pct >= 80) color = "#16A34A"
+  else if (pct >= 60) color = "#CA8A04"
+  else color = "#DC2626"
   return (
     <div className="flex items-center gap-3">
       <div className="flex-1 rounded-full bg-slate-100" style={{ height: 10 }}>
@@ -43,7 +46,7 @@ function ErroresTipoTable({ rows }: { rows: ErrorTipo[] }) {
   if (rows.length === 0) return (
     <div className="px-4 py-6 text-center text-sm text-slate-400">Sin correcciones registradas</div>
   )
-  const maxTotal = Math.max(...rows.map((r) => parseInt(r.total)))
+  const maxTotal = Math.max(...rows.map((r) => Number.parseInt(r.total)))
   return (
     <table className="w-full text-sm">
       <thead>
@@ -55,7 +58,7 @@ function ErroresTipoTable({ rows }: { rows: ErrorTipo[] }) {
       </thead>
       <tbody className="divide-y divide-slate-100">
         {rows.map((r, i) => {
-          const pct = Math.round((parseInt(r.total) / maxTotal) * 100)
+          const pct = Math.round((Number.parseInt(r.total) / maxTotal) * 100)
           return (
             <tr key={i} className="hover:bg-slate-50">
               <td className="px-4 py-2.5">
@@ -188,7 +191,12 @@ export default function FeedbackIA() {
     finally { setExporting(false) }
   }
 
-  const pct = data ? parseFloat(data.totales.precision_pct ?? "0") : 0
+  const pct = data ? Number.parseFloat(data.totales.precision_pct ?? "0") : 0
+
+  let pctColor: string
+  if (pct >= 80) pctColor = "#16A34A"
+  else if (pct >= 60) pctColor = "#CA8A04"
+  else pctColor = "#DC2626"
 
   return (
     <div className="flex flex-col gap-6">
@@ -230,7 +238,7 @@ export default function FeedbackIA() {
             <div className="text-sm font-extrabold text-slate-900">Precisión global del modelo</div>
             <div className="text-xs text-slate-500">Sobre análisis revisados por supervisores</div>
           </div>
-          <div className="text-2xl font-black tabular-nums" style={{ color: pct >= 80 ? "#16A34A" : pct >= 60 ? "#CA8A04" : "#DC2626" }}>
+          <div className="text-2xl font-black tabular-nums" style={{ color: pctColor }}>
             {loading ? "—" : `${pct}%`}
           </div>
         </div>

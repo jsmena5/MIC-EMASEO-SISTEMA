@@ -1,6 +1,7 @@
 import React, {
   createContext,
   useCallback,
+  useMemo,
   useContext,
   useEffect,
   useRef,
@@ -183,15 +184,15 @@ export function AnalysisProvider({ children }: { children: React.ReactNode }) {
     return () => { stopPolling() }
   }, [backgroundTask, stopPolling])
 
+  const contextValue = useMemo(() => ({
+    backgroundTask,
+    isAnalysisRunning: backgroundTask !== null,
+    sendToBackground,
+    cancelBackground,
+  }), [backgroundTask, sendToBackground, cancelBackground])
+
   return (
-    <AnalysisContext.Provider
-      value={{
-        backgroundTask,
-        isAnalysisRunning: backgroundTask !== null,
-        sendToBackground,
-        cancelBackground,
-      }}
-    >
+    <AnalysisContext.Provider value={contextValue}>
       {children}
     </AnalysisContext.Provider>
   )

@@ -73,16 +73,14 @@ export default function IncidentReviewedView({
         <div className="grid gap-3 sm:grid-cols-2">
           <KV
             label="Veredicto IA"
-            value={
-              detail.ia_fue_correcta === true
-                ? "Correcta"
-                : detail.ia_fue_correcta === false
-                ? "Incorrecta — corregida"
-                : "No revisado"
-            }
+            value={(() => {
+              if (detail.ia_fue_correcta === true) return "Correcta"
+              if (detail.ia_fue_correcta === false) return "Incorrecta — corregida"
+              return "No revisado"
+            })()}
           />
-          <KV label="Tipo de residuo" value={detail.tipo_residuo_supervisor ? TIPO_LABEL[detail.tipo_residuo_supervisor] : (detail.tipo_residuo ? TIPO_LABEL[detail.tipo_residuo] : "—")} />
-          <KV label="Nivel acumulación" value={detail.nivel_acumulacion_supervisor ? NIVEL_LABEL[detail.nivel_acumulacion_supervisor] : (detail.nivel_acumulacion ? NIVEL_LABEL[detail.nivel_acumulacion] : "—")} />
+          <KV label="Tipo de residuo" value={TIPO_LABEL[detail.tipo_residuo_supervisor ?? detail.tipo_residuo ?? ""] ?? "—"} />
+          <KV label="Nivel acumulación" value={NIVEL_LABEL[detail.nivel_acumulacion_supervisor ?? detail.nivel_acumulacion ?? ""] ?? "—"} />
           <KV label="Confianza IA" value={fmtPercent(detail.confianza_decision ?? detail.confianza)} />
           <KV label="Volumen estimado" value={fmtVolume(detail.volumen_estimado_m3)} />
           <KV label="Detecciones" value={String(detail.num_detecciones ?? 0)} />

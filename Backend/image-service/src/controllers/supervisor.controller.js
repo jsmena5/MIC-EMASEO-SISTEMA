@@ -335,12 +335,12 @@ export const cambiarEstado = async (req, res) => {
         })
       }
 
-      distanciaM = parseFloat(rows[0].distancia_cierre_m ?? 0)
+      distanciaM = Number.parseFloat(rows[0].distancia_cierre_m ?? 0)
 
       const { rows: cfg } = await client.query(
         "SELECT valor FROM operations.config WHERE clave = 'geofence_tolerancia_m'"
       )
-      const tolerancia = parseFloat(cfg[0]?.valor ?? "10")
+      const tolerancia = Number.parseFloat(cfg[0]?.valor ?? "10")
 
       if (distanciaM > tolerancia) {
         await client.query("ROLLBACK")

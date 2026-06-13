@@ -56,10 +56,11 @@ export function brightnessToLightingHint(brightness: number): LightingHint {
 // processor. Devuelve los acumuladores para que el caller calcule coverage y brillo.
 function sampleFrameRegion(
   pixels: Uint8Array, FW: number,
-  startX: number, startY: number, endX: number, endY: number,
+  region: { startX: number; startY: number; endX: number; endY: number },
   isYuv: boolean, stride: number,
 ): { edgeCount: number; lumaSum: number; totalSampled: number } {
   'worklet'
+  const { startX, startY, endX, endY } = region
   let edgeCount = 0
   let lumaSum = 0
   let totalSampled = 0
@@ -161,10 +162,11 @@ export function useLiveDistanceGuidance(
       //   RGBA/BGRA:             4     bytes/px
       const bytesPerPixel = buffer.byteLength / (FW * FH)
       const isYuv = bytesPerPixel < 2.5
-      const stride = isYuv ? 1 : (bytesPerPixel > 3.5 ? 4 : 3)
+      const rgbaStride = bytesPerPixel > 3.5 ? 4 : 3
+      const stride = isYuv ? 1 : rgbaStride
 
       const { edgeCount, lumaSum, totalSampled } =
-        sampleFrameRegion(pixels, FW, startX, startY, endX, endY, isYuv, stride)
+        sampleFrameRegion(pixels, FW, { startX, startY, endX, endY }, isYuv, stride)
 
       if (totalSampled === 0) return
 

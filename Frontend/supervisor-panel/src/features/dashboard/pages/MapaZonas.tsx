@@ -244,7 +244,7 @@ export default function MapaZonas() {
             style={{
               padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
               fontSize: 11, fontWeight: basemap === key ? 700 : 500,
-              background: basemap === key ? (key === 'oscuro' ? '#1e293b' : '#f97316') : 'transparent',
+              background: (() => { if (basemap !== key) return 'transparent'; return key === 'oscuro' ? '#1e293b' : '#f97316' })(),
               color:      basemap === key ? 'white' : '#64748b',
               transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4,
             }}>

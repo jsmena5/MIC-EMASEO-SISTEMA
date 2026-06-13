@@ -126,15 +126,15 @@ export default function AppNavigator() {
     <ErrorBoundary>
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isLoading ? (
-          // ── Grupo de carga ────────────────────────────────────────────────
-          // SplashScreen se importa directamente: se necesita inmediatamente.
-          <Stack.Group navigationKey="loading">
-            <Stack.Screen name="Splash" component={SplashScreen} />
-          </Stack.Group>
-        ) : token ? (
-          // ── Grupo privado (usuario autenticado) ───────────────────────────
-          // HomeScreen es directa; el resto son lazy (primera navegación solo).
+        {(() => {
+          if (isLoading) return (
+            // ── Grupo de carga ─────────────────────────────────────────────
+            <Stack.Group navigationKey="loading">
+              <Stack.Screen name="Splash" component={SplashScreen} />
+            </Stack.Group>
+          )
+          if (token) return (
+            // ── Grupo privado (usuario autenticado) ────────────────────────
           <Stack.Group navigationKey="private">
             <Stack.Screen name="Home"               component={HomeScreen} />
             <Stack.Screen name="Scan"               component={ScanScreen} />
@@ -146,9 +146,9 @@ export default function AppNavigator() {
             <Stack.Screen name="Alerts"             component={AlertsScreen} />
             <Stack.Screen name="Help"               component={HelpScreen} />
           </Stack.Group>
-        ) : (
-          // ── Grupo público (no autenticado) ────────────────────────────────
-          // LoginScreen es directa; el flujo de registro/recuperación es lazy.
+          )
+          // ── Grupo público (no autenticado) ─────────────────────────────────
+          return (
           <Stack.Group navigationKey="public">
             <Stack.Screen name="Login"              component={LoginScreen} />
             <Stack.Screen name="Register"           component={RegisterScreen} />
@@ -158,7 +158,8 @@ export default function AppNavigator() {
             <Stack.Screen name="ForgotPasswordOtp"  component={ForgotPasswordOtpScreen} />
             <Stack.Screen name="ResetPassword"      component={ResetPasswordScreen} />
           </Stack.Group>
-        )}
+          )
+        })()}
       </Stack.Navigator>
     </NavigationContainer>
     </ErrorBoundary>

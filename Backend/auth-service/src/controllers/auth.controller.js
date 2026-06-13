@@ -26,7 +26,7 @@ const REFRESH_TOKEN_TTL_DAYS = 7
 
 // Bcrypt cost: 12 es el mínimo recomendado en 2026.
 // Subir el valor encarece el cracking, pero también las verificaciones legítimas.
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
 async function issueRefreshToken(userId) {
   const raw       = generateOpaqueToken()

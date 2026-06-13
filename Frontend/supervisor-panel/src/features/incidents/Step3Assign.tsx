@@ -77,9 +77,8 @@ export default function Step3Assign({
     try {
       const res = await cambiarEstado(detail.id, estado, observaciones, gps)
       const dist = res.distancia_cierre_m
-      setFeedback(
-        `Reporte cerrado correctamente.${dist != null ? ` Distancia al punto: ${dist} m.` : ""}`,
-      )
+      const distSuffix = dist != null ? ` Distancia al punto: ${dist} m.` : ""
+      setFeedback(`Reporte cerrado correctamente.${distSuffix}`)
       onRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo cerrar el reporte.")
@@ -196,14 +195,13 @@ export default function Step3Assign({
                 key={e}
                 disabled={isBusy}
                 onClick={() => void handleEstado(e)}
-                className={[
-                  "rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-50",
-                  e === "RECHAZADA"
-                    ? "bg-red-50 text-red-700 hover:bg-red-100"
-                    : e === "RESUELTA"
-                    ? "bg-green-50 text-green-700 hover:bg-green-100"
-                    : "bg-blue-50 text-blue-700 hover:bg-blue-100",
-                ].join(" ")}
+                className={(() => {
+                  let variant: string
+                  if (e === "RECHAZADA") variant = "bg-red-50 text-red-700 hover:bg-red-100"
+                  else if (e === "RESUELTA") variant = "bg-green-50 text-green-700 hover:bg-green-100"
+                  else variant = "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  return `rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-50 ${variant}`
+                })()}
               >
                 {capturandoGps && e === "RESUELTA"
                   ? "Capturando GPS…"

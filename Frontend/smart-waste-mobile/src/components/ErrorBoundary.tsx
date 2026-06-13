@@ -45,7 +45,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
     // Punto de enganche para un servicio de crash reporting (Sentry, etc.).
   }
 
-  private handleReset = () => {
+  private readonly handleReset = () => {
     this.setState((s) => ({ hasError: false, resetKey: s.resetKey + 1 }))
   }
 

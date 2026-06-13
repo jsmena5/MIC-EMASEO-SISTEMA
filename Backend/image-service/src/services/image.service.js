@@ -37,7 +37,7 @@ const TEMP_PRIORIDAD = 'BAJA'
 // Si confianza del ML < umbral → EN_REVISION (caso ambiguo, requiere supervisor).
 // Si confianza del ML ≥ umbral → DESCARTADO (rechazo automático confiable).
 // Configurable vía variable de entorno; por defecto 0.70 (70%).
-const AUTO_REJECT_CONFIDENCE = parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE ?? "0.70")
+const AUTO_REJECT_CONFIDENCE = Number.parseFloat(process.env.ML_AUTO_REJECT_CONFIDENCE ?? "0.70")
 
 // Techos de volumen por nivel (en m³) — deben estar en sync con _BANDS de
 // Backend/ml-service/ml_utils.py. Sirven para detectar inconsistencias volumen/nivel
@@ -85,7 +85,7 @@ async function checkMlHealth() {
 function isValidEcuadorLocation(lat, lon) {
   const latNum = Number(lat)
   const lonNum = Number(lon)
-  if (isNaN(latNum) || isNaN(lonNum)) return false
+  if (Number.isNaN(latNum) || Number.isNaN(lonNum)) return false
   return (
     latNum >= ECUADOR_BBOX.lat.min &&
     latNum <= ECUADOR_BBOX.lat.max &&
@@ -997,8 +997,8 @@ export const getMyIncidents = async (req, res) => {
     return res.status(401).json({ error: "No se pudo identificar al usuario." })
   }
 
-  const rawPage  = parseInt(req.query.page,  10)
-  const rawLimit = parseInt(req.query.limit, 10)
+  const rawPage  = Number.parseInt(req.query.page,  10)
+  const rawLimit = Number.parseInt(req.query.limit, 10)
   const page   = Number.isFinite(rawPage)  && rawPage  > 0 ? rawPage                : 1
   const limit  = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 20
   const offset = (page - 1) * limit
@@ -1041,7 +1041,7 @@ export const getMyIncidents = async (req, res) => {
       ),
     ])
 
-    const total = parseInt(countRows[0].total, 10)
+    const total = Number.parseInt(countRows[0].total, 10)
     const pages = Math.ceil(total / limit)
 
     return res.json({

@@ -20,8 +20,8 @@ function GeofenceConfig() {
   }, [])
 
   const handleSave = async () => {
-    const num = parseFloat(value)
-    if (isNaN(num) || num <= 0 || num > 500) {
+    const num = Number.parseFloat(value)
+    if (Number.isNaN(num) || num <= 0 || num > 500) {
       setError("Ingresa un valor entre 1 y 500 metros"); return
     }
     setError(""); setSaving(true)

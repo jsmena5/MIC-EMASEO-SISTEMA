@@ -492,40 +492,41 @@ export default function HistorialScreen({ navigation }: Props) {
       )}
 
       {/* Body */}
-      {loading ? (
-        // ── Spinner inicial ────────────────────────────────────────────────
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Cargando historial...</Text>
-        </View>
-      ) : (serverError && totalCount === 0) ? (
-        // ── Error total (sin datos que mostrar) ───────────────────────────
-        <View style={styles.center}>
-          <Ionicons name="cloud-offline-outline" size={52} color={colors.gray300} />
-          <Text style={styles.errorText}>{serverError}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchAll()} activeOpacity={0.85}>
-            <Ionicons name="refresh-outline" size={16} color="#fff" />
-            <Text style={styles.retryText}>Reintentar</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        // ── Lista combinada ───────────────────────────────────────────────
-        <HistorialList
-          filteredData={filteredData}
-          renderItem={renderItem}
-          filteredCount={filteredCount}
-          totalCount={totalCount}
-          incidents={incidents}
-          pendingReports={pendingReports}
-          serverError={serverError}
-          activeFilter={activeFilter}
-          refreshing={refreshing}
-          onRefresh={() => fetchAll(true)}
-          onRetry={() => fetchAll()}
-          onResetFilter={() => setActiveFilter("todos")}
-          onGoScan={() => navigation.navigate("Scan")}
-        />
-      )}
+      {(() => {
+        if (loading) return (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Cargando historial...</Text>
+          </View>
+        )
+        if (serverError && totalCount === 0) return (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={52} color={colors.gray300} />
+            <Text style={styles.errorText}>{serverError}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchAll()} activeOpacity={0.85}>
+              <Ionicons name="refresh-outline" size={16} color="#fff" />
+              <Text style={styles.retryText}>Reintentar</Text>
+            </TouchableOpacity>
+          </View>
+        )
+        return (
+          <HistorialList
+            filteredData={filteredData}
+            renderItem={renderItem}
+            filteredCount={filteredCount}
+            totalCount={totalCount}
+            incidents={incidents}
+            pendingReports={pendingReports}
+            serverError={serverError}
+            activeFilter={activeFilter}
+            refreshing={refreshing}
+            onRefresh={() => fetchAll(true)}
+            onRetry={() => fetchAll()}
+            onResetFilter={() => setActiveFilter("todos")}
+            onGoScan={() => navigation.navigate("Scan")}
+          />
+        )
+      })()}
     </View>
   )
 }

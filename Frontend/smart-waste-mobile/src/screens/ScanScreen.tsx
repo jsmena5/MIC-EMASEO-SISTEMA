@@ -108,31 +108,35 @@ function AnalyzeButton({
       disabled={isAnalyzeBlocked}
       activeOpacity={0.85}
     >
-      {phase === "uploading" ? (
-        <>
-          <ActivityIndicator size="small" color="#fff" />
-          <Text style={styles.analyzeBtnText}>
-            {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
-          </Text>
-        </>
-      ) : phase === "checking" ? (
-        <>
-          <ActivityIndicator size="small" color="#fff" />
-          <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
-        </>
-      ) : isCropping ? (
-        <>
-          <ActivityIndicator size="small" color="#fff" />
-          <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
-        </>
-      ) : (
-        <>
-          <Ionicons name="analytics-outline" size={20} color="#fff" />
-          <Text style={styles.analyzeBtnText}>
-            {(!hasLocation && !isLocationLoading) ? "Esperando ubicación..." : "Analizar y Reportar"}
-          </Text>
-        </>
-      )}
+      {(() => {
+        if (phase === "uploading") return (
+          <>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.analyzeBtnText}>
+              {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
+            </Text>
+          </>
+        )
+        if (phase === "checking") return (
+          <>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
+          </>
+        )
+        if (isCropping) return (
+          <>
+            <ActivityIndicator size="small" color="#fff" />
+            <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
+          </>
+        )
+        const btnLabel = (!hasLocation && !isLocationLoading) ? "Esperando ubicación..." : "Analizar y Reportar"
+        return (
+          <>
+            <Ionicons name="analytics-outline" size={20} color="#fff" />
+            <Text style={styles.analyzeBtnText}>{btnLabel}</Text>
+          </>
+        )
+      })()}
     </TouchableOpacity>
   )
 }
@@ -142,26 +146,31 @@ function LocationIndicator({
 }: { isLocationLoading: boolean; hasLocation: boolean; locError: string | null }) {
   return (
     <View style={styles.locationStatus}>
-      {isLocationLoading ? (
-        <>
-          <ActivityIndicator size="small" color={colors.primary} />
-          <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
-        </>
-      ) : hasLocation ? (
-        <>
-          <Ionicons name="location" size={16} color={colors.success} />
-          <Text style={[styles.locationStatusText, styles.locationSuccess]}>
-            Ubicación disponible
-          </Text>
-        </>
-      ) : locError ? (
-        <>
-          <Ionicons name="warning" size={16} color={colors.critico} />
-          <Text style={[styles.locationStatusText, styles.locationError]}>
-            {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
-          </Text>
-        </>
-      ) : null}
+      {(() => {
+        if (isLocationLoading) return (
+          <>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
+          </>
+        )
+        if (hasLocation) return (
+          <>
+            <Ionicons name="location" size={16} color={colors.success} />
+            <Text style={[styles.locationStatusText, styles.locationSuccess]}>
+              Ubicación disponible
+            </Text>
+          </>
+        )
+        if (locError) return (
+          <>
+            <Ionicons name="warning" size={16} color={colors.critico} />
+            <Text style={[styles.locationStatusText, styles.locationError]}>
+              {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
+            </Text>
+          </>
+        )
+        return null
+      })()}
     </View>
   )
 }

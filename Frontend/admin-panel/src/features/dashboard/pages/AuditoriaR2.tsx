@@ -269,32 +269,40 @@ export default function AuditoriaR2() {
       )}
 
       {/* ── Grid de imágenes ──────────────────────────────────── */}
-      {loading ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
-          ))}
-        </div>
-      ) : imagenes.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white py-20">
-          <div className="text-4xl">✓</div>
-          <p className="text-sm font-bold text-slate-700">
-            {etiqueta === "PENDIENTE" ? "¡Todo clasificado en esta página!" : "Sin imágenes con estos filtros"}
-          </p>
-          {etiqueta === "PENDIENTE" && pagination.pages > pagination.page && (
-            <button onClick={() => { load(pagination.page + 1).catch(() => { /* errores ya gestionados en load */ }) }}
-              className="mt-1 rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E]">
-              Ver siguiente página →
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-          {imagenes.map((img) => (
-            <ImageCard key={img.incident_id} img={img} onLabel={handleLabel} onRemove={handleRemove} />
-          ))}
-        </div>
-      )}
+      {(() => {
+        if (loading) {
+          return (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
+              ))}
+            </div>
+          )
+        }
+        if (imagenes.length === 0) {
+          return (
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white py-20">
+              <div className="text-4xl">✓</div>
+              <p className="text-sm font-bold text-slate-700">
+                {etiqueta === "PENDIENTE" ? "¡Todo clasificado en esta página!" : "Sin imágenes con estos filtros"}
+              </p>
+              {etiqueta === "PENDIENTE" && pagination.pages > pagination.page && (
+                <button onClick={() => { load(pagination.page + 1).catch(() => { /* errores ya gestionados en load */ }) }}
+                  className="mt-1 rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E]">
+                  Ver siguiente página →
+                </button>
+              )}
+            </div>
+          )
+        }
+        return (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {imagenes.map((img) => (
+              <ImageCard key={img.incident_id} img={img} onLabel={handleLabel} onRemove={handleRemove} />
+            ))}
+          </div>
+        )
+      })()}
 
       {/* ── Paginación ─────────────────────────────────────────── */}
       {pagination.pages > 1 && (

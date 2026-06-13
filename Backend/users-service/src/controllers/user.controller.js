@@ -3,7 +3,7 @@ import { sendOtpEmail } from "../utils/mailer.js"
 import { validarCedula } from "../utils/cedula.js"
 import { validatePassword } from "../utils/passwordValidator.js"
 import jwt from "jsonwebtoken"
-import crypto from "crypto"
+import crypto from "node:crypto"
 import dotenv from "dotenv"
 dotenv.config()
 
@@ -11,7 +11,7 @@ const generateOtp = () => String(crypto.randomInt(100000, 999999))
 const hashToken = (token) => crypto.createHash("sha256").update(token).digest("hex")
 const generateOpaqueToken = () => crypto.randomBytes(64).toString("hex")
 
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
 // ─── Helper para generar contraseña temporal ──────────────────────────────────
 const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$"
@@ -455,7 +455,7 @@ export const updateProfile = async (req, res) => {
   // Validar fecha de nacimiento
   if (fecha_nacimiento) {
     const d = new Date(fecha_nacimiento)
-    if (isNaN(d.getTime())) {
+    if (Number.isNaN(d.getTime())) {
       return res.status(400).json({ message: "Fecha de nacimiento inválida." })
     }
     const edadAnios = (Date.now() - d.getTime()) / (365.25 * 24 * 3600 * 1000)
@@ -592,7 +592,7 @@ export const listCiudadanos = async (req, res) => {
       ])
     }
 
-    const total = parseInt(countRows[0].total, 10)
+    const total = Number.parseInt(countRows[0].total, 10)
     return res.json({
       ciudadanos: rows,
       pagination: { total, page: pageNum, limit: pageSize, pages: Math.ceil(total / pageSize) },

@@ -303,7 +303,11 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
             disabled={!preview || importing}
             className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
-            {importing ? "Importando…" : `Importar ${preview ? preview.length : ""} zona${preview?.length !== 1 ? "s" : ""}`}
+            {(() => {
+              if (importing) return "Importando…"
+              const n = preview?.length ?? 0
+              return `Importar ${n > 0 ? n : ""} zona${n !== 1 ? "s" : ""}`
+            })()}
           </button>
         </div>
       </div>
@@ -374,7 +378,11 @@ export default function Zonas() {
         <div>
           <h2 className="text-xl font-extrabold text-slate-900">Zonas operativas</h2>
           <p className="text-sm text-slate-500">
-            {loading ? "Cargando…" : `${zonas.length} zona${zonas.length !== 1 ? "s" : ""} · toca un polígono para editar`}
+            {(() => {
+              if (loading) return "Cargando…"
+              const plural = zonas.length !== 1 ? "s" : ""
+              return `${zonas.length} zona${plural} · toca un polígono para editar`
+            })()}
           </p>
         </div>
         <button

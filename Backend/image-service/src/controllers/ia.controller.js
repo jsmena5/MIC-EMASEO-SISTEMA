@@ -5,8 +5,8 @@ import { pool } from "../db.js"
 // Query params: page, limit, etiqueta, ia_correcta
 
 export const listarImagenes = async (req, res) => {
-  const page      = Math.max(1, parseInt(req.query.page  ?? "1"))
-  const limit     = Math.min(50, Math.max(1, parseInt(req.query.limit ?? "20")))
+  const page      = Math.max(1, Number.parseInt(req.query.page  ?? "1"))
+  const limit     = Math.min(50, Math.max(1, Number.parseInt(req.query.limit ?? "20")))
   const offset    = (page - 1) * limit
   const etiqueta  = req.query.etiqueta   ?? null   // PENDIENTE | VALIDA_ENTRENAMIENTO | DUDOSA | EXCLUIR
   const iaCorrecta = req.query.ia_correcta ?? null  // "true" | "false"
@@ -36,7 +36,7 @@ export const listarImagenes = async (req, res) => {
        ${WHERE}`,
       params,
     )
-    const total = parseInt(countQ.rows[0].total)
+    const total = Number.parseInt(countQ.rows[0].total)
 
     const dataQ = await pool.query(
       `SELECT
@@ -235,9 +235,10 @@ export const iaDataset = async (_req, res) => {
 //   solo_incorrectos (true/false, default false) — solo ia_fue_correcta=false
 
 export const hardExamples = async (req, res) => {
-  const limit           = Math.min(1000, Math.max(1, parseInt(req.query.limit ?? "200")))
-  const minConfianza    = parseFloat(req.query.min_confianza ?? "0")
+  const limit           = Math.min(1000, Math.max(1, Number.parseInt(req.query.limit ?? "200")))
+  const minConfianza    = Number.parseFloat(req.query.min_confianza ?? "0")
   const soloIncorrectos = req.query.solo_incorrectos === "true"
+  const confianzaUmbral = minConfianza > 0 ? minConfianza : 1.0
 
   try {
     const { rows } = await pool.query(
@@ -287,7 +288,7 @@ export const hardExamples = async (req, res) => {
               ELSE 2 END,
          ar.confianza ASC
        LIMIT $3`,
-      [soloIncorrectos ? 1.0 : (minConfianza > 0 ? minConfianza : 1.0), soloIncorrectos, limit],
+      [soloIncorrectos ? 1.0 : confianzaUmbral, soloIncorrectos, limit],
     )
 
     res.setHeader(

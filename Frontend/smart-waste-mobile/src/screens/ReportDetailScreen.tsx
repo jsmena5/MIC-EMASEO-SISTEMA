@@ -38,8 +38,8 @@ function parseCoords(latitud: unknown, longitud: unknown): {
   lon: number | null
   hasCoords: boolean
 } {
-  const lat = latitud != null && !isNaN(Number(latitud)) ? Number(latitud) : null
-  const lon = longitud != null && !isNaN(Number(longitud)) ? Number(longitud) : null
+  const lat = latitud != null && !Number.isNaN(Number(latitud)) ? Number(latitud) : null
+  const lon = longitud != null && !Number.isNaN(Number(longitud)) ? Number(longitud) : null
   const hasCoords =
     lat != null && lon != null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
   return { lat, lon, hasCoords }
@@ -248,11 +248,11 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
             style={address ? styles.addressText : styles.coordText}
             numberOfLines={2}
           >
-            {address
-              ? address
-              : hasCoords
-              ? `${lat!.toFixed(5)}, ${lon!.toFixed(5)}`
-              : "Sin coordenadas registradas"}
+            {(() => {
+              if (address) return address
+              if (hasCoords) return `${lat!.toFixed(5)}, ${lon!.toFixed(5)}`
+              return "Sin coordenadas registradas"
+            })()}
           </Text>
         </View>
 

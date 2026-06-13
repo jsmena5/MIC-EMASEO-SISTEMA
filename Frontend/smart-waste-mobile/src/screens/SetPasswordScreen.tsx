@@ -24,7 +24,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "SetPassword">
 
 export default function SetPasswordScreen({ navigation, route }: Props) {
   const { email } = route.params
-  const { login } = useAuth()
+  useAuth()
 
   const [password, setPasswordValue]   = useState("")
   const [confirm, setConfirm]          = useState("")

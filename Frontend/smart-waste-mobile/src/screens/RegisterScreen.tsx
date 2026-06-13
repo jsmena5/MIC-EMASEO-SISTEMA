@@ -61,18 +61,18 @@ function isoFromParts(day: number, month: number, year: number): string {
 
 const validarCedula = (cedula: string): boolean => {
   if (!/^\d{10}$/.test(cedula)) return false
-  const provincia = parseInt(cedula.substring(0, 2))
+  const provincia = Number.parseInt(cedula.substring(0, 2))
   if (provincia < 1 || provincia > 24) return false
-  if (parseInt(cedula[2]) >= 6) return false
+  if (Number.parseInt(cedula[2]) >= 6) return false
   const coefs = [2, 1, 2, 1, 2, 1, 2, 1, 2]
   let suma = 0
   for (let i = 0; i < 9; i++) {
-    let val = parseInt(cedula[i]) * coefs[i]
+    let val = Number.parseInt(cedula[i]) * coefs[i]
     if (val >= 10) val -= 9
     suma += val
   }
   const dig = suma % 10 === 0 ? 0 : 10 - (suma % 10)
-  return dig === parseInt(cedula[9])
+  return dig === Number.parseInt(cedula[9])
 }
 
 // Valida un campo de "nombres" o "apellidos" que admite 1 o 2 palabras.

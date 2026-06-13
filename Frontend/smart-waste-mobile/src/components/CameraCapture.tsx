@@ -437,11 +437,11 @@ function CameraBottomControls({
       </TouchableOpacity>
 
       <Text style={styles.shutterLabel}>
-        {capturing
-          ? "Capturando..."
-          : countdown != null
-            ? "Captura automática…"
-            : "Tomar foto"}
+        {(() => {
+          if (capturing) return "Capturando..."
+          if (countdown != null) return "Captura automática…"
+          return "Tomar foto"
+        })()}
       </Text>
     </View>
   )

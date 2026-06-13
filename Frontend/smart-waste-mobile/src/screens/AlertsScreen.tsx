@@ -315,9 +315,11 @@ export default function AlertsScreen({ navigation }: Props) {
             <View>
               <Text style={styles.headerTitle}>Alertas</Text>
               <Text style={styles.headerSub}>
-                {unreadCount > 0
-                  ? `${unreadCount} notificación${unreadCount !== 1 ? "es" : ""} sin leer`
-                  : "Todo al día"}
+                {(() => {
+                  if (unreadCount <= 0) return "Todo al día"
+                  const plural = unreadCount !== 1 ? "es" : ""
+                  return `${unreadCount} notificación${plural} sin leer`
+                })()}
               </Text>
             </View>
           </View>
@@ -364,21 +366,24 @@ export default function AlertsScreen({ navigation }: Props) {
       )}
 
       {/* Lista */}
-      {loading ? (
-        <View style={styles.center}>
-          <Ionicons name="notifications-outline" size={40} color={colors.textTertiary} />
-          <Text style={styles.loadingText}>Cargando notificaciones…</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="cloud-offline-outline" size={44} color={colors.textTertiary} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchNotifications()}>
-            <Ionicons name="refresh-outline" size={16} color="#fff" />
-            <Text style={styles.retryText}>Reintentar</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
+      {(() => {
+        if (loading) return (
+          <View style={styles.center}>
+            <Ionicons name="notifications-outline" size={40} color={colors.textTertiary} />
+            <Text style={styles.loadingText}>Cargando notificaciones…</Text>
+          </View>
+        )
+        if (error) return (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={44} color={colors.textTertiary} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchNotifications()}>
+              <Ionicons name="refresh-outline" size={16} color="#fff" />
+              <Text style={styles.retryText}>Reintentar</Text>
+            </TouchableOpacity>
+          </View>
+        )
+        return (
         <AlertsList
           filteredAlerts={filteredAlerts}
           alerts={alerts}
@@ -389,7 +394,8 @@ export default function AlertsScreen({ navigation }: Props) {
           onNavigate={handleNavigate}
           onResetFilter={() => setActiveFilter("todas")}
         />
-      )}
+        )
+      })()}
     </View>
   )
 }

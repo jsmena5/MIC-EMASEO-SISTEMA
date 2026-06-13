@@ -4,8 +4,8 @@ import cors from "cors"
 import helmet from "helmet"
 import morgan from "morgan"
 import { createProxyMiddleware } from "http-proxy-middleware"
-import { fileURLToPath } from "url"
-import path from "path"
+import { fileURLToPath } from "node:url"
+import path from "node:path"
 import swaggerUi from "swagger-ui-express"
 import { swaggerSpec } from "./swagger.js"
 import { verifyToken } from "./middlewares/auth.middleware.js"
@@ -54,16 +54,16 @@ const MINIO_INTERNAL_URL  = process.env.MINIO_INTERNAL_URL
 // que req.ip refleje la IP real del cliente (no la del túnel).
 app.set("trust proxy", 1)
 
-const allowedOrigins = [
+const allowedOrigins = new Set([
   ...process.env.CORS_ORIGINS.split(",").map((o) => o.trim()),
   "https://mic-emaseo-admin.pages.dev",     // panel administrador (Cloudflare Pages)
   "https://mic-emaseo-panel.pages.dev",     // panel supervisor (Cloudflare Pages)
-]
+])
 
 const corsOptions = {
   origin: (origin, cb) => {
     // Sin origin → petición server-to-server o herramienta CLI → permitir
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true)
+    if (!origin || allowedOrigins.has(origin)) return cb(null, true)
     // Permitir cualquier origen localhost para desarrollo local contra producción
     if (/^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true)
     cb(new Error(`CORS: origen no permitido — ${origin}`))

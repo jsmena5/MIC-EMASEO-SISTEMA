@@ -100,10 +100,13 @@ export default function ReviewModal({
           {/* Progress pills */}
           <div className="flex items-center gap-1.5 mr-8">
             {(["validate", "classify"] as ModalStep[]).map((s, i) => (
-              <div key={s} className={[
-                "h-1.5 w-8 rounded-full transition-colors",
-                step === s ? "bg-[#005BAC]" : step === "classify" && i === 0 ? "bg-green-400" : "bg-slate-200"
-              ].join(" ")} />
+              <div key={s} className={(() => {
+                let variant: string
+                if (step === s) variant = "bg-[#005BAC]"
+                else if (step === "classify" && i === 0) variant = "bg-green-400"
+                else variant = "bg-slate-200"
+                return `h-1.5 w-8 rounded-full transition-colors ${variant}`
+              })()} />
             ))}
           </div>
           <button

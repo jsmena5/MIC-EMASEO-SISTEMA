@@ -51,7 +51,7 @@ function isoFromParts(day: number, month: number, year: number): string {
 
 function calcAgeFromParts(p: { day: number; month: number; year: number }): number | null {
   const birth = new Date(p.year, p.month - 1, p.day)
-  if (isNaN(birth.getTime())) return null
+  if (Number.isNaN(birth.getTime())) return null
   const today = new Date()
   let age = today.getFullYear() - birth.getFullYear()
   if (today.getMonth() < birth.getMonth() ||
@@ -63,7 +63,8 @@ function fechaLarga(iso: string | null): string {
   const p = partsFromIso(iso)
   if (!p) return "No registrada"
   const edad = calcAgeFromParts(p)
-  return `${String(p.day).padStart(2, "0")} de ${MONTH_LABELS[p.month - 1]} de ${p.year}${edad != null ? `  ·  ${edad} años` : ""}`
+  const edadSuffix = edad != null ? `  ·  ${edad} años` : ""
+  return `${String(p.day).padStart(2, "0")} de ${MONTH_LABELS[p.month - 1]} de ${p.year}${edadSuffix}`
 }
 
 function daysInMonth(month: number, year: number): number {

@@ -2,6 +2,7 @@ import NetInfo, { type NetInfoState } from "@react-native-community/netinfo"
 import React, {
   createContext,
   useCallback,
+  useMemo,
   useContext,
   useEffect,
   useRef,
@@ -112,10 +113,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     return unsubscribe
   }, [flushQueue])
 
+  const contextValue = useMemo(
+    () => ({ isConnected, pendingCount, isProcessingQueue, refreshPendingCount, triggerFlush: flushQueue }),
+    [isConnected, pendingCount, isProcessingQueue, refreshPendingCount, flushQueue],
+  )
+
   return (
-    <NetworkContext.Provider
-      value={{ isConnected, pendingCount, isProcessingQueue, refreshPendingCount, triggerFlush: flushQueue }}
-    >
+    <NetworkContext.Provider value={contextValue}>
       {children}
     </NetworkContext.Provider>
   )

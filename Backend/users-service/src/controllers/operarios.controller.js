@@ -1,7 +1,7 @@
 import { pool } from "../db.js"
-import crypto from "crypto"
+import crypto from "node:crypto"
 
-const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
 // ===============================
 // GET /api/users/operarios
@@ -164,7 +164,7 @@ export const deleteOperario = async (req, res) => {
   try {
     await client.query("BEGIN")
 
-    const { rows, rowCount } = await client.query(
+    const { rowCount } = await client.query(
       `UPDATE app_auth.users
        SET estado = 'INACTIVO', updated_at = NOW()
        WHERE id = (SELECT user_id FROM operations.operarios WHERE id = $1)

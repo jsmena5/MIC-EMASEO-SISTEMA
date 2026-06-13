@@ -355,7 +355,7 @@ def classify_severity(
         "vol_band_min": _BANDS[3][2], "vol_band_max": _BANDS[3][3],
     }
     for c_min, c_max, v_min, v_max, nivel, prioridad in _BANDS:
-        if effective_ratio < c_max or c_max == 1.00:
+        if effective_ratio < c_max or abs(c_max - 1.00) < 1e-9:
             t = max(0.0, min(1.0, (effective_ratio - c_min) / (c_max - c_min)))
             metricas = {
                 "nivel":        nivel,

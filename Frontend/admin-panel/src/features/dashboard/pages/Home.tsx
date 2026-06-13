@@ -46,7 +46,10 @@ export default function Home() {
   const [zonasLoading, setZonasLoading] = useState(true)
 
   const hour = new Date().getHours()
-  const greeting = hour < 12 ? "Buenos días" : hour < 18 ? "Buenas tardes" : "Buenas noches"
+  let greeting: string
+  if (hour < 12) greeting = "Buenos días"
+  else if (hour < 18) greeting = "Buenas tardes"
+  else greeting = "Buenas noches"
   const dateLabel = new Date().toLocaleDateString("es-EC", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   })
