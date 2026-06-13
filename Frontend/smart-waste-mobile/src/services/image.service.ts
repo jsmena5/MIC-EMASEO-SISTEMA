@@ -3,14 +3,12 @@ import { toPublicMediaUrl } from "../utils/mediaUrl"
 import type {
   AnalysisIncidentEstado,
   DistanceHint,
-  IncidentEstado,
   NivelAcum,
   Prioridad,
 } from "../types/incident"
 
-export type { DistanceHint }
-
-export type { AnalysisIncidentEstado, IncidentEstado }
+export type { DistanceHint, AnalysisIncidentEstado }
+export type { IncidentEstado } from "../types/incident"
 
 
 export const validateImage = async (imageBase64: string) => {

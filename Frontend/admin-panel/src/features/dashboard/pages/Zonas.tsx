@@ -153,26 +153,24 @@ function extractPolygonFeatures(json: FeatureCollection | Feature): Feature<Poly
 }
 
 // Lee un archivo GeoJSON y resuelve con sus Features Polygon/MultiPolygon, o rechaza
-// con un mensaje legible. Centraliza el FileReader + parsing fuera del componente.
-function parseGeoJsonFile(file: File): Promise<Feature<Polygon | MultiPolygon>[]> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        const json = JSON.parse(reader.result as string) as FeatureCollection | Feature
-        const features = extractPolygonFeatures(json)
-        if (features.length === 0) {
-          reject(new Error("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)"))
-          return
-        }
-        resolve(features)
-      } catch {
-        reject(new Error("El archivo no es un JSON válido"))
-      }
+// con un mensaje legible. Usa Blob#text() (nativo, más simple que FileReader).
+async function parseGeoJsonFile(file: File): Promise<Feature<Polygon | MultiPolygon>[]> {
+  let text: string
+  try {
+    text = await file.text()
+  } catch {
+    throw new Error("Error al leer el archivo")
+  }
+  try {
+    const json = JSON.parse(text) as FeatureCollection | Feature
+    const features = extractPolygonFeatures(json)
+    if (features.length === 0) {
+      throw new Error("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)")
     }
-    reader.onerror = () => reject(new Error("Error al leer el archivo"))
-    reader.readAsText(file)
-  })
+    return features
+  } catch (e) {
+    throw e instanceof Error ? e : new Error("El archivo no es un JSON válido")
+  }
 }
 
 function ImportSuccessView({ count, onClose }: { count: number; onClose: () => void }) {
@@ -450,16 +448,14 @@ export default function Zonas() {
               </div>
             )}
             {zonas.map((z) => (
-              <div
-                key={z.id}
-                role="button"
-                tabIndex={0}
+              <div key={z.id} className="flex">
+              <button
+                type="button"
                 className={[
-                  "flex items-center justify-between px-4 py-3 cursor-pointer transition",
+                  "flex flex-1 items-center justify-between px-4 py-3 cursor-pointer transition text-left",
                   selected?.id === z.id ? "bg-indigo-50" : "hover:bg-slate-50",
                 ].join(" ")}
                 onClick={() => setSelected(z)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setSelected(z) }}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
@@ -473,6 +469,7 @@ export default function Zonas() {
                     {z.supervisor_nombre ?? <span className="italic">Sin supervisor</span>}
                   </div>
                 </div>
+              </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setEditTarget(z) }}
                   className="ml-3 shrink-0 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"

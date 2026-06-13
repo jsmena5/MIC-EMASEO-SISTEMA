@@ -1,4 +1,3 @@
-// useCallback removed — not needed after refactor
 import { Dimensions } from 'react-native'
 import { useFrameProcessor } from 'react-native-vision-camera'
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core'

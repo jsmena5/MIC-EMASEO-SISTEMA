@@ -71,7 +71,7 @@ export default function IncidentReviewedView({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <KV
+          <KvRow
             label="Veredicto IA"
             value={(() => {
               if (detail.ia_fue_correcta === true) return "Correcta"
@@ -79,11 +79,11 @@ export default function IncidentReviewedView({
               return "No revisado"
             })()}
           />
-          <KV label="Tipo de residuo" value={TIPO_LABEL[detail.tipo_residuo_supervisor ?? detail.tipo_residuo ?? ""] ?? "—"} />
-          <KV label="Nivel acumulación" value={NIVEL_LABEL[detail.nivel_acumulacion_supervisor ?? detail.nivel_acumulacion ?? ""] ?? "—"} />
-          <KV label="Confianza IA" value={fmtPercent(detail.confianza_decision ?? detail.confianza)} />
-          <KV label="Volumen estimado" value={fmtVolume(detail.volumen_estimado_m3)} />
-          <KV label="Detecciones" value={String(detail.num_detecciones ?? 0)} />
+          <KvRow label="Tipo de residuo" value={TIPO_LABEL[detail.tipo_residuo_supervisor ?? detail.tipo_residuo ?? ""] ?? "—"} />
+          <KvRow label="Nivel acumulación" value={NIVEL_LABEL[detail.nivel_acumulacion_supervisor ?? detail.nivel_acumulacion ?? ""] ?? "—"} />
+          <KvRow label="Confianza IA" value={fmtPercent(detail.confianza_decision ?? detail.confianza)} />
+          <KvRow label="Volumen estimado" value={fmtVolume(detail.volumen_estimado_m3)} />
+          <KvRow label="Detecciones" value={String(detail.num_detecciones ?? 0)} />
         </div>
 
         {detail.nota_supervision && (
@@ -97,7 +97,7 @@ export default function IncidentReviewedView({
   )
 }
 
-function KV({ label, value }: { label: string; value: string }) {
+function KvRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-white p-2">
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>

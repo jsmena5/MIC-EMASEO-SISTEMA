@@ -79,7 +79,7 @@ export default function ReviewModal({
   }
 
   return (
-    <div role="presentation" className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+    <div aria-hidden="true" className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
       <div
         ref={dialogRef}
         className="relative flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"

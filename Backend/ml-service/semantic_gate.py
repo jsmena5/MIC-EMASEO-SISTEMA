@@ -422,7 +422,6 @@ def verify_is_garbage(image) -> dict:
             probs = logits.softmax(dim=-1)
 
         pos_probs = probs[:n_positive]
-        neg_probs = probs[n_positive:]
 
         garbage_prob = float(pos_probs.sum().item())
         top_idx      = int(probs.argmax().item())

@@ -14,7 +14,6 @@ import {
 import BackButton from "../components/BackButton"
 import LinkButton from "../components/LinkButton"
 import ProgressBar from "../components/ProgressBar"
-import { useAuth } from "../contexts/AuthContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { setPassword } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -24,7 +23,6 @@ type Props = NativeStackScreenProps<RootStackParamList, "SetPassword">
 
 export default function SetPasswordScreen({ navigation, route }: Props) {
   const { email } = route.params
-  useAuth()
 
   const [password, setPasswordValue]   = useState("")
   const [confirm, setConfirm]          = useState("")

@@ -71,20 +71,10 @@ export const refreshStoredSession = async () => {
     return null;
   }
 
-  if (!refreshPromise) {
-    refreshPromise = refreshRequest(refreshToken)
-      .then((tokens) => {
-        storeAuthTokens(tokens);
-        return tokens;
-      })
-      .catch(() => {
-        clearAuthTokens();
-        return null;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
-  }
+  refreshPromise ??= refreshRequest(refreshToken)
+    .then((tokens) => { storeAuthTokens(tokens); return tokens; })
+    .catch(() => { clearAuthTokens(); return null; })
+    .finally(() => { refreshPromise = null; });
 
   return refreshPromise;
 };

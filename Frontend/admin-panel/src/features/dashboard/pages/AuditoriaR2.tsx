@@ -31,7 +31,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   }, [onClose])
 
   return (
-    <div role="presentation" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
+    <div aria-hidden="true" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
       onClick={onClose}>
       <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-white text-xl hover:bg-white/30"
         onClick={onClose}>✕</button>

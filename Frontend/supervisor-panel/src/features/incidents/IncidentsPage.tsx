@@ -235,11 +235,11 @@ export default function IncidentsPage() {
                 >
                   <summary className="cursor-pointer font-bold text-slate-700">Contexto del reporte</summary>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <KV label="Ciudadano"    value={detail.ciudadano_nombre ?? "—"} />
-                    <KV label="Correo"       value={detail.ciudadano_email  ?? "—"} />
-                    <KV label="Zona"         value={detail.zona_nombre      ?? "Sin zona asignada"} />
+                    <KvRow label="Ciudadano"    value={detail.ciudadano_nombre ?? "—"} />
+                    <KvRow label="Correo"       value={detail.ciudadano_email  ?? "—"} />
+                    <KvRow label="Zona"         value={detail.zona_nombre      ?? "Sin zona asignada"} />
                     {detail.direccion && detail.direccion !== "Sin dirección" && (
-                      <KV label="Dirección"  value={detail.direccion} />
+                      <KvRow label="Dirección"  value={detail.direccion} />
                     )}
                     <div className="rounded-lg bg-white p-2 sm:col-span-2">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Coordenadas GPS</div>
@@ -270,12 +270,12 @@ export default function IncidentsPage() {
                 >
                   <summary className="cursor-pointer font-bold text-slate-700">Diagnóstico IA</summary>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <KV label="Confianza"    value={`${Math.round((detail.confianza_decision ?? detail.confianza ?? 0) * 100)}%`} />
-                    <KV label="Tipo residuo" value={detail.tipo_residuo ? ({ DOMESTICO:"Doméstico",ORGANICO:"Orgánico",RECICLABLE:"Reciclable",ESCOMBROS:"Escombros",PELIGROSO:"Peligroso",MIXTO:"Mixto",OTRO:"Otro" }[detail.tipo_residuo] ?? detail.tipo_residuo) : "—"} />
-                    <KV label="Acumulación"  value={detail.nivel_acumulacion ? ({ BAJO:"Bajo",MEDIO:"Medio",ALTO:"Alto",CRITICO:"Crítico" }[detail.nivel_acumulacion] ?? detail.nivel_acumulacion) : "—"} />
-                    <KV label="Volumen"      value={detail.volumen_estimado_m3 != null ? `${Number(detail.volumen_estimado_m3).toFixed(2)} m³ (ref.)` : "Sin dato"} />
-                    <KV label="Detecciones"  value={String(detail.num_detecciones ?? 0)} />
-                    <KV label="Tiempo IA"    value={detail.tiempo_inferencia_ms ? `${detail.tiempo_inferencia_ms} ms` : "—"} />
+                    <KvRow label="Confianza"    value={`${Math.round((detail.confianza_decision ?? detail.confianza ?? 0) * 100)}%`} />
+                    <KvRow label="Tipo residuo" value={detail.tipo_residuo ? ({ DOMESTICO:"Doméstico",ORGANICO:"Orgánico",RECICLABLE:"Reciclable",ESCOMBROS:"Escombros",PELIGROSO:"Peligroso",MIXTO:"Mixto",OTRO:"Otro" }[detail.tipo_residuo] ?? detail.tipo_residuo) : "—"} />
+                    <KvRow label="Acumulación"  value={detail.nivel_acumulacion ? ({ BAJO:"Bajo",MEDIO:"Medio",ALTO:"Alto",CRITICO:"Crítico" }[detail.nivel_acumulacion] ?? detail.nivel_acumulacion) : "—"} />
+                    <KvRow label="Volumen"      value={detail.volumen_estimado_m3 != null ? `${Number(detail.volumen_estimado_m3).toFixed(2)} m³ (ref.)` : "Sin dato"} />
+                    <KvRow label="Detecciones"  value={String(detail.num_detecciones ?? 0)} />
+                    <KvRow label="Tiempo IA"    value={detail.tiempo_inferencia_ms ? `${detail.tiempo_inferencia_ms} ms` : "—"} />
                   </div>
                 </details>
 
@@ -328,7 +328,7 @@ export default function IncidentsPage() {
   )
 }
 
-function KV({ label, value }: { label: string; value: string }) {
+function KvRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-white p-2">
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
