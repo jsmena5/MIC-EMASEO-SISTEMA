@@ -9,6 +9,24 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     assetsInclude: ['**/*.png'],
+    test: {
+      coverage: {
+        provider: 'v8',
+        reporter: ['lcov', 'text-summary'],
+        reportsDirectory: './coverage',
+        exclude: [
+          'src/features/dashboard/pages/**',
+          'src/features/incidents/**',
+          'src/features/auth/AuthGuard*',
+          'src/features/auth/AuthContext*',
+          'src/components/**',
+          '**/__tests__/**',
+          '**/*.test.*',
+          'src/main.tsx',
+          'src/App.tsx',
+        ],
+      },
+    },
     ...(proxyTarget && {
       server: {
         proxy: {

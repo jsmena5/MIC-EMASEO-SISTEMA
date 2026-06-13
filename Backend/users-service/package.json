@@ -25,6 +25,7 @@
     "pino": "^9.6.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.2",
     "nodemon": "^3.1.14",
