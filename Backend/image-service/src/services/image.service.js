@@ -372,68 +372,76 @@ async function tryFinalizeNegative(incidentId, pendingS3Key, mlResultLike, logEr
   }
 }
 
+// Pasos 1-3 del pipeline: health check ML, subida de la imagen a S3 y submit de la
+// tarea vía Circuit Breaker. Si algo falla, marca el incidente como FALLIDO y devuelve
+// null. En éxito devuelve { pendingS3Key, celeryTaskId }.
+async function prepareMlTask(incidentId, { buffer, image, client_coverage_ratio }, log, logError) {
+  // 1. Health check (3 s timeout)
+  log("Verificando salud del servicio ML...")
+  try {
+    await checkMlHealth()
+    log("✓ Health check OK")
+  } catch (err) {
+    await markIncidentAsFailed(incidentId, `health check: ${err.cause?.message ?? err.message}`, logError)
+    logError("✗ FALLIDO — Servicio ML no disponible")
+    return null
+  }
+
+  // 2. Upload imagen a S3 antes de invocar al ML. Permite que recoverCeleryTasks()
+  //    complete el incidente si el polling muere antes de que el worker termine.
+  log("Subiendo imagen a S3 (pending)...")
+  let pendingS3Key
+  try {
+    pendingS3Key = await uploadPendingImage(incidentId, buffer, logError)
+    log(`✓ Imagen subida: key=${pendingS3Key}`)
+  } catch (err) {
+    await markIncidentAsFailed(incidentId, `upload S3: ${err.message}`, logError)
+    logError(`✗ FALLIDO — Error al subir imagen: ${err.message}`)
+    return null
+  }
+
+  // 3. Submit de la tarea al ML vía Circuit Breaker (solo el POST, ~1-5 s)
+  log("Enviando tarea al servicio ML...")
+  try {
+    const dims = getImageDimensions(buffer)
+    const mlPayload = {
+      image_base64: image,
+      image_width:  dims?.width  ?? 0,
+      image_height: dims?.height ?? 0,
+    }
+    if (client_coverage_ratio !== undefined) {
+      mlPayload.client_coverage_ratio = client_coverage_ratio
+    }
+    const { task_id } = await mlBreaker.fire(mlPayload)
+
+    // Persistir task_id inmediatamente; si muere el proceso, recoverCeleryTasks
+    // puede re-asumir este incidente.
+    await pool.query(
+      `UPDATE incidents.incidents SET celery_task_id = $2 WHERE id = $1`,
+      [incidentId, task_id]
+    )
+    log(`✓ Tarea enviada — celery_task_id=${task_id}`)
+    return { pendingS3Key, celeryTaskId: task_id }
+  } catch (err) {
+    // Imagen ya en S3 → se conserva como auditoría (no se elimina)
+    const reason = err.code === ML_DEGRADED_CODE
+      ? `circuit breaker abierto: ${err.message}`
+      : `ML submit: ${err.message}`
+    await markIncidentAsFailed(incidentId, reason, logError, { s3Key: pendingS3Key })
+    logError(`✗ FALLIDO — ${reason}`)
+    return null
+  }
+}
+
 async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio }) {
   const log      = (msg) => console.log(`[image-service] [incident=${incidentId}] ${msg}`)
   const logError = (msg) => console.error(`[image-service] [incident=${incidentId}] ${msg}`)
 
   try {
-    // 1. Health check (3 s timeout)
-    log("Verificando salud del servicio ML...")
-    try {
-      await checkMlHealth()
-      log("✓ Health check OK")
-    } catch (err) {
-      await markIncidentAsFailed(incidentId, `health check: ${err.cause?.message ?? err.message}`, logError)
-      logError("✗ FALLIDO — Servicio ML no disponible")
-      return
-    }
-
-    // 2. Upload imagen a S3 antes de invocar al ML.
-    //    Esto permite que recoverCeleryTasks() complete el incidente si el polling
-    //    muere antes de que el worker termine la inferencia.
-    log("Subiendo imagen a S3 (pending)...")
-    let pendingS3Key
-    try {
-      pendingS3Key = await uploadPendingImage(incidentId, buffer, logError)
-      log(`✓ Imagen subida: key=${pendingS3Key}`)
-    } catch (err) {
-      await markIncidentAsFailed(incidentId, `upload S3: ${err.message}`, logError)
-      logError(`✗ FALLIDO — Error al subir imagen: ${err.message}`)
-      return
-    }
-
-    // 3. Submit de la tarea al ML vía Circuit Breaker (solo el POST, ~1-5 s)
-    log("Enviando tarea al servicio ML...")
-    let celeryTaskId
-    try {
-      const dims = getImageDimensions(buffer)
-      const mlPayload = {
-        image_base64: image,
-        image_width:  dims?.width  ?? 0,
-        image_height: dims?.height ?? 0,
-      }
-      if (client_coverage_ratio !== undefined) {
-        mlPayload.client_coverage_ratio = client_coverage_ratio
-      }
-      const { task_id } = await mlBreaker.fire(mlPayload)
-      celeryTaskId = task_id
-
-      // Persistir task_id inmediatamente; si muere el proceso, recoverCeleryTasks
-      // puede re-asumir este incidente.
-      await pool.query(
-        `UPDATE incidents.incidents SET celery_task_id = $2 WHERE id = $1`,
-        [incidentId, celeryTaskId]
-      )
-      log(`✓ Tarea enviada — celery_task_id=${celeryTaskId}`)
-    } catch (err) {
-      // Imagen ya en S3 → se conserva como auditoría (no se elimina)
-      const reason = err.code === ML_DEGRADED_CODE
-        ? `circuit breaker abierto: ${err.message}`
-        : `ML submit: ${err.message}`
-      await markIncidentAsFailed(incidentId, reason, logError, { s3Key: pendingS3Key })
-      logError(`✗ FALLIDO — ${reason}`)
-      return
-    }
+    // Pasos 1-3: health check + subida S3 + submit ML (marca FALLIDO y null si fallan)
+    const prep = await prepareMlTask(incidentId, { buffer, image, client_coverage_ratio }, log, logError)
+    if (!prep) return
+    const { pendingS3Key, celeryTaskId } = prep
 
     // 4. Polling del resultado fuera del CB (120 s de presupuesto)
     //    Un timeout aquí NO indica que el servicio esté degradado — solo que la

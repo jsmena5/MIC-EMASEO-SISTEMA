@@ -303,15 +303,33 @@ def _evaluate_quality_gates(img, detecciones, img_w, img_h, coverage_ratio, conf
         }, None
 
     # ── Gate 2: verificación semántica CLIP ──────────────────────────────────
+    rechazo_sem, sem = _semantic_gate(img, garbage_score, blur_score, num_detecciones, tiempo_ms, model_name)
+    if rechazo_sem is not None:
+        return rechazo_sem, None
+
+    return None, {
+        "garbage_score":     garbage_score,
+        "garbage_prob":      sem["garbage_prob"],
+        "semantic_top":      sem["semantic_top"],
+        "requiere_revision": sem["requiere_revision"],
+    }
+
+
+def _semantic_gate(img, garbage_score, blur_score, num_detecciones, tiempo_ms, model_name):
+    """Gate semántico CLIP: distingue basura real de falsos positivos (personas,
+    interiores, pantallas, vehículos). Devuelve (rechazo, señales_semánticas).
+
+    Política: garbage_prob < REJECT → DESCARTADO; REJECT ≤ prob < REVIEW → EN_REVISION
+    (needs_review); prob ≥ REVIEW → flujo normal.
+    """
     semantic = _verify_is_garbage(img)
     garbage_prob   = semantic["garbage_prob"]
     semantic_top   = semantic["top_label"]
-    semantic_error = semantic["error"]
 
-    if semantic_error:
+    if semantic["error"]:
         logger.warning(
             "[run_inference] CLIP falló (%s) — fail-open: marcando requiere_revision=True",
-            semantic_error,
+            semantic["error"],
         )
 
     if not semantic["is_garbage"] and not semantic["needs_review"]:
@@ -351,7 +369,6 @@ def _evaluate_quality_gates(img, detecciones, img_w, img_h, coverage_ratio, conf
         )
 
     return None, {
-        "garbage_score":     garbage_score,
         "garbage_prob":      garbage_prob,
         "semantic_top":      semantic_top,
         "requiere_revision": requiere_revision,

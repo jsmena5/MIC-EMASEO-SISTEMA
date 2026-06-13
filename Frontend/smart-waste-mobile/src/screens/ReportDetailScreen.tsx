@@ -53,6 +53,117 @@ function formatGeocodeResult(result: Location.LocationGeocodedAddress): string |
   return parts.length > 0 ? parts.join(", ") : null
 }
 
+// Tarjeta "Recibo de IA": estado, metadatos y metricas del análisis. Extraída para
+// mantener ReportDetailScreen por debajo del umbral de complejidad cognitiva.
+function AiReceiptCard({ incident }: { incident: Incident }) {
+  const cfg = ESTADO_CONFIG[incident.estado] ?? ESTADO_CONFIG.PENDIENTE
+  const nivelColor = incident.nivel_acumulacion
+    ? (NIVEL_COLOR[incident.nivel_acumulacion] ?? colors.gray400)
+    : colors.gray400
+
+  return (
+    <View style={styles.receiptCard}>
+      {/* Encabezado del recibo */}
+      <View style={styles.receiptHeader}>
+        <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+          <Ionicons name={cfg.icon} size={14} color={cfg.color} />
+          <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+        </View>
+        <Text style={styles.receiptDate}>{formatDate(incident.created_at)}</Text>
+      </View>
+
+      <View style={styles.divider} />
+
+      <MetaRow icon="calendar-outline" label="Fecha y hora" value={formatDateTime(incident.created_at)} />
+
+      {incident.nivel_acumulacion && (
+        <MetaRow
+          icon="layers-outline"
+          label="Nivel de acumulación"
+          value={incident.nivel_acumulacion}
+          valueColor={nivelColor}
+        />
+      )}
+
+      {incident.prioridad && incident.estado !== "PROCESANDO" && (
+        <MetaRow
+          icon="flag-outline"
+          label="Prioridad"
+          value={incident.prioridad}
+          valueColor={PRIORIDAD_COLOR[incident.prioridad]}
+        />
+      )}
+
+      {incident.tipo_residuo && (
+        <MetaRow icon="trash-outline" label="Tipo de residuo" value={incident.tipo_residuo} />
+      )}
+
+      {incident.volumen_estimado_m3 != null && (
+        <MetaRow
+          icon="cube-outline"
+          label="Volumen estimado"
+          value={`${incident.volumen_estimado_m3} m³`}
+        />
+      )}
+
+      {incident.zona_nombre ? (
+        <MetaRow icon="map-outline" label="Zona asignada" value={incident.zona_nombre} />
+      ) : null}
+
+      {incident.resuelto_at && incident.estado === "RESUELTA" ? (
+        <MetaRow
+          icon="checkmark-circle-outline"
+          label="Resuelto el"
+          value={formatDateTime(incident.resuelto_at)}
+        />
+      ) : null}
+
+      {incident.confianza != null && (
+        <MetaRow
+          icon="analytics-outline"
+          label="Confianza IA"
+          value={`${(incident.confianza * 100).toFixed(1)} %`}
+        />
+      )}
+
+      {incident.num_detecciones != null && (
+        <MetaRow
+          icon="eye-outline"
+          label="Detecciones"
+          value={String(incident.num_detecciones)}
+        />
+      )}
+
+      {incident.descripcion ? (
+        <>
+          <View style={styles.divider} />
+          <Text style={styles.descLabel}>Descripción</Text>
+          <Text style={styles.descText}>{incident.descripcion}</Text>
+        </>
+      ) : null}
+
+      {/* Motivo de rechazo — visible al ciudadano cuando el supervisor rechaza */}
+      {incident.estado === "RECHAZADA" && incident.motivo_rechazo ? (
+        <>
+          <View style={styles.divider} />
+          <View style={styles.rechazoCard}>
+            <Ionicons name="information-circle-outline" size={18} color="#B45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rechazoTitle}>Motivo del rechazo</Text>
+              <Text style={styles.rechazoText}>
+                {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo as MotivoRechazo]}
+              </Text>
+              {incident.observaciones_rechazo ? (
+                <Text style={styles.rechazoObs}>{`"${incident.observaciones_rechazo}"`}</Text>
+              ) : null}
+            </View>
+          </View>
+        </>
+      ) : null}
+    </View>
+  )
+}
+
 export default function ReportDetailScreen({ route, navigation }: Props) {
   const [incident, setIncident] = useState<Incident>(route.params.incident)
 
@@ -80,11 +191,6 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
       })
       .catch(() => {})
   }, [lat, lon, hasCoords])
-
-  const cfg = ESTADO_CONFIG[incident.estado] ?? ESTADO_CONFIG.PENDIENTE
-  const nivelColor = incident.nivel_acumulacion
-    ? (NIVEL_COLOR[incident.nivel_acumulacion] ?? colors.gray400)
-    : colors.gray400
 
   return (
     <View style={styles.root}>
@@ -170,105 +276,7 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
         )}
 
         {/* ── Recibo de IA ───────────────────────────────────────────── */}
-        <View style={styles.receiptCard}>
-          {/* Encabezado del recibo */}
-          <View style={styles.receiptHeader}>
-            <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-              <Ionicons name={cfg.icon} size={14} color={cfg.color} />
-              <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
-            </View>
-            <Text style={styles.receiptDate}>{formatDate(incident.created_at)}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <MetaRow icon="calendar-outline" label="Fecha y hora" value={formatDateTime(incident.created_at)} />
-
-          {incident.nivel_acumulacion && (
-            <MetaRow
-              icon="layers-outline"
-              label="Nivel de acumulación"
-              value={incident.nivel_acumulacion}
-              valueColor={nivelColor}
-            />
-          )}
-
-          {incident.prioridad && incident.estado !== "PROCESANDO" && (
-            <MetaRow
-              icon="flag-outline"
-              label="Prioridad"
-              value={incident.prioridad}
-              valueColor={PRIORIDAD_COLOR[incident.prioridad]}
-            />
-          )}
-
-          {incident.tipo_residuo && (
-            <MetaRow icon="trash-outline" label="Tipo de residuo" value={incident.tipo_residuo} />
-          )}
-
-          {incident.volumen_estimado_m3 != null && (
-            <MetaRow
-              icon="cube-outline"
-              label="Volumen estimado"
-              value={`${incident.volumen_estimado_m3} m³`}
-            />
-          )}
-
-          {incident.zona_nombre ? (
-            <MetaRow icon="map-outline" label="Zona asignada" value={incident.zona_nombre} />
-          ) : null}
-
-          {incident.resuelto_at && incident.estado === "RESUELTA" ? (
-            <MetaRow
-              icon="checkmark-circle-outline"
-              label="Resuelto el"
-              value={formatDateTime(incident.resuelto_at)}
-            />
-          ) : null}
-
-          {incident.confianza != null && (
-            <MetaRow
-              icon="analytics-outline"
-              label="Confianza IA"
-              value={`${(incident.confianza * 100).toFixed(1)} %`}
-            />
-          )}
-
-          {incident.num_detecciones != null && (
-            <MetaRow
-              icon="eye-outline"
-              label="Detecciones"
-              value={String(incident.num_detecciones)}
-            />
-          )}
-
-          {incident.descripcion ? (
-            <>
-              <View style={styles.divider} />
-              <Text style={styles.descLabel}>Descripción</Text>
-              <Text style={styles.descText}>{incident.descripcion}</Text>
-            </>
-          ) : null}
-
-          {/* Motivo de rechazo — visible al ciudadano cuando el supervisor rechaza */}
-          {incident.estado === "RECHAZADA" && incident.motivo_rechazo ? (
-            <>
-              <View style={styles.divider} />
-              <View style={styles.rechazoCard}>
-                <Ionicons name="information-circle-outline" size={18} color="#B45309" />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rechazoTitle}>Motivo del rechazo</Text>
-                  <Text style={styles.rechazoText}>
-                    {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo as MotivoRechazo]}
-                  </Text>
-                  {incident.observaciones_rechazo ? (
-                    <Text style={styles.rechazoObs}>{`"${incident.observaciones_rechazo}"`}</Text>
-                  ) : null}
-                </View>
-              </View>
-            </>
-          ) : null}
-        </View>
+        <AiReceiptCard incident={incident} />
 
       </ScrollView>
     </View>

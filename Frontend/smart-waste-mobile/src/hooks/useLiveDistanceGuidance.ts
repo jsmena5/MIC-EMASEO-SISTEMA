@@ -80,7 +80,7 @@ function sampleFrameRegion(
         LR = (77 * pixels[idxR] + 150 * pixels[idxR + 1] + 29 * pixels[idxR + 2]) >> 8
         LB = (77 * pixels[idxB] + 150 * pixels[idxB + 1] + 29 * pixels[idxB + 2]) >> 8
       }
-      const grad = (L - LR < 0 ? LR - L : L - LR) + (L - LB < 0 ? LB - L : L - LB)
+      const grad = Math.abs(L - LR) + Math.abs(L - LB)
       if (grad > EDGE_GRAD_THRESHOLD) edgeCount++
       lumaSum += L
       totalSampled++

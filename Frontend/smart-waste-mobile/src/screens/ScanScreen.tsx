@@ -84,6 +84,42 @@ function pollRetryMessage(isRateLimited: boolean, isNetworkError: boolean, attem
 // Pantalla de revisión de la foto capturada (estado de ubicación, botón de análisis,
 // cancelar/retomar y overlay de análisis). Extraída de ScanScreen para bajar su
 // complejidad cognitiva; toda la lógica vive en el componente padre vía callbacks.
+// Vista de la cámara con banner de reportes pendientes. Extraída de ScanScreen para
+// reducir su complejidad cognitiva.
+function CameraView({
+  phase, pendingCount, onPictureTaken, onCoverageUpdate, onBack,
+}: {
+  phase: AnalysisPhase
+  pendingCount: number
+  onPictureTaken: (b: string, u: string, w: number, h: number) => void
+  onCoverageUpdate: (_: unknown, cov: number) => void
+  onBack: () => void
+}) {
+  return (
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor="transparent"
+        translucent={Platform.OS === "android"}
+      />
+      <CameraCapture
+        key={phase === "idle" ? "active" : "locked"}
+        onPictureTaken={onPictureTaken}
+        onCoverageUpdate={onCoverageUpdate}
+        onBack={onBack}
+      />
+      {pendingCount > 0 && (
+        <View style={styles.pendingBanner}>
+          <Ionicons name="cloud-offline-outline" size={16} color="#fff" />
+          <Text style={styles.pendingBannerText}>
+            {pendingCount} reporte{pendingCount > 1 ? "s" : ""} pendiente{pendingCount > 1 ? "s" : ""} por enviar
+          </Text>
+        </View>
+      )}
+    </View>
+  )
+}
+
 function PhotoReviewScreen({
   capturedUri, phase, hasLocation, isLocationLoading, isCropping, locError,
   uploadProgress, pollProgress, isSlowMessage, hasActiveTask,
@@ -994,27 +1030,13 @@ export default function ScanScreen() {
   // ── Camera view (delegated to CameraCapture) ──────────────────────────────
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#000" }}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="transparent"
-        translucent={Platform.OS === "android"}
-      />
-      <CameraCapture
-        key={phase === "idle" ? "active" : "locked"}
-        onPictureTaken={handlePictureTaken}
-        onCoverageUpdate={(_, cov) => setLiveCoverage(cov)}
-        onBack={() => navigation.goBack()}
-      />
-      {pendingCount > 0 && (
-        <View style={styles.pendingBanner}>
-          <Ionicons name="cloud-offline-outline" size={16} color="#fff" />
-          <Text style={styles.pendingBannerText}>
-            {pendingCount} reporte{pendingCount > 1 ? "s" : ""} pendiente{pendingCount > 1 ? "s" : ""} por enviar
-          </Text>
-        </View>
-      )}
-    </View>
+    <CameraView
+      phase={phase}
+      pendingCount={pendingCount}
+      onPictureTaken={handlePictureTaken}
+      onCoverageUpdate={(_, cov) => setLiveCoverage(cov)}
+      onBack={() => navigation.goBack()}
+    />
   )
 }
 

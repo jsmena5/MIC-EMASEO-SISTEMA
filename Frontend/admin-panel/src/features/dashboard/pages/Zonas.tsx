@@ -148,6 +148,29 @@ function extractPolygonFeatures(json: FeatureCollection | Feature): Feature<Poly
   return []
 }
 
+// Lee un archivo GeoJSON y resuelve con sus Features Polygon/MultiPolygon, o rechaza
+// con un mensaje legible. Centraliza el FileReader + parsing fuera del componente.
+function parseGeoJsonFile(file: File): Promise<Feature<Polygon | MultiPolygon>[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(reader.result as string) as FeatureCollection | Feature
+        const features = extractPolygonFeatures(json)
+        if (features.length === 0) {
+          reject(new Error("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)"))
+          return
+        }
+        resolve(features)
+      } catch {
+        reject(new Error("El archivo no es un JSON válido"))
+      }
+    }
+    reader.onerror = () => reject(new Error("Error al leer el archivo"))
+    reader.readAsText(file)
+  })
+}
+
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [importing, setImporting] = useState(false)
   const [error, setError]         = useState("")
@@ -160,22 +183,9 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
     const file = e.target.files?.[0]
     if (!file) return
     setError(""); setPreview(null); setFileName(file.name)
-    try {
-      const reader = new FileReader()
-      reader.onload = () => {
-        try {
-          const json = JSON.parse(reader.result as string) as FeatureCollection | Feature
-          const features = extractPolygonFeatures(json)
-          if (features.length === 0) { setError("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)"); return }
-          setPreview(features)
-        } catch {
-          setError("El archivo no es un JSON válido")
-        }
-      }
-      reader.readAsText(file)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al leer el archivo")
-    }
+    parseGeoJsonFile(file)
+      .then(setPreview)
+      .catch((err) => setError(err instanceof Error ? err.message : "Error al leer el archivo"))
   }
 
   const handleImport = async () => {
