@@ -17,7 +17,7 @@
  *
  *  ③ [React — primer render]
  *     AppNavigator renderiza este componente mientras isLoading === true.
- *     useEffect() ejecuta InteractionManager.runAfterInteractions(() => hideAsync())
+ *     useEffect() ejecuta setTimeout(0, () => hideAsync())
  *     para esperar a que React haya pintado el frame ANTES de soltar el splash
  *     nativo.  Ambas pantallas tienen fondo #001828 → transición imperceptible.
  *
@@ -30,7 +30,7 @@
  */
 import * as ExpoSplashScreen from "expo-splash-screen"
 import React, { useEffect } from "react"
-import { Dimensions, InteractionManager, StyleSheet, Text, View } from "react-native"
+import { Dimensions, StyleSheet, Text, View } from "react-native"
 import Animated, {
   Easing,
   FadeIn,
@@ -68,7 +68,7 @@ export default function SplashScreen({ onFinish: _onFinish }: Readonly<Props>) {
   useEffect(() => {
     /**
      * ── Ocultar el splash nativo ──────────────────────────────────────────
-     * Usamos InteractionManager.runAfterInteractions en lugar de llamar
+     * Usamos setTimeout(0) en lugar de llamar
      * hideAsync() directamente para asegurar que React haya pintado el
      * primer frame ANTES de retirar el splash nativo.
      *
@@ -82,11 +82,11 @@ export default function SplashScreen({ onFinish: _onFinish }: Readonly<Props>) {
      *
      * Ambas superficies tienen el mismo fondo → la transición es invisible.
      */
-    const hideTask = InteractionManager.runAfterInteractions(() => {
+    const hideTimer = setTimeout(() => {
       ExpoSplashScreen.hideAsync().catch(() => {
         // Ignorar: puede que ya estuviera oculto (recargas con Fast Refresh)
       })
-    })
+    }, 0)
 
     // ── Animación del logo ─────────────────────────────────────────────────
     logoScale.value = withSpring(1, { damping: 11, stiffness: 90 })
@@ -125,9 +125,7 @@ export default function SplashScreen({ onFinish: _onFinish }: Readonly<Props>) {
     pulse(r2Scale, r2Opacity, 1050, 0.35)
     pulse(r3Scale, r3Opacity, 1400, 0.2)
 
-    // Cancelar la tarea pendiente si el componente se desmonta antes de
-    // que InteractionManager dispare (p.ej. Fast Refresh en desarrollo).
-    return () => hideTask.cancel()
+    return () => clearTimeout(hideTimer)
   }, [])
 
   const logoStyle = useAnimatedStyle(() => ({

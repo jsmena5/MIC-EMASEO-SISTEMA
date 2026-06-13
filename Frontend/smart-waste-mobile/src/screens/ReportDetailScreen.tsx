@@ -18,7 +18,7 @@ import { Incident, getMyIncidentById } from "../services/image.service"
 import { ESTADO_CONFIG, NIVEL_COLOR, formatDate } from "./HistorialScreen"
 import { colors } from "../theme/colors"
 import { toPublicMediaUrl } from "../utils/mediaUrl"
-import { MOTIVO_RECHAZO_LABEL, type MotivoRechazo } from "../types/incident"
+import { MOTIVO_RECHAZO_LABEL } from "../types/incident"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ReportDetail">
 

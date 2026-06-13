@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   type ListRenderItem,
+  type ListRenderItemInfo,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
@@ -424,7 +425,7 @@ export default function HistorialScreen({ navigation }: Props) {
   const filteredCount = filteredData.length
 
   // ── Render de cada item ──────────────────────────────────────────────────
-  function renderItem({ item, index }: { item: ListItem; index: number }) {
+  function renderItem({ item, index }: ListRenderItemInfo<ListItem>) {
     if (item.kind === "pending") {
       return (
         <PendingCard

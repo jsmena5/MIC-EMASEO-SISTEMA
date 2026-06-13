@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage"
 import { Ionicons } from "@expo/vector-icons"
 import { useNavigation } from "@react-navigation/native"
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack"
-import * as ImageManipulator from "expo-image-manipulator"
+import { ImageManipulator, SaveFormat as IMSaveFormat } from "expo-image-manipulator"
 import * as Location from "expo-location"
 import React, { useEffect, useRef, useState } from "react"
 import {
@@ -674,11 +674,10 @@ export default function ScanScreen() {
     if (sourceUri) {
       let thumbB64: string | null = null
       try {
-        const thumb = await ImageManipulator.manipulateAsync(
-          sourceUri,
-          [{ resize: { width: 320 } }],
-          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true },
-        )
+        const thumbCtx = ImageManipulator.manipulate(sourceUri)
+        thumbCtx.resize({ width: 320 })
+        const thumbRef = await thumbCtx.renderAsync()
+        const thumb = await thumbRef.saveAsync({ compress: 0.7, format: IMSaveFormat.JPEG, base64: true })
         thumbB64 = thumb.base64 ?? null
       } catch {
         thumbB64 = null

@@ -43,7 +43,7 @@
  * actualiza las tres constantes.
  */
 
-import * as ImageManipulator from "expo-image-manipulator"
+import { ImageManipulator, SaveFormat as IMSaveFormat } from "expo-image-manipulator"
 import { Dimensions } from "react-native"
 
 const { width: SW, height: SH } = Dimensions.get("window")
@@ -104,14 +104,14 @@ export async function cropToScanFrame(
   const cropH = Math.min(Math.round(rawCropS), photoHeight - cropY)
 
   // Paso 6: recortar y comprimir
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ crop: { originX: cropX, originY: cropY, width: cropW, height: cropH } }],
-    {
-      compress: 0.85,
-      format:   ImageManipulator.SaveFormat.JPEG,
-      base64:   true,
-    },
+  const cropCtx = ImageManipulator.manipulate(uri)
+  cropCtx.crop({ originX: cropX, originY: cropY, width: cropW, height: cropH })
+  const cropRef = await cropCtx.renderAsync()
+  const result = await cropRef.saveAsync({
+    compress: 0.85,
+    format:   IMSaveFormat.JPEG,
+    base64:   true,
+  }
   )
 
   return { uri: result.uri, base64: result.base64! }
