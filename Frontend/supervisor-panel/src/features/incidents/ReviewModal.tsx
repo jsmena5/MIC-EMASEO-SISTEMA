@@ -79,11 +79,10 @@ export default function ReviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
+    <div aria-hidden="true" className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/60" onClick={(e) => { if (e.target === e.currentTarget) onClose() }} onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}>
       <div
         ref={dialogRef}
         className="relative flex w-full max-w-2xl max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* ── Header del modal ──────────────────────────────────── */}
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-6 py-4">
@@ -299,6 +298,7 @@ export default function ReviewModal({
       {/* Lightbox */}
       {lightboxOpen && imageUrl && (
         <div
+          aria-hidden="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"
           onClick={() => setLightboxOpen(false)}
           onKeyDown={(e) => { if (e.key === 'Escape') setLightboxOpen(false) }}

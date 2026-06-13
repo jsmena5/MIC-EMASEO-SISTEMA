@@ -240,7 +240,12 @@ export default function MapaZonas() {
         border: '1px solid #e2e8f0',
       }}>
         {(Object.keys(BASEMAPS) as BasemapKey[]).map(key => {
-          const btnBg = basemap !== key ? 'transparent' : key === 'oscuro' ? '#1e293b' : '#f97316'
+          let btnBg: string
+          if (basemap !== key) {
+            btnBg = 'transparent'
+          } else {
+            btnBg = key === 'oscuro' ? '#1e293b' : '#f97316'
+          }
           return (
             <button key={key} onClick={() => setBasemap(key)}
               style={{

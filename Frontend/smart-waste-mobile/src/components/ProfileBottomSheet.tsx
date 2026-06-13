@@ -370,8 +370,7 @@ function PerfilTabContent(p: {
       <InfoRow icon="mail-outline" iconBg="#F5F3FF" iconColor="#7C3AED"
         label="Correo electrónico" value={p.profile.email} />
 
-      {p.perfilCompleto && !p.editing ? (
-        /* Perfil completo — vista lectura con opción de rectificar (Art. 17 LOPDP) */
+      {p.perfilCompleto && !p.editing && (
         <>
           <InfoRow icon="call-outline" iconBg="#ECFDF5" iconColor="#059669"
             label="Teléfono" value={p.profile.telefono ?? "—"} />
@@ -384,8 +383,8 @@ function PerfilTabContent(p: {
             <Text style={styles.editBtnText}>Rectificar datos (LOPDP Art. 17)</Text>
           </TouchableOpacity>
         </>
-      ) : showForm ? (
-        /* Formulario de rectificación / completar perfil */
+      )}
+      {showForm && (
         <View style={styles.completeBox}>
           <View style={styles.completeBanner}>
             <Ionicons name="information-circle-outline" size={18} color="#B45309" />
@@ -468,7 +467,7 @@ function PerfilTabContent(p: {
             </TouchableOpacity>
           </View>
         </View>
-      ) : null}
+      )}
     </>
   )
 }

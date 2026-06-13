@@ -26,6 +26,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div
       ref={overlay}
+      aria-hidden="true"
       className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === overlay.current) onClose() }}
       onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}

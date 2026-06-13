@@ -80,6 +80,7 @@ export default function Step1Validate({
       {/* Lightbox */}
       {lightboxOpen && imageUrl && (
         <div
+          aria-hidden="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
           onClick={() => setLightboxOpen(false)}
           onKeyDown={(e) => { if (e.key === 'Escape') setLightboxOpen(false) }}
