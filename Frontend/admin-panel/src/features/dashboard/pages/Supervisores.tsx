@@ -311,7 +311,7 @@ function CiudadanosTab() {
     finally   { setLoading(false) }
   }, [searchActive, term, estadoFiltro, page])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { load().catch(() => { /* errores ya gestionados en load */ }) }, [load])
 
   const toggleEstado = async (c: Ciudadano) => {
     const nuevo = c.estado === "ACTIVO" ? "INACTIVO" : "ACTIVO"
@@ -369,7 +369,7 @@ function CiudadanosTab() {
       {error && (
         <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
-          <button onClick={() => void load()} className="text-xs font-bold underline">Reintentar</button>
+          <button onClick={() => { load().catch(() => { /* errores ya gestionados en load */ }) }} className="text-xs font-bold underline">Reintentar</button>
         </div>
       )}
 
@@ -545,7 +545,7 @@ export default function Supervisores() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { void load() }, [])
+  useEffect(() => { load().catch(() => { /* errores ya gestionados en load */ }) }, [])
 
   const filtered = supervisores.filter((s) => {
     const q = search.toLowerCase()
@@ -613,7 +613,7 @@ export default function Supervisores() {
       {error && (
         <div className="flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
-          <button onClick={() => void load()} className="text-xs font-bold underline">Reintentar</button>
+          <button onClick={() => { load().catch(() => { /* errores ya gestionados en load */ }) }} className="text-xs font-bold underline">Reintentar</button>
         </div>
       )}
 

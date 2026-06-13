@@ -25,7 +25,10 @@ const keyByUserOrIp = (req /*, res */) => {
 // en Redis → el rate limiting es efectivo en despliegues multi-réplica/K8s.
 // Sin REDIS_URL el store cae a memoria local (comportamiento anterior).
 
-let makeStore = () => undefined // undefined → express-rate-limit usa memoria
+// El parámetro `_prefix` se ignora en la versión por memoria, pero se declara
+// para que la firma coincida con la variante Redis (abajo) y las 7 llamadas
+// makeStore("rl:…") no parezcan pasar un argumento de más a una función sin params.
+let makeStore = (_prefix) => undefined // undefined → express-rate-limit usa memoria
 
 if (process.env.REDIS_URL) {
   try {

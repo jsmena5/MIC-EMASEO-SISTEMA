@@ -135,7 +135,6 @@ export default function MapaZonas() {
 
   const onEachZona = useCallback((feature: GeoJSON.Feature, layer: L.Layer) => {
     const props = feature.properties as ZonaProperties
-    const color = ZONA_COLOR[props?.codigo ?? ''] ?? COLOR_FALLBACK
     layer.on({
       click: () => setZonaPanel(props),
       mouseover: (e: L.LeafletMouseEvent) => {
@@ -149,8 +148,6 @@ export default function MapaZonas() {
       permanent: false, direction: 'top', className: 'zona-tooltip',
       opacity: 1,
     })
-    // color usado en hover restore arriba
-    void color
   }, [])
 
   const incidentesFiltrados = useMemo<IncidenteMapa[]>(

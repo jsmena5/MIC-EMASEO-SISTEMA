@@ -614,8 +614,8 @@ def estimate_coverage_fast(img) -> float:
         cols = np.any(edges, axis=0)
         if not rows.any():
             return 0.0
-        rmin, rmax = np.where(rows)[0][[0, -1]]
-        cmin, cmax = np.where(cols)[0][[0, -1]]
+        rmin, rmax = np.nonzero(rows)[0][[0, -1]]
+        cmin, cmax = np.nonzero(cols)[0][[0, -1]]
         bbox_area = int(rmax - rmin + 1) * int(cmax - cmin + 1)
         total_area = gray.shape[0] * gray.shape[1]
         return round(float(bbox_area) / total_area, 4) if total_area > 0 else 0.0

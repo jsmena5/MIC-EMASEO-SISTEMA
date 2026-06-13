@@ -196,7 +196,7 @@ export default function AuditoriaR2() {
     }
   }, [etiqueta, iaCorrecta])
 
-  useEffect(() => { void load(1) }, [etiqueta, iaCorrecta, load])
+  useEffect(() => { load(1).catch(() => { /* errores ya gestionados en load */ }) }, [etiqueta, iaCorrecta, load])
 
   const handleLabel = useCallback((id: string, label: ImageAuditLabel) => {
     setImagenes((prev) => prev.map((img) => img.incident_id === id ? { ...img, etiqueta: label } : img))
@@ -282,7 +282,7 @@ export default function AuditoriaR2() {
             {etiqueta === "PENDIENTE" ? "¡Todo clasificado en esta página!" : "Sin imágenes con estos filtros"}
           </p>
           {etiqueta === "PENDIENTE" && pagination.pages > pagination.page && (
-            <button onClick={() => void load(pagination.page + 1)}
+            <button onClick={() => { load(pagination.page + 1).catch(() => { /* errores ya gestionados en load */ }) }}
               className="mt-1 rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E]">
               Ver siguiente página →
             </button>
@@ -300,7 +300,7 @@ export default function AuditoriaR2() {
       {pagination.pages > 1 && (
         <div className="flex items-center justify-center gap-3">
           <button disabled={pagination.page <= 1 || loading}
-            onClick={() => void load(pagination.page - 1)}
+            onClick={() => { load(pagination.page - 1).catch(() => { /* errores ya gestionados en load */ }) }}
             className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition">
             ← Anterior
           </button>
@@ -308,7 +308,7 @@ export default function AuditoriaR2() {
             {pagination.page} / {pagination.pages}
           </span>
           <button disabled={pagination.page >= pagination.pages || loading}
-            onClick={() => void load(pagination.page + 1)}
+            onClick={() => { load(pagination.page + 1).catch(() => { /* errores ya gestionados en load */ }) }}
             className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition">
             Siguiente →
           </button>

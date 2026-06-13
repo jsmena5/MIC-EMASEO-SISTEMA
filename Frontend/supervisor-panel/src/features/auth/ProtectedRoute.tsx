@@ -20,7 +20,7 @@ export default function ProtectedRoute() {
     let cancelled = false;
     const isCancelled = () => cancelled;
     const runValidation = () => {
-      void validateSession(isCancelled);
+      validateSession(isCancelled).catch(() => { /* errores ya gestionados en getAuthenticatedUser */ });
     };
 
     const timeout = window.setTimeout(runValidation, 0);

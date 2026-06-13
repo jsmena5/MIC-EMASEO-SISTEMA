@@ -16,7 +16,7 @@ export default function ProtectedRoute() {
   useEffect(() => {
     let cancelled = false
     const isCancelled = () => cancelled
-    const run = () => void validateSession(isCancelled)
+    const run = () => { validateSession(isCancelled).catch(() => { /* errores ya gestionados en getAuthenticatedUser */ }) }
 
     const timeout  = window.setTimeout(run, 0)
     const interval = window.setInterval(run, 60_000)

@@ -55,7 +55,7 @@ api.interceptors.response.use(
       originalRequest._retry ||
       originalRequest.url?.includes("/auth/")
     ) {
-      return Promise.reject(error)
+      throw error
     }
 
     // Encolar si ya hay un refresh en curso
@@ -97,7 +97,7 @@ api.interceptors.response.use(
       await deleteSecure("emaseo_refresh_token")
       notifyAuthSessionExpired()
 
-      return Promise.reject(refreshError)
+      throw refreshError
 
     } finally {
       isRefreshing = false
