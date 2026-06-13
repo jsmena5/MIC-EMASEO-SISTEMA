@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
+  type ListRenderItem,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
@@ -247,6 +248,106 @@ function PendingCard({ item, index, isSyncing, isConnected, onRetry }: PendingCa
   )
 }
 
+// Texto del contador de la lista según el filtro activo.
+function listCountLabel(
+  activeFilter: HistorialFilter,
+  incidents: Incident[],
+  pendingReports: PendingReport[],
+  filteredCount: number,
+): string {
+  if (activeFilter === "todos") {
+    const base = `${incidents.length} reporte${incidents.length !== 1 ? "s" : ""}`
+    return pendingReports.length > 0 ? `${base} · ${pendingReports.length} en cola` : base
+  }
+  return `${filteredCount} resultado${filteredCount !== 1 ? "s" : ""}`
+}
+
+// Lista combinada (online + cola offline) con cabecera y estados vacíos. Extraída
+// para mantener HistorialScreen por debajo del umbral de complejidad cognitiva.
+function HistorialList({
+  filteredData, renderItem, filteredCount, totalCount, incidents, pendingReports,
+  serverError, activeFilter, refreshing, onRefresh, onRetry, onResetFilter, onGoScan,
+}: {
+  filteredData: ListItem[]
+  renderItem: ListRenderItem<ListItem>
+  filteredCount: number
+  totalCount: number
+  incidents: Incident[]
+  pendingReports: PendingReport[]
+  serverError: string | null
+  activeFilter: HistorialFilter
+  refreshing: boolean
+  onRefresh: () => void
+  onRetry: () => void
+  onResetFilter: () => void
+  onGoScan: () => void
+}) {
+  return (
+    <FlatList
+      data={filteredData}
+      keyExtractor={(item) => item.key}
+      renderItem={renderItem}
+      contentContainerStyle={
+        filteredCount === 0 ? styles.emptyContainer : styles.listContent
+      }
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+      ListHeaderComponent={
+        <>
+          {serverError && totalCount > 0 && (
+            <View style={styles.inlineBanner}>
+              <Ionicons name="cloud-offline-outline" size={14} color={colors.warning} />
+              <Text style={styles.inlineBannerText}>
+                Sin acceso al servidor. Mostrando datos guardados localmente.
+              </Text>
+              <TouchableOpacity onPress={onRetry} style={styles.inlineRetryBtn}>
+                <Text style={styles.inlineRetryText}>Reintentar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {totalCount > 0 && (
+            <Text style={styles.listCount}>
+              {listCountLabel(activeFilter, incidents, pendingReports, filteredCount)}
+            </Text>
+          )}
+        </>
+      }
+      ListEmptyComponent={
+        totalCount === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="document-text-outline" size={60} color={colors.gray300} />
+            <Text style={styles.emptyTitle}>Sin reportes aun</Text>
+            <Text style={styles.emptySub}>
+              Aqui apareceran las incidencias que hayas reportado.
+            </Text>
+            <TouchableOpacity style={styles.emptyBtn} onPress={onGoScan} activeOpacity={0.88}>
+              <Ionicons name="camera-outline" size={18} color="#fff" />
+              <Text style={styles.emptyBtnText}>Hacer un reporte</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="filter-outline" size={48} color={colors.gray300} />
+            <Text style={styles.emptyTitle}>Sin resultados</Text>
+            <Text style={styles.emptySub}>No hay reportes con este filtro.</Text>
+            <TouchableOpacity style={styles.filterResetBtn} onPress={onResetFilter} activeOpacity={0.88}>
+              <Text style={styles.filterResetText}>Ver todos</Text>
+            </TouchableOpacity>
+          </View>
+        )
+      }
+    />
+  )
+}
+
 // ─── HistorialScreen ──────────────────────────────────────────────────────────
 
 export default function HistorialScreen({ navigation }: Props) {
@@ -409,80 +510,20 @@ export default function HistorialScreen({ navigation }: Props) {
         </View>
       ) : (
         // ── Lista combinada ───────────────────────────────────────────────
-        <FlatList
-          data={filteredData}
-          keyExtractor={(item) => item.key}
+        <HistorialList
+          filteredData={filteredData}
           renderItem={renderItem}
-          contentContainerStyle={
-            filteredCount === 0 ? styles.emptyContainer : styles.listContent
-          }
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => fetchAll(true)}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-          ListHeaderComponent={
-            <>
-              {/* Banner inline de error del servidor (cuando sí hay datos offline) */}
-              {serverError && totalCount > 0 && (
-                <View style={styles.inlineBanner}>
-                  <Ionicons name="cloud-offline-outline" size={14} color={colors.warning} />
-                  <Text style={styles.inlineBannerText}>
-                    Sin acceso al servidor. Mostrando datos guardados localmente.
-                  </Text>
-                  <TouchableOpacity onPress={() => fetchAll()} style={styles.inlineRetryBtn}>
-                    <Text style={styles.inlineRetryText}>Reintentar</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Contador */}
-              {totalCount > 0 && (
-                <Text style={styles.listCount}>
-                  {activeFilter === "todos"
-                    ? `${incidents.length} reporte${incidents.length !== 1 ? "s" : ""}${pendingReports.length > 0 ? ` · ${pendingReports.length} en cola` : ""}`
-                    : `${filteredCount} resultado${filteredCount !== 1 ? "s" : ""}`
-                  }
-                </Text>
-              )}
-            </>
-          }
-          ListEmptyComponent={
-            totalCount === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons name="document-text-outline" size={60} color={colors.gray300} />
-                <Text style={styles.emptyTitle}>Sin reportes aun</Text>
-                <Text style={styles.emptySub}>
-                  Aqui apareceran las incidencias que hayas reportado.
-                </Text>
-                <TouchableOpacity
-                  style={styles.emptyBtn}
-                  onPress={() => navigation.navigate("Scan")}
-                  activeOpacity={0.88}
-                >
-                  <Ionicons name="camera-outline" size={18} color="#fff" />
-                  <Text style={styles.emptyBtnText}>Hacer un reporte</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="filter-outline" size={48} color={colors.gray300} />
-                <Text style={styles.emptyTitle}>Sin resultados</Text>
-                <Text style={styles.emptySub}>No hay reportes con este filtro.</Text>
-                <TouchableOpacity
-                  style={styles.filterResetBtn}
-                  onPress={() => setActiveFilter("todos")}
-                  activeOpacity={0.88}
-                >
-                  <Text style={styles.filterResetText}>Ver todos</Text>
-                </TouchableOpacity>
-              </View>
-            )
-          }
+          filteredCount={filteredCount}
+          totalCount={totalCount}
+          incidents={incidents}
+          pendingReports={pendingReports}
+          serverError={serverError}
+          activeFilter={activeFilter}
+          refreshing={refreshing}
+          onRefresh={() => fetchAll(true)}
+          onRetry={() => fetchAll()}
+          onResetFilter={() => setActiveFilter("todos")}
+          onGoScan={() => navigation.navigate("Scan")}
         />
       )}
     </View>

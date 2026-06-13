@@ -10,6 +10,8 @@ import {
   Text,
   TouchableOpacity,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native"
 import Animated, {
   ZoomIn,
@@ -52,6 +54,37 @@ const HINT_COLOR: Record<DistanceHint, string> = {
   TOO_CLOSE: "#FF5252",
   OPTIMAL:   colors.secondary,
   TOO_FAR:   "#FFA726",
+}
+
+// Mensaje y color de feedback principal (prioriza: cuenta atrás → sin guía →
+// distancia → iluminación → listo). Función pura, testeable.
+function computeStatusFeedback(
+  countdown: number | null,
+  guidanceLive: boolean,
+  hint: DistanceHint,
+  lighting: LightingHint,
+): { msg: string; color: string } {
+  if (countdown != null)         return { msg: "Capturando…", color: READY_COLOR }
+  if (!guidanceLive)             return { msg: "Posiciónate frente a la basura", color: "#fff" }
+  if (hint === "TOO_FAR")        return { msg: "Acércate a la basura", color: WARN_COLOR }
+  if (hint === "TOO_CLOSE")      return { msg: "Aléjate un poco", color: NEAR_COLOR }
+  if (lighting === "TOO_DARK")   return { msg: "Necesitas más luz", color: WARN_COLOR }
+  if (lighting === "TOO_BRIGHT") return { msg: "Demasiado brillo o reflejo", color: WARN_COLOR }
+  return { msg: "¡Perfecto! Mantén la posición", color: READY_COLOR }
+}
+
+// Decide qué hacer ante un error de la cámara. Si el fallo es del frame processor
+// (worklets no disponibles), se desactiva la guía en vivo sin matar la cámara.
+function cameraErrorAction(
+  e: { code?: string; message?: string },
+  fpEnabled: boolean,
+): { debug: string; disableFp: boolean; fatal: string | null } {
+  const debug = `onError: ${e.code ?? ""} ${e.message ?? ""}`.trim()
+  const msg = `${e.code ?? ""} ${e.message ?? ""}`.toLowerCase()
+  if (fpEnabled && (msg.includes("frame") || msg.includes("worklet"))) {
+    return { debug, disableFp: true, fatal: null }
+  }
+  return { debug, disableFp: false, fatal: e.message ?? null }
 }
 
 // ─── Public component ────────────────────────────────────────────────────────
@@ -210,31 +243,9 @@ export default function CameraCapture({
 
   const hintColor = HINT_COLOR[hint]
 
-  // Mensaje y color de feedback principal (prioriza: distancia → luz → listo).
-  let statusMsg: string
-  let statusColor: string
-  if (countdown != null) {
-    statusMsg = "Capturando…"
-    statusColor = READY_COLOR
-  } else if (!guidanceLive) {
-    statusMsg = "Posiciónate frente a la basura"
-    statusColor = "#fff"
-  } else if (hint === "TOO_FAR") {
-    statusMsg = "Acércate a la basura"
-    statusColor = WARN_COLOR
-  } else if (hint === "TOO_CLOSE") {
-    statusMsg = "Aléjate un poco"
-    statusColor = NEAR_COLOR
-  } else if (lighting === "TOO_DARK") {
-    statusMsg = "Necesitas más luz"
-    statusColor = WARN_COLOR
-  } else if (lighting === "TOO_BRIGHT") {
-    statusMsg = "Demasiado brillo o reflejo"
-    statusColor = WARN_COLOR
-  } else {
-    statusMsg = "¡Perfecto! Mantén la posición"
-    statusColor = READY_COLOR
-  }
+  const { msg: statusMsg, color: statusColor } = computeStatusFeedback(
+    countdown, guidanceLive, hint, lighting,
+  )
 
   if (!hasPermission) {
     return (
@@ -284,17 +295,12 @@ export default function CameraCapture({
         pixelFormat="yuv"
         frameProcessor={fpEnabled ? frameProcessor : undefined}
         onError={(e) => {
-          // Diagnóstico: guardamos el mensaje para mostrarlo en pantalla.
-          setDebugMsg(`onError: ${e.code ?? ""} ${e.message ?? ""}`.trim())
           // Si el fallo es del frame processor (worklets no disponibles), NO
-          // matamos la cámara: la desactivamos y re-renderizamos sin guía en
-          // vivo para que el usuario igual pueda capturar.
-          const msg = `${e.code ?? ""} ${e.message ?? ""}`.toLowerCase()
-          if (fpEnabled && (msg.includes("frame") || msg.includes("worklet"))) {
-            setFpEnabled(false)
-          } else {
-            setCameraError(e.message)
-          }
+          // matamos la cámara: la desactivamos y seguimos sin guía en vivo.
+          const action = cameraErrorAction(e, fpEnabled)
+          setDebugMsg(action.debug)
+          if (action.disableFp) setFpEnabled(false)
+          else setCameraError(action.fatal)
         }}
       />
 
@@ -340,70 +346,103 @@ export default function CameraCapture({
       )}
 
       {/* ── Bottom controls ── */}
-      <View style={styles.bottomControls}>
-        <View style={styles.instructionPill}>
-          <Text style={styles.instructionText}>Encuadra la basura en el marco</Text>
-        </View>
+      <CameraBottomControls
+        hint={hint}
+        lighting={lighting}
+        guidanceLive={guidanceLive}
+        fpEnabled={fpEnabled}
+        autoCaptureArmed={autoCaptureArmed}
+        hintColor={hintColor}
+        statusColor={statusColor}
+        statusMsg={statusMsg}
+        indicatorStyle={indicatorStyle}
+        capturing={capturing}
+        countdown={countdown}
+        onCapture={handleCapture}
+      />
+    </View>
+  )
+}
 
-        <View style={styles.hintRow}>
-          <CheckChip icon="resize-outline" label="Distancia"    ok={hint === "OPTIMAL"} active={guidanceLive} />
-          <CheckChip icon="sunny-outline"  label="Iluminación"  ok={lighting === "OK"}  active={guidanceLive} />
-        </View>
-
-        {/* ── Barra de distancia dinámica (solo si el sensor entrega datos) ── */}
-        {fpEnabled && guidanceLive ? (
-          <>
-            <View style={styles.distanceBar}>
-              <Text style={styles.distanceLabel}>CERCA</Text>
-              <View style={styles.distanceTrack}>
-                <Animated.View
-                  style={[
-                    styles.distanceIndicator,
-                    { backgroundColor: hintColor },
-                    indicatorStyle,
-                  ]}
-                />
-              </View>
-              <Text style={styles.distanceLabel}>LEJOS</Text>
-            </View>
-            <Text style={[styles.hintText, { color: statusColor }]}>{statusMsg}</Text>
-          </>
-        ) : (
-          <View style={styles.staticGuide}>
-            <Ionicons name="resize-outline" size={14} color="rgba(255,255,255,0.7)" />
-            <Text style={styles.staticGuideText}>
-              Mantén la cámara a 1–2 m de la basura
-            </Text>
-          </View>
-        )}
-
-        <Text style={styles.bottomHint}>
-          {autoCaptureArmed
-            ? "Se toma sola cuando el encuadre esté en verde, o tómala tú cuando quieras."
-            : "Centra la acumulación de basura en el marco y toma la foto"}
-        </Text>
-
-        {/* ── Botón de captura (siempre activo; el encuadre es solo guía) ── */}
-        <TouchableOpacity
-          style={[styles.shutterBtn, capturing && styles.shutterBtnDisabled]}
-          onPress={handleCapture}
-          disabled={capturing}
-          activeOpacity={0.8}
-        >
-          {capturing
-            ? <ActivityIndicator size="large" color="#fff" />
-            : <View style={styles.shutterInner} />
-          }
-        </TouchableOpacity>
-
-        <Text style={styles.shutterLabel}>
-          {capturing
-            ? "Capturando..."
-            : countdown != null
-              ? "Captura automática…"
-              : "Tomar foto"}
-        </Text>
+// ─── Controles inferiores (checklist, barra de distancia, obturador) ──────────
+// Extraído de CameraCapture para mantener el componente bajo el umbral de complejidad.
+function CameraBottomControls({
+  hint, lighting, guidanceLive, fpEnabled, autoCaptureArmed,
+  hintColor, statusColor, statusMsg, indicatorStyle, capturing, countdown, onCapture,
+}: {
+  hint: DistanceHint
+  lighting: LightingHint
+  guidanceLive: boolean
+  fpEnabled: boolean
+  autoCaptureArmed: boolean
+  hintColor: string
+  statusColor: string
+  statusMsg: string
+  indicatorStyle: StyleProp<ViewStyle>
+  capturing: boolean
+  countdown: number | null
+  onCapture: () => void
+}) {
+  return (
+    <View style={styles.bottomControls}>
+      <View style={styles.instructionPill}>
+        <Text style={styles.instructionText}>Encuadra la basura en el marco</Text>
       </View>
+
+      <View style={styles.hintRow}>
+        <CheckChip icon="resize-outline" label="Distancia"    ok={hint === "OPTIMAL"} active={guidanceLive} />
+        <CheckChip icon="sunny-outline"  label="Iluminación"  ok={lighting === "OK"}  active={guidanceLive} />
+      </View>
+
+      {/* ── Barra de distancia dinámica (solo si el sensor entrega datos) ── */}
+      {fpEnabled && guidanceLive ? (
+        <>
+          <View style={styles.distanceBar}>
+            <Text style={styles.distanceLabel}>CERCA</Text>
+            <View style={styles.distanceTrack}>
+              <Animated.View
+                style={[styles.distanceIndicator, { backgroundColor: hintColor }, indicatorStyle]}
+              />
+            </View>
+            <Text style={styles.distanceLabel}>LEJOS</Text>
+          </View>
+          <Text style={[styles.hintText, { color: statusColor }]}>{statusMsg}</Text>
+        </>
+      ) : (
+        <View style={styles.staticGuide}>
+          <Ionicons name="resize-outline" size={14} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.staticGuideText}>
+            Mantén la cámara a 1–2 m de la basura
+          </Text>
+        </View>
+      )}
+
+      <Text style={styles.bottomHint}>
+        {autoCaptureArmed
+          ? "Se toma sola cuando el encuadre esté en verde, o tómala tú cuando quieras."
+          : "Centra la acumulación de basura en el marco y toma la foto"}
+      </Text>
+
+      {/* ── Botón de captura (siempre activo; el encuadre es solo guía) ── */}
+      <TouchableOpacity
+        style={[styles.shutterBtn, capturing && styles.shutterBtnDisabled]}
+        onPress={onCapture}
+        disabled={capturing}
+        activeOpacity={0.8}
+      >
+        {capturing
+          ? <ActivityIndicator size="large" color="#fff" />
+          : <View style={styles.shutterInner} />
+        }
+      </TouchableOpacity>
+
+      <Text style={styles.shutterLabel}>
+        {capturing
+          ? "Capturando..."
+          : countdown != null
+            ? "Captura automática…"
+            : "Tomar foto"}
+      </Text>
     </View>
   )
 }

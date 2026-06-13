@@ -150,6 +150,86 @@ const ALERT_FILTERS: { key: AlertFilter; label: string }[] = [
   { key: "leidas",    label: "Leídas" },
 ]
 
+// Filtra las alertas según la pestaña activa.
+function filterAlerts(alerts: AppAlert[], filter: AlertFilter): AppAlert[] {
+  if (filter === "no_leidas") return alerts.filter((a) => !a.read)
+  if (filter === "leidas")    return alerts.filter((a) => a.read)
+  return alerts
+}
+
+// Etiqueta de sección según la pestaña activa.
+function sectionLabelFor(filter: AlertFilter): string {
+  if (filter === "no_leidas") return "Sin leer"
+  if (filter === "leidas")    return "Leídas"
+  return "Notificaciones recientes"
+}
+
+// Lista de alertas con sus estados de cabecera y vacío. Extraída para mantener
+// AlertsScreen por debajo del umbral de complejidad cognitiva.
+function AlertsList({
+  filteredAlerts, alerts, activeFilter, refreshing,
+  onRefresh, onMarkRead, onNavigate, onResetFilter,
+}: {
+  filteredAlerts: AppAlert[]
+  alerts: AppAlert[]
+  activeFilter: AlertFilter
+  refreshing: boolean
+  onRefresh: () => void
+  onMarkRead: (id: string) => void
+  onNavigate: (item: AppAlert) => void
+  onResetFilter: () => void
+}) {
+  return (
+    <FlatList
+      data={filteredAlerts}
+      keyExtractor={(item) => item.id}
+      contentContainerStyle={styles.listContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.warning]} />
+      }
+      ListHeaderComponent={
+        alerts.length > 0 ? (
+          <Animated.Text
+            entering={FadeInDown.delay(80).duration(350)}
+            style={styles.sectionLabel}
+          >
+            {sectionLabelFor(activeFilter)}
+          </Animated.Text>
+        ) : null
+      }
+      ListEmptyComponent={
+        alerts.length === 0 ? (
+          <View style={styles.empty}>
+            <Ionicons name="notifications-off-outline" size={52} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>Sin notificaciones</Text>
+            <Text style={styles.emptyText}>
+              Aquí aparecerán los cambios de estado de tus reportes.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.empty}>
+            <Ionicons name="filter-outline" size={48} color={colors.textTertiary} />
+            <Text style={styles.emptyTitle}>Sin resultados</Text>
+            <Text style={styles.emptyText}>No hay notificaciones con este filtro.</Text>
+            <TouchableOpacity style={styles.filterResetBtn} onPress={onResetFilter}>
+              <Text style={styles.filterResetText}>Ver todas</Text>
+            </TouchableOpacity>
+          </View>
+        )
+      }
+      renderItem={({ item, index }) => (
+        <AlertItem
+          item={item}
+          index={index}
+          onMarkRead={onMarkRead}
+          onNavigate={onNavigate}
+        />
+      )}
+    />
+  )
+}
+
 export default function AlertsScreen({ navigation }: Props) {
   const [alerts,       setAlerts]      = useState<AppAlert[]>([])
   const [loading,      setLoading]     = useState(true)
@@ -159,11 +239,7 @@ export default function AlertsScreen({ navigation }: Props) {
   const [activeFilter, setActiveFilter] = useState<AlertFilter>("todas")
 
   const unreadCount    = alerts.filter((a) => !a.read).length
-  const filteredAlerts = activeFilter === "no_leidas"
-    ? alerts.filter((a) => !a.read)
-    : activeFilter === "leidas"
-      ? alerts.filter((a) => a.read)
-      : alerts
+  const filteredAlerts = filterAlerts(alerts, activeFilter)
 
   const fetchNotifications = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
@@ -303,60 +379,15 @@ export default function AlertsScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
-          data={filteredAlerts}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => fetchNotifications(true)}
-              colors={[colors.warning]}
-            />
-          }
-          ListHeaderComponent={
-            alerts.length > 0 ? (
-              <Animated.Text
-                entering={FadeInDown.delay(80).duration(350)}
-                style={styles.sectionLabel}
-              >
-                {activeFilter === "todas"
-                  ? "Notificaciones recientes"
-                  : activeFilter === "no_leidas"
-                    ? "Sin leer"
-                    : "Leídas"}
-              </Animated.Text>
-            ) : null
-          }
-          ListEmptyComponent={
-            alerts.length === 0 ? (
-              <View style={styles.empty}>
-                <Ionicons name="notifications-off-outline" size={52} color={colors.textTertiary} />
-                <Text style={styles.emptyTitle}>Sin notificaciones</Text>
-                <Text style={styles.emptyText}>
-                  Aquí aparecerán los cambios de estado de tus reportes.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.empty}>
-                <Ionicons name="filter-outline" size={48} color={colors.textTertiary} />
-                <Text style={styles.emptyTitle}>Sin resultados</Text>
-                <Text style={styles.emptyText}>No hay notificaciones con este filtro.</Text>
-                <TouchableOpacity style={styles.filterResetBtn} onPress={() => setActiveFilter("todas")}>
-                  <Text style={styles.filterResetText}>Ver todas</Text>
-                </TouchableOpacity>
-              </View>
-            )
-          }
-          renderItem={({ item, index }) => (
-            <AlertItem
-              item={item}
-              index={index}
-              onMarkRead={markRead}
-              onNavigate={handleNavigate}
-            />
-          )}
+        <AlertsList
+          filteredAlerts={filteredAlerts}
+          alerts={alerts}
+          activeFilter={activeFilter}
+          refreshing={refreshing}
+          onRefresh={() => fetchNotifications(true)}
+          onMarkRead={markRead}
+          onNavigate={handleNavigate}
+          onResetFilter={() => setActiveFilter("todas")}
         />
       )}
     </View>
