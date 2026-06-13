@@ -42,7 +42,7 @@ export default function Settings() {
   const allReqsMet     = REQUIREMENTS.every(r => r.test(next.value))
   const canSubmit      = current.value !== "" && allReqsMet && passwordsMatch && !loading
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!canSubmit) return
 

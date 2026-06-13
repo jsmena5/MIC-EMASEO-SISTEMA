@@ -26,47 +26,13 @@ COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
-# pytest y directorios de datos en un solo RUN para reducir capas de imagen
-RUN pip install --no-cache-dir "pytest>=8.0.0" && \
-    mkdir -p /app/uploads /app/torch_cache /app/hf_cache
-
-# ── Pre-descarga MiDaS en build-time ──────────────────────────────────────────
-# Elimina la latencia de cold-start: el worker arranca con el modelo ya en caché.
-# El modelo MiDaS_small (~15 MB) queda en /app/torch_cache dentro de la imagen.
-# Falla silenciosamente si no hay red (build offline) → se descargará en runtime.
-RUN python - <<'EOF'
-import os, sys
-try:
-    import torch
-    torch.hub.load("intel-isl/MiDaS", "MiDaS_small", trust_repo=True, verbose=False)
-    torch.hub.load("intel-isl/MiDaS", "transforms",  trust_repo=True, verbose=False)
-    cache = os.environ.get("TORCH_HOME", "~/.cache/torch")
-    print(f"[build] MiDaS pre-descargado en {cache}", flush=True)
-except Exception as e:
-    print(f"[build] MiDaS offline ({e}) — se descargará en el primer uso", file=sys.stderr, flush=True)
-EOF
-
-# ── Pre-descarga CLIP (ViT-B/32) en build-time ────────────────────────────────
-# Gate semántico: distingue basura real de personas/interiores/pantallas.
-# Pesos ViT-B-32 + laion2b_s34b_b79k (~350 MB) quedan en /app/hf_cache.
-# Falla silenciosamente si no hay red (build offline) → se descargará en runtime.
-RUN python - <<'EOF'
-import os, sys
-try:
-    import open_clip
-    open_clip.create_model_and_transforms(
-        "ViT-B-32",
-        pretrained="laion2b_s34b_b79k",
-        cache_dir=os.environ.get("HF_HOME", "/app/hf_cache"),
-    )
-    print(f"[build] CLIP ViT-B-32 pre-descargado en {os.environ.get('HF_HOME', '/app/hf_cache')}", flush=True)
-except Exception as e:
-    print(f"[build] CLIP offline ({e}) — se descargará en el primer uso", file=sys.stderr, flush=True)
-EOF
-
-RUN groupadd --gid 1001 appgroup && \
-    useradd --uid 1001 --gid 1001 --no-create-home --shell /bin/false appuser && \
-    chown -R appuser:appgroup /app
+RUN pip install --no-cache-dir "pytest>=8.0.0" \
+    && mkdir -p /app/uploads /app/torch_cache /app/hf_cache \
+    && python scripts/warmup_midas.py \
+    && python scripts/warmup_clip.py \
+    && groupadd --gid 1001 appgroup \
+    && useradd --uid 1001 --gid 1001 --no-create-home --shell /bin/false appuser \
+    && chown -R appuser:appgroup /app
 
 USER appuser
 
