@@ -228,6 +228,165 @@ def handle_dead_letter(
             raise
 
 
+def _extract_detections(results, min_bbox_area: float) -> list[dict]:
+    """Filtra las detecciones del modelo: solo aliases válidos y bbox sobre el área mínima."""
+    detecciones: list[dict] = []
+    if not results:
+        return detecciones
+    boxes, names = results[0].boxes, results[0].names
+    if boxes is None or len(boxes) == 0:
+        return detecciones
+    for box in boxes:
+        class_name = names[int(box.cls[0])]
+        if class_name.lower() not in VALID_ALIASES:
+            continue
+        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+        if (x2 - x1) * (y2 - y1) < min_bbox_area:
+            continue
+        detecciones.append({
+            "class":      class_name,
+            "confidence": round(float(box.conf[0]), 4),
+            "bbox":       [x1, y1, x2, y2],
+        })
+    return detecciones
+
+
+def _evaluate_quality_gates(img, detecciones, img_w, img_h, coverage_ratio, confianza,
+                            num_detecciones, blur_score, tiempo_ms, model_name):
+    """Gates de calidad post-detección (cobertura mínima, garbage_score, CLIP semántico).
+
+    Devuelve (rechazo, señales): si 'rechazo' no es None, run_inference lo retorna tal cual.
+    Si es None, 'señales' trae garbage_score/garbage_prob/semantic_top/requiere_revision para
+    continuar con la clasificación de severidad.
+    """
+    # ── Gate 1: cobertura mínima global ──────────────────────────────────────
+    if MIN_COVERAGE_UNION > 0 and coverage_ratio < MIN_COVERAGE_UNION:
+        logger.info(
+            "[run_inference] Rechazo por coverage_ratio=%.4f < umbral=%.3f "
+            "(objeto demasiado pequeño/lejano) → has_waste=false",
+            coverage_ratio, MIN_COVERAGE_UNION,
+        )
+        return {
+            "success":              True,
+            "has_waste":            False,
+            "message":              "Detección demasiado pequeña — acércate al objeto",
+            "confianza":            0.45,  # < AUTO_REJECT_CONFIDENCE → EN_REVISION
+            "coverage_ratio":       coverage_ratio,
+            "num_detecciones":      num_detecciones,
+            "rechazo_motivo":       "coverage_below_floor",
+            "blur_score":           round(blur_score, 2) if blur_score is not None else None,
+            "tiempo_inferencia_ms": tiempo_ms,
+            "modelo_nombre":        model_name,
+        }, None
+
+    # ── Garbage score: probabilidad de textura de basura real ────────────────
+    garbage_score = _compute_garbage_score(img, detecciones, img_w, img_h)
+
+    # ── Paso 1b: rechazo duro por garbage_score crítico ──────────────────────
+    if garbage_score < GARBAGE_SCORE_HARD_FLOOR:
+        logger.info(
+            "[run_inference] Rechazo por garbage_score=%.3f < hard_floor=%.2f "
+            "(conf=%.2f, n_dets=%d) → has_waste=false",
+            garbage_score, GARBAGE_SCORE_HARD_FLOOR, confianza, num_detecciones,
+        )
+        return {
+            "success":              True,
+            "has_waste":            False,
+            "message":              "Imagen rechazada: sin señales de basura (textura/color/posición)",
+            "confianza":            confianza,
+            "garbage_score":        garbage_score,
+            "blur_score":           round(blur_score, 2) if blur_score is not None else None,
+            "num_detecciones":      num_detecciones,
+            "rechazo_motivo":       "garbage_score_below_hard_floor",
+            "tiempo_inferencia_ms": tiempo_ms,
+            "modelo_nombre":        model_name,
+        }, None
+
+    # ── Gate 2: verificación semántica CLIP ──────────────────────────────────
+    semantic = _verify_is_garbage(img)
+    garbage_prob   = semantic["garbage_prob"]
+    semantic_top   = semantic["top_label"]
+    semantic_error = semantic["error"]
+
+    if semantic_error:
+        logger.warning(
+            "[run_inference] CLIP falló (%s) — fail-open: marcando requiere_revision=True",
+            semantic_error,
+        )
+
+    if not semantic["is_garbage"] and not semantic["needs_review"]:
+        # Claramente NO es basura — confianza alta para que el backend lo DESCARTE
+        auto_reject_conf = float(os.environ.get("ML_AUTO_REJECT_CONFIDENCE", "0.70"))
+        reported_conf = round(max(auto_reject_conf, 1.0 - (garbage_prob or 0.0)), 4)
+        logger.info(
+            "[run_inference] CLIP rechaza: garbage_prob=%.3f < reject=%.2f "
+            "top='%s' → DESCARTADO (conf=%.3f)",
+            garbage_prob or 0.0, semantic["is_garbage"], semantic_top, reported_conf,
+        )
+        return {
+            "success":              True,
+            "has_waste":            False,
+            "message":              f"Imagen rechazada por verificación semántica: {semantic_top}",
+            "confianza":            reported_conf,
+            "garbage_prob":         garbage_prob,
+            "garbage_score":        garbage_score,
+            "blur_score":           round(blur_score, 2) if blur_score is not None else None,
+            "num_detecciones":      num_detecciones,
+            "rechazo_motivo":       "semantic_gate_not_garbage",
+            "semantic_top_label":   semantic_top,
+            "tiempo_inferencia_ms": tiempo_ms,
+            "modelo_nombre":        model_name,
+        }, None
+
+    # Ambigüedad semántica → marcar para revisión humana, pero continuar
+    requiere_revision = semantic["needs_review"]
+    if requiere_revision:
+        logger.info(
+            "[run_inference] CLIP dudoso: garbage_prob=%.3f en zona ambigua "
+            "(reject=%.2f, review=%.2f) top='%s' → requiere_revision=True",
+            garbage_prob or 0.0,
+            float(os.environ.get("SEMANTIC_REJECT_THRESHOLD", "0.30")),
+            float(os.environ.get("SEMANTIC_REVIEW_THRESHOLD", "0.62")),
+            semantic_top,
+        )
+
+    return None, {
+        "garbage_score":     garbage_score,
+        "garbage_prob":      garbage_prob,
+        "semantic_top":      semantic_top,
+        "requiere_revision": requiere_revision,
+    }
+
+
+def _apply_midas_volume(metricas, img, detecciones, img_w, img_h, client_coverage_ratio):
+    """Paso 5 (opcional): substituye el volumen de banda por la estimación MiDaS acotada
+    al rango [vol_min, vol_max] del nivel. No-op si USE_MIDAS_VOLUME=false o si MiDaS no
+    está disponible. Muta metricas['volumen'] en el sitio."""
+    if not USE_MIDAS_VOLUME:
+        return
+    from ml_utils import GROUND_DEPTH_M
+    ground_m = GROUND_DEPTH_M
+    if client_coverage_ratio and 0.05 <= client_coverage_ratio <= 0.95:
+        import math as _math
+        # Escalar distancia de referencia: más coverage → más cerca → menor distancia
+        scale = _math.sqrt(0.50 / client_coverage_ratio)
+        ground_m = round(max(0.5, min(8.0, GROUND_DEPTH_M * scale)), 2)
+        logger.info("[tasks] MiDaS calibrado: coverage=%.3f → ground_m=%.2f (base=%.1f)",
+                    client_coverage_ratio, ground_m, GROUND_DEPTH_M)
+    midas_vol = _estimate_volume_midas(img, detecciones, img_w, img_h,
+                                       ground_depth_m_override=ground_m)
+    if midas_vol is not None:
+        # ── Medir + acotar ────────────────────────────────────────────────
+        v_lo = metricas["vol_band_min"]
+        v_hi = metricas["vol_band_max"]
+        clamped = max(v_lo, min(v_hi, midas_vol))
+        metricas["volumen"] = round(clamped, 2)
+        logger.info(
+            "[tasks] MiDaS vol_real=%.2f → acotado a [%.2f, %.2f] = %.2f m³ (nivel=%s)",
+            midas_vol, v_lo, v_hi, metricas["volumen"], metricas["nivel"],
+        )
+
+
 @celery.task(
     bind=True,
     name="ml_worker.run_inference",
@@ -307,23 +466,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         results = model.predict(img, conf=NMS_CONF, iou=NMS_IOU, verbose=False)
         tiempo_ms = int((time.time() - t_start) * 1000)
 
-        detecciones = []
-        if results and len(results) > 0:
-            boxes, names = results[0].boxes, results[0].names
-            if boxes is not None and len(boxes) > 0:
-                for box in boxes:
-                    class_name = names[int(box.cls[0])]
-                    if class_name.lower() not in VALID_ALIASES:
-                        continue
-                    x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                    bbox_area = (x2 - x1) * (y2 - y1)
-                    if bbox_area < min_bbox_area:
-                        continue
-                    detecciones.append({
-                        "class":      class_name,
-                        "confidence": round(float(box.conf[0]), 4),
-                        "bbox":       [x1, y1, x2, y2],
-                    })
+        detecciones = _extract_detections(results, min_bbox_area)
 
         model_name = Path(os.environ.get("ML_MODEL_PATH", "rtdetr_l_best.pt")).name
 
@@ -354,120 +497,17 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         dominant_class  = Counter(d["class"] for d in detecciones).most_common(1)[0][0]
         tipo_residuo    = ALIAS_MAP.get(dominant_class.lower(), "OTRO")
 
-        # ── Gate 1: cobertura mínima global ──────────────────────────────────────
-        # Filtra detecciones demasiado pequeñas/lejanas donde el volumen y la
-        # prioridad estimados no son confiables. Un objeto que ocupa < 3% del frame
-        # está demasiado lejos para ser evaluado correctamente.
-        if MIN_COVERAGE_UNION > 0 and coverage_ratio < MIN_COVERAGE_UNION:
-            logger.info(
-                "[run_inference] Rechazo por coverage_ratio=%.4f < umbral=%.3f "
-                "(objeto demasiado pequeño/lejano) → has_waste=false",
-                coverage_ratio, MIN_COVERAGE_UNION,
-            )
-            return {
-                "success":              True,
-                "has_waste":            False,
-                "message":              "Detección demasiado pequeña — acércate al objeto",
-                "confianza":            0.45,  # < AUTO_REJECT_CONFIDENCE → EN_REVISION
-                "coverage_ratio":       coverage_ratio,
-                "num_detecciones":      num_detecciones,
-                "rechazo_motivo":       "coverage_below_floor",
-                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
-                "tiempo_inferencia_ms": tiempo_ms,
-                "modelo_nombre":        model_name,
-            }
-
-        # ── Garbage score: probabilidad de textura de basura real ────────────────
-        # score < GARBAGE_SCORE_THRESHOLD → objeto liso (funda, bolso, botella).
-        # score ≥ GARBAGE_SCORE_THRESHOLD → textura caótica → probable residuo.
-        # Se computa aquí (antes de los pasos de penalización) porque modula la
-        # severidad de la penalización de escala en el Paso 2.
-        garbage_score = _compute_garbage_score(img, detecciones, img_w, img_h)
-
-        # ── Paso 1b: rechazo duro por garbage_score crítico ──────────────────────
-        # Si la imagen no tiene NINGUNA señal de basura (textura, color, posición),
-        # se descarta como falso positivo del modelo independientemente de la
-        # confianza y el coverage. Atrapa el caso mochila/bolso/laptop fotografiado
-        # de cerca donde el modelo emite "garbage" con alta confianza.
-        if garbage_score < GARBAGE_SCORE_HARD_FLOOR:
-            logger.info(
-                "[run_inference] Rechazo por garbage_score=%.3f < hard_floor=%.2f "
-                "(conf=%.2f, n_dets=%d) → has_waste=false",
-                garbage_score, GARBAGE_SCORE_HARD_FLOOR, confianza, num_detecciones,
-            )
-            return {
-                "success":              True,
-                "has_waste":            False,
-                "message":              "Imagen rechazada: sin señales de basura (textura/color/posición)",
-                "confianza":            confianza,
-                "garbage_score":        garbage_score,
-                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
-                "num_detecciones":      num_detecciones,
-                "rechazo_motivo":       "garbage_score_below_hard_floor",
-                "tiempo_inferencia_ms": tiempo_ms,
-                "modelo_nombre":        model_name,
-            }
-
-        # ── Gate 2: verificación semántica CLIP ───────────────────────────────────
-        # Comprueba si la imagen contiene basura real o un falso positivo semántico
-        # (personas, interiores, pantallas, vehículos, etc.) que el detector confunde.
-        #
-        # El detector RT-DETR solo aprendió basura + calles vacías como negativo.
-        # CLIP fue entrenado con cientos de millones de fotos; sabe qué es una persona,
-        # un interior, una pantalla — y los diferencia de un montón de basura.
-        #
-        # Política de decisión:
-        #   garbage_prob < REJECT  → claramente no-basura → DESCARTADO (confianza alta)
-        #   REJECT ≤ prob < REVIEW → ambiguo → EN_REVISION (confianza baja, needs_review)
-        #   prob ≥ REVIEW          → basura confirmada → flujo normal → PENDIENTE
-        semantic = _verify_is_garbage(img)
-        garbage_prob      = semantic["garbage_prob"]
-        semantic_top      = semantic["top_label"]
-        semantic_error    = semantic["error"]
-
-        if semantic_error:
-            logger.warning(
-                "[run_inference] CLIP falló (%s) — fail-open: marcando requiere_revision=True",
-                semantic_error,
-            )
-
-        if not semantic["is_garbage"] and not semantic["needs_review"]:
-            # Claramente NO es basura — confianza alta para que el backend lo DESCARTE
-            # automáticamente (confianza ≥ AUTO_REJECT_CONFIDENCE → RECHAZO_CONFIABLE)
-            auto_reject_conf = float(os.environ.get("ML_AUTO_REJECT_CONFIDENCE", "0.70"))
-            reported_conf = round(max(auto_reject_conf, 1.0 - (garbage_prob or 0.0)), 4)
-            logger.info(
-                "[run_inference] CLIP rechaza: garbage_prob=%.3f < reject=%.2f "
-                "top='%s' → DESCARTADO (conf=%.3f)",
-                garbage_prob or 0.0, semantic["is_garbage"], semantic_top, reported_conf,
-            )
-            return {
-                "success":              True,
-                "has_waste":            False,
-                "message":              f"Imagen rechazada por verificación semántica: {semantic_top}",
-                "confianza":            reported_conf,
-                "garbage_prob":         garbage_prob,
-                "garbage_score":        garbage_score,
-                "blur_score":           round(blur_score, 2) if blur_score is not None else None,
-                "num_detecciones":      num_detecciones,
-                "rechazo_motivo":       "semantic_gate_not_garbage",
-                "semantic_top_label":   semantic_top,
-                "tiempo_inferencia_ms": tiempo_ms,
-                "modelo_nombre":        model_name,
-            }
-
-        # Ambigüedad semántica → marcar para revisión humana, pero continuar
-        # calculando la clasificación por bandas para dar contexto al supervisor.
-        requiere_revision = semantic["needs_review"]
-        if requiere_revision:
-            logger.info(
-                "[run_inference] CLIP dudoso: garbage_prob=%.3f en zona ambigua "
-                "(reject=%.2f, review=%.2f) top='%s' → requiere_revision=True",
-                garbage_prob or 0.0,
-                float(os.environ.get("SEMANTIC_REJECT_THRESHOLD", "0.30")),
-                float(os.environ.get("SEMANTIC_REVIEW_THRESHOLD", "0.62")),
-                semantic_top,
-            )
+        # ── Gates de calidad: cobertura mínima, garbage_score y CLIP semántico ───
+        rechazo, senales = _evaluate_quality_gates(
+            img, detecciones, img_w, img_h, coverage_ratio, confianza,
+            num_detecciones, blur_score, tiempo_ms, model_name,
+        )
+        if rechazo is not None:
+            return rechazo
+        garbage_score     = senales["garbage_score"]
+        garbage_prob      = senales["garbage_prob"]
+        semantic_top      = senales["semantic_top"]
+        requiere_revision = senales["requiere_revision"]
 
         # ── Pasos 1-4: clasificación de severidad (fuente única en ml_utils) ─────
         # Calcula effective_ratio (coverage·conf·det) con rescate de pila única,
@@ -495,40 +535,9 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         )
 
         # ── Paso 5 (opcional): volumen con profundidad monocular MiDaS ──────────
-        # Si USE_MIDAS_VOLUME=true, substituye el volumen interpolado por banda con
-        # la estimación basada en geometría real (calibrada al plano de suelo).
-        # Falla silenciosamente → fallback al volumen de banda si MiDaS no está disponible.
-        #
-        # Si client_coverage_ratio está disponible (enviado desde el móvil tras la
-        # guía de distancia del frame processor), se usa para ajustar GROUND_DEPTH_M:
-        # coverage ≈ 0.50 a 2 m de distancia → ratio = sqrt(0.50 / client_coverage)
-        # escala la distancia de referencia proporcionalmente.
-        if USE_MIDAS_VOLUME:
-            from ml_utils import GROUND_DEPTH_M
-            ground_m = GROUND_DEPTH_M
-            if client_coverage_ratio and 0.05 <= client_coverage_ratio <= 0.95:
-                import math as _math
-                # Escalar distancia de referencia: más coverage → más cerca → menor distancia
-                scale = _math.sqrt(0.50 / client_coverage_ratio)
-                ground_m = round(max(0.5, min(8.0, GROUND_DEPTH_M * scale)), 2)
-                logger.info("[tasks] MiDaS calibrado: coverage=%.3f → ground_m=%.2f (base=%.1f)",
-                            client_coverage_ratio, ground_m, GROUND_DEPTH_M)
-            midas_vol = _estimate_volume_midas(img, detecciones, img_w, img_h,
-                                               ground_depth_m_override=ground_m)
-            if midas_vol is not None:
-                # ── Medir + acotar ────────────────────────────────────────────
-                # La medición real de MiDaS define el volumen, PERO se acota al
-                # rango [vol_min, vol_max] de la banda del nivel para mantener
-                # coherencia nivel/volumen y evitar el inflado de MiDaS en
-                # interiores. Si MiDaS falla (None), queda el volumen interpolado.
-                v_lo = metricas["vol_band_min"]
-                v_hi = metricas["vol_band_max"]
-                clamped = max(v_lo, min(v_hi, midas_vol))
-                metricas["volumen"] = round(clamped, 2)
-                logger.info(
-                    "[tasks] MiDaS vol_real=%.2f → acotado a [%.2f, %.2f] = %.2f m³ (nivel=%s)",
-                    midas_vol, v_lo, v_hi, metricas["volumen"], metricas["nivel"],
-                )
+        # Si USE_MIDAS_VOLUME=true, substituye el volumen interpolado por banda con la
+        # estimación geométrica de MiDaS, acotada al rango de la banda (medir + acotar).
+        _apply_midas_volume(metricas, img, detecciones, img_w, img_h, client_coverage_ratio)
 
         result = {
             "success":               True,
