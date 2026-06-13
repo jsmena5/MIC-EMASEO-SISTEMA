@@ -92,7 +92,7 @@ export default function Step3Assign({
     setSaving(true)
     try {
       await cambiarEstado(detail.id, estado, observaciones)
-      setFeedback(`Estado actualizado a ${estado.replace(/_/g, " ").toLowerCase()}.`)
+      setFeedback(`Estado actualizado a ${estado.replaceAll("_", " ").toLowerCase()}.`)
       onRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo cambiar el estado.")

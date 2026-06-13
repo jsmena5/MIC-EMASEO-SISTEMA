@@ -26,8 +26,8 @@ const NIVEL_COLOR: Record<string, string> = {
 function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    window.addEventListener("keydown", h)
-    return () => window.removeEventListener("keydown", h)
+    globalThis.window.addEventListener("keydown", h)
+    return () => globalThis.window.removeEventListener("keydown", h)
   }, [onClose])
 
   return (
@@ -92,7 +92,7 @@ function ImageCard({
           )}
           {/* Estado del incidente */}
           <span className="absolute top-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-            {img.estado.replace(/_/g, " ")}
+            {img.estado.replaceAll("_", " ")}
           </span>
           {/* Veredicto IA supervisor */}
           {img.ia_fue_correcta != null && (

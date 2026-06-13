@@ -147,10 +147,10 @@ function CorreccionesList({ rows }: { rows: Correccion[] }) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[11px] font-mono text-slate-400">{c.incident_id.slice(0, 8)}…</span>
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-700">
-                IA: {c.tipo_ml ?? "—"} / {c.nivel_ml ?? "—"}
+                readonly IA: {c.tipo_ml ?? "—"} / {c.nivel_ml ?? "—"}
               </span>
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
-                Real: {c.tipo_real ?? c.nivel_real ?? "Corregido"}
+                readonly Real: {c.tipo_real ?? c.nivel_real ?? "Corregido"}
               </span>
               {c.confianza != null && (
                 <span className="text-[10px] text-slate-400">confianza {Math.round(c.confianza * 100)}%</span>

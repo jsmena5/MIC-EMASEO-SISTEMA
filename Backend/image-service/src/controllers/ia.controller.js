@@ -231,14 +231,14 @@ export const iaDataset = async (_req, res) => {
 //
 // Query params:
 //   limit      (default 200, max 1000)
-//   min_confianza (default 0.0) — filtrar por confianza máxima del modelo
+//   min_confianza (default 0) — filtrar por confianza máxima del modelo
 //   solo_incorrectos (true/false, default false) — solo ia_fue_correcta=false
 
 export const hardExamples = async (req, res) => {
   const limit           = Math.min(1000, Math.max(1, Number.parseInt(req.query.limit ?? "200")))
   const minConfianza    = Number.parseFloat(req.query.min_confianza ?? "0")
   const soloIncorrectos = req.query.solo_incorrectos === "true"
-  const confianzaUmbral = minConfianza > 0 ? minConfianza : 1.0
+  const confianzaUmbral = minConfianza > 0 ? minConfianza : 1
 
   try {
     const { rows } = await pool.query(
@@ -288,7 +288,7 @@ export const hardExamples = async (req, res) => {
               ELSE 2 END,
          ar.confianza ASC
        LIMIT $3`,
-      [soloIncorrectos ? 1.0 : confianzaUmbral, soloIncorrectos, limit],
+      [soloIncorrectos ? 1 : confianzaUmbral, soloIncorrectos, limit],
     )
 
     res.setHeader(

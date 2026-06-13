@@ -39,7 +39,7 @@ const CARD_ENTERING = FadeInDown.duration(400).springify()
 // Cada palabra de nombre/apellido: solo letras (con tildes y ñ)
 const RE_PALABRA  = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/
 const RE_EMAIL    = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const RE_TELEFONO = /^(?:\+?5939[0-9]{8}|09[0-9]{8})$/
+const RE_TELEFONO = /^(?:\+?5939d{8}|09d{8})$/
 const SEXO_OPCIONES = ["Masculino", "Femenino", "Otro", "Prefiero no decir"] as const
 
 // ─── Helpers y constantes para el picker de fecha ────────────────────────────

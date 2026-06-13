@@ -39,7 +39,7 @@ export function toPublicMediaUrl(url: string | null | undefined): string | null 
     lower.includes("minio") ||
     /https?:\/\/10\./.test(lower) ||
     /https?:\/\/192\.168\./.test(lower) ||
-    /https?:\/\/172\.(1[6-9]|2[0-9]|3[01])\./.test(lower)
+    /https?:\/\/172\.(1[6-9]|2d|3[01])\./.test(lower)
 
   if (isPrivate) {
     // URL privada → reescribir al proxy del gateway. El proxy

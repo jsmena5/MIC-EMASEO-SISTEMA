@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+// useCallback removed — not needed after refactor
 import { Dimensions } from 'react-native'
 import { useFrameProcessor } from 'react-native-vision-camera'
 import { useRunOnJS, useSharedValue } from 'react-native-worklets-core'
@@ -14,7 +14,7 @@ const STEP = 4
 // Gradiente mínimo para contar un píxel como "borde" (igual al EDGE_GRAD_THRESHOLD del server)
 const EDGE_GRAD_THRESHOLD = 20
 // Normalización: edgeFraction * NORM_FACTOR, luego clamp a [0, 1] (igual al server)
-const NORM_FACTOR = 3.0
+const NORM_FACTOR = 3
 // Umbrales para mapear coverage → hint. SOLO afectan la etiqueta de guía en vivo y
 // el armado de la auto-captura — NO el valor de coverage que se envía al server como
 // client_coverage_ratio (ese sale de NORM_FACTOR, no lo tocar). Lenientes a propósito:
@@ -171,7 +171,7 @@ export function useLiveDistanceGuidance(
       if (totalSampled === 0) return
 
       const edgeFraction = edgeCount / totalSampled
-      const coverage = edgeFraction * NORM_FACTOR > 1.0 ? 1.0 : edgeFraction * NORM_FACTOR
+      const coverage = Math.min(1, edgeFraction * NORM_FACTOR)
 
       // Brillo promedio del encuadre normalizado a [0, 1]
       const brightness = (lumaSum / totalSampled) / 255

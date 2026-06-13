@@ -528,10 +528,10 @@ function ConfigTabContent(p: {
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
 function TabButton({ label, icon, active, onPress }: {
-  label: string
-  icon: React.ComponentProps<typeof Ionicons>["name"]
-  active: boolean
-  onPress: () => void
+  readonly label: string
+  readonly icon: React.ComponentProps<typeof Ionicons>["name"]
+  readonly active: boolean
+  readonly onPress: () => void
 }) {
   return (
     <TouchableOpacity
@@ -555,7 +555,7 @@ function SectionLabel({ text }: { text: string }) {
 }
 
 function FieldIcon({ icon, bg, color }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"]; bg: string; color: string
+  readonly icon: React.ComponentProps<typeof Ionicons>["name"]; bg: string; color: string
 }) {
   return (
     <View style={[s.fieldIcon, { backgroundColor: bg }]}>
@@ -565,8 +565,8 @@ function FieldIcon({ icon, bg, color }: {
 }
 
 function InfoRow({ icon, iconBg, iconColor, label, value }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"]
-  iconBg: string; iconColor: string; label: string; value: string
+  readonly icon: React.ComponentProps<typeof Ionicons>["name"]
+  readonly iconBg: string; iconColor: string; label: string; value: string
 }) {
   return (
     <View style={styles.fieldRow}>
@@ -580,7 +580,7 @@ function InfoRow({ icon, iconBg, iconColor, label, value }: {
 }
 
 function PwField({ label, value, onChange, show, onToggle }: {
-  label: string; value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void
+  readonly label: string; value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void
 }) {
   return (
     <View style={s.pwField}>

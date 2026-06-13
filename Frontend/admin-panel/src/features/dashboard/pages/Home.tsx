@@ -275,7 +275,7 @@ export default function Home() {
                 className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase"
                 style={{ background: ESTADO_COLOR[c.estado] + "18", color: ESTADO_COLOR[c.estado] }}
               >
-                {c.estado.replace(/_/g, " ")}
+                {c.estado.replaceAll("_", " ")}
               </span>
             </li>
           ))}

@@ -21,7 +21,7 @@ export function validatePassword(password) {
   if (!/[a-z]/.test(password)) {
     return { valid: false, message: 'La contraseña debe contener al menos una letra minúscula.' };
   }
-  if (!/[0-9]/.test(password)) {
+  if (!/d/.test(password)) {
     return { valid: false, message: 'La contraseña debe contener al menos un número.' };
   }
   return { valid: true };

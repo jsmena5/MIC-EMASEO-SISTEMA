@@ -39,7 +39,7 @@ const initial: State = {
 // ── KPI card ─────────────────────────────────────────────────────────────────
 
 function KpiCard({ label, value, hint, href, accent, loading }: {
-  label: string; value: number; hint: string; href: string; accent: string; loading: boolean
+  readonly label: string; value: number; hint: string; href: string; accent: string; loading: boolean
 }) {
   return (
     <Link to={href}
@@ -60,7 +60,7 @@ function KpiCard({ label, value, hint, href, accent, loading }: {
 // ── Progress bar de distribución ─────────────────────────────────────────────
 
 function StatusBar({ pendientes, revisados, enRevision, resueltosHoy }: {
-  pendientes: number; revisados: number; enRevision: number; resueltosHoy: number
+  readonly pendientes: number; revisados: number; enRevision: number; resueltosHoy: number
 }) {
   const total = pendientes + revisados + enRevision + resueltosHoy
   if (total === 0) return null
@@ -208,7 +208,7 @@ export default function Home() {
                 </div>
                 <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
                   style={{ background: c.estado === "PENDIENTE" ? "#FEF3C7" : "#F0FDF4", color: c.estado === "PENDIENTE" ? "#B45309" : "#15803D" }}>
-                  {c.estado.replace(/_/g, " ")}
+                  {c.estado.replaceAll("_", " ")}
                 </span>
               </Link>
             </li>

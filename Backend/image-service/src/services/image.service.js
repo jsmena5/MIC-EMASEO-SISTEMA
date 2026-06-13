@@ -2,8 +2,8 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3"
 import { v4 as uuidv4 } from "uuid"
 import retry from "async-retry"
 import { pool } from "../db.js"
-import { mlBreaker, ML_DEGRADED_CODE, pollMlTask, checkMlTaskStatus, POLL_TIMEOUT_MS } from "../mlCircuitBreaker.js"
-import { MIN_FILE_BYTES, MIN_SIDE_PX, getImageDimensions, validateImageBufferDeep } from "../utils/imageValidation.js"
+import { mlBreaker, ML_DEGRADED_CODE, pollMlTask, checkMlTaskStatus} from "../mlCircuitBreaker.js"
+import { getImageDimensions, validateImageBufferDeep } from "../utils/imageValidation.js"
 export { validateImageBuffer, validateImageBufferDeep } from "../utils/imageValidation.js"
 
 // ──────────────────────────────────────────────────────────────────────────────

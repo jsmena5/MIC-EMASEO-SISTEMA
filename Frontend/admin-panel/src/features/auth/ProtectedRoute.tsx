@@ -18,15 +18,15 @@ export default function ProtectedRoute() {
     const isCancelled = () => cancelled
     const run = () => { validateSession(isCancelled).catch(() => { /* errores ya gestionados en getAuthenticatedUser */ }) }
 
-    const timeout  = window.setTimeout(run, 0)
-    const interval = window.setInterval(run, 60_000)
-    return () => { cancelled = true; window.clearTimeout(timeout); window.clearInterval(interval) }
+    const timeout  = globalThis.setTimeout(run, 0)
+    const interval = globalThis.setInterval(run, 60_000)
+    return () => { cancelled = true; globalThis.clearTimeout(timeout); globalThis.clearInterval(interval) }
   }, [location.pathname, location.search, validateSession])
 
   useEffect(() => {
     const handleCleared = () => setStatus("denied")
-    window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleCleared)
-    return () => window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleCleared)
+    globalThis.window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleCleared)
+    return () => globalThis.window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleCleared)
   }, [])
 
   if (status === "checking") {

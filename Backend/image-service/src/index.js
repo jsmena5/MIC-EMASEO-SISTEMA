@@ -29,6 +29,7 @@ for (const key of REQUIRED_ENV) {
 }
 
 const app = express()
+app.disable('x-powered-by')
 
 app.set("trust proxy", 1)
 // Servicio interno — solo el gateway (server-to-server) debe acceder.

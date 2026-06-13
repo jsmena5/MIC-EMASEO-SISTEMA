@@ -23,23 +23,23 @@ export default function ProtectedRoute() {
       validateSession(isCancelled).catch(() => { /* errores ya gestionados en getAuthenticatedUser */ });
     };
 
-    const timeout = window.setTimeout(runValidation, 0);
-    const interval = window.setInterval(runValidation, 60_000);
+    const timeout = globalThis.setTimeout(runValidation, 0);
+    const interval = globalThis.setInterval(runValidation, 60_000);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeout);
-      window.clearInterval(interval);
+      globalThis.clearTimeout(timeout);
+      globalThis.clearInterval(interval);
     };
   }, [location.pathname, location.search, validateSession]);
 
   useEffect(() => {
     const handleSessionCleared = () => setStatus("denied");
 
-    window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
+    globalThis.window.addEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
 
     return () => {
-      window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
+      globalThis.window.removeEventListener(AUTH_SESSION_CLEARED_EVENT, handleSessionCleared);
     };
   }, []);
 

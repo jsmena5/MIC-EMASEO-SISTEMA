@@ -36,7 +36,7 @@ export default function IncidentPreview({
           <span className="text-[11px] font-mono font-semibold text-slate-400">#{detail.id.slice(0, 8)}</span>
           <span className="rounded-full px-2 py-0.5 text-[10px] font-bold"
             style={{ background: status.bg, color: status.text }}>
-            {detail.estado.replace(/_/g, " ")}
+            {detail.estado.replaceAll("_", " ")}
           </span>
           {priority && (
             <span className="flex items-center gap-1 text-[11px] text-slate-500">
@@ -128,7 +128,7 @@ export default function IncidentPreview({
 }
 
 function DataCell({ label, value, highlight, small }: {
-  label: string; value: string; highlight?: boolean; small?: boolean
+  readonly label: string; value: string; highlight?: boolean; small?: boolean
 }) {
   return (
     <div className="bg-white px-3 py-2.5">

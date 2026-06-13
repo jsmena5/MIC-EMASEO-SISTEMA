@@ -450,10 +450,10 @@ function CameraBottomControls({
 // ─── Check chip (item de checklist que se pone verde al cumplirse) ────────────
 
 function CheckChip({ icon, label, ok, active }: {
-  icon: React.ComponentProps<typeof Ionicons>["name"]
-  label: string
-  ok: boolean
-  active: boolean
+  readonly icon: React.ComponentProps<typeof Ionicons>["name"]
+  readonly label: string
+  readonly ok: boolean
+  readonly active: boolean
 }) {
   const done = active && ok
   return (

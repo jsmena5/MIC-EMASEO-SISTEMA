@@ -35,7 +35,7 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
   }, [countdown])
 
   const handleDigitChange = (value: string, index: number) => {
-    const digit = value.replace(/[^0-9]/g, "").slice(-1)
+    const digit = value.replace(/\D/g, "").slice(-1)
     const next  = [...digits]
     next[index] = digit
     setDigits(next)

@@ -13,7 +13,7 @@ function cleanActor(actor: string | null, rol: string | null): string {
 
 function cleanEstado(raw: string | null): string {
   if (!raw || raw === "null") return "Inicio"
-  return raw.replace(/_/g, " ")
+  return raw.replaceAll("_", " ")
 }
 
 type Entry = { title: string; subtitle: string; meta: string; note: string | null; dot: string }

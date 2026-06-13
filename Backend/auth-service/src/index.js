@@ -20,6 +20,7 @@ for (const key of REQUIRED_ENV) {
 }
 
 const app = express()
+app.disable('x-powered-by')
 
 // El servicio corre detrás del API Gateway (1 nivel de proxy).
 // Necesario para que express-rate-limit lea X-Forwarded-For correctamente

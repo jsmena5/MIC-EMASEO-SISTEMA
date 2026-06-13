@@ -46,8 +46,8 @@ export default function ReviewModal({
   // Cerrar con Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
-    window.addEventListener("keydown", handler)
-    return () => window.removeEventListener("keydown", handler)
+    globalThis.window.addEventListener("keydown", handler)
+    return () => globalThis.window.removeEventListener("keydown", handler)
   }, [onClose])
 
   const handleConfirmReview = async (markRevisado: boolean) => {

@@ -21,6 +21,7 @@ for (const key of REQUIRED_ENV) {
 }
 
 const app = express()
+app.disable('x-powered-by')
 
 // Servicio interno — solo el gateway (server-to-server) debe acceder.
 app.use(cors({ origin: false }))
