@@ -59,6 +59,182 @@ function overlayLabel(phase: AnalysisPhase, slow: boolean): string {
   return "Analizando incidencia..."
 }
 
+// Clasifica el error de polling para diagnosticar la causa (rate-limit / red / 5xx).
+function classifyPollError(err: any): {
+  status: number | undefined; code: string | undefined
+  isNetworkError: boolean; isRateLimited: boolean
+} {
+  const status = err?.response?.status as number | undefined
+  const code = err?.code as string | undefined
+  return { status, code, isNetworkError: !err?.response, isRateLimited: status === 429 }
+}
+
+// Mensaje del diálogo de reintento de polling según el tipo de fallo. El reporte SÍ
+// llegó al servidor en todos los casos; el texto lo deja claro.
+function pollRetryMessage(isRateLimited: boolean, isNetworkError: boolean, attempt: number, max: number): string {
+  if (isRateLimited) {
+    return `El servidor está recibiendo muchas solicitudes. Tu reporte ya fue recibido y se está analizando (intento ${attempt} de ${max}).`
+  }
+  if (isNetworkError) {
+    return `Tu reporte ya fue recibido. Perdimos la conexión al consultar el estado (intento ${attempt} de ${max}).`
+  }
+  return `Tu reporte ya fue recibido y se está analizando. Hubo un problema temporal al consultar el estado (intento ${attempt} de ${max}).`
+}
+
+// Pantalla de revisión de la foto capturada (estado de ubicación, botón de análisis,
+// cancelar/retomar y overlay de análisis). Extraída de ScanScreen para bajar su
+// complejidad cognitiva; toda la lógica vive en el componente padre vía callbacks.
+function PhotoReviewScreen({
+  capturedUri, phase, hasLocation, isLocationLoading, isCropping, locError,
+  uploadProgress, pollProgress, isSlowMessage, hasActiveTask,
+  onAnalyze, onCancelUpload, onRetake, onCancelToHome, onSendToBackground, onCancelAnalysis,
+}: {
+  capturedUri: string
+  phase: AnalysisPhase
+  hasLocation: boolean
+  isLocationLoading: boolean
+  isCropping: boolean
+  locError: string | null
+  uploadProgress: number
+  pollProgress: number
+  isSlowMessage: boolean
+  hasActiveTask: boolean
+  onAnalyze: () => void
+  onCancelUpload: () => void
+  onRetake: () => void
+  onCancelToHome: () => void
+  onSendToBackground: () => void
+  onCancelAnalysis: () => void
+}) {
+  const isActive    = phase !== "idle"
+  const showOverlay = phase === "queued" || phase === "analyzing" || phase === "saving"
+  const canCancel   = phase === "queued" || phase === "analyzing"
+  // El botón se bloquea mientras el recorte esté en curso para garantizar que
+  // siempre se envíe la imagen recortada y no el fallback completo.
+  const isAnalyzeBlocked = isActive || isCropping || (!hasLocation && !isLocationLoading)
+
+  return (
+    <View style={styles.reviewContainer}>
+      <StatusBar barStyle="light-content" backgroundColor="#000" />
+
+      {/* Imagen completa como fondo contextual */}
+      <Image source={{ uri: capturedUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+
+      {/* Overlay del recuadro: muestra la región que cropToScanFrame enviará al ML */}
+      {!showOverlay && <CapturedFrameOverlay />}
+
+      <Animated.View entering={SlideInUp.duration(380).springify()} style={styles.reviewCard}>
+        <View style={styles.reviewHandle} />
+
+        <View style={styles.reviewTitleRow}>
+          <View style={styles.reviewIconWrap}>
+            <Ionicons name="checkmark" size={22} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.reviewTitle}>Foto capturada</Text>
+            <Text style={styles.reviewSub}>
+              {isCropping
+                ? "Calculando región de análisis..."
+                : "La región encuadrada se enviará al análisis IA"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Indicador de estado de ubicación */}
+        <View style={styles.locationStatus}>
+          {isLocationLoading ? (
+            <>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
+            </>
+          ) : hasLocation ? (
+            <>
+              <Ionicons name="location" size={16} color={colors.success} />
+              <Text style={[styles.locationStatusText, styles.locationSuccess]}>
+                Ubicación disponible
+              </Text>
+            </>
+          ) : locError ? (
+            <>
+              <Ionicons name="warning" size={16} color={colors.critico} />
+              <Text style={[styles.locationStatusText, styles.locationError]}>
+                {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
+              </Text>
+            </>
+          ) : null}
+        </View>
+
+        <TouchableOpacity
+          style={[
+            styles.analyzeBtn,
+            isActive   && styles.analyzeBtnLoading,
+            isAnalyzeBlocked && !isActive && !isCropping && styles.analyzeBtnDisabled,
+          ]}
+          onPress={onAnalyze}
+          disabled={isAnalyzeBlocked}
+          activeOpacity={0.85}
+        >
+          {phase === "uploading" ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.analyzeBtnText}>
+                {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
+              </Text>
+            </>
+          ) : phase === "checking" ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
+            </>
+          ) : isCropping ? (
+            <>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="analytics-outline" size={20} color="#fff" />
+              <Text style={styles.analyzeBtnText}>
+                {(!hasLocation && !isLocationLoading)
+                  ? "Esperando ubicación..."
+                  : "Analizar y Reportar"}
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        {phase === "uploading" ? (
+          /* Durante el envío: permitir cancelar la subida (no dejar al usuario varado) */
+          <TouchableOpacity style={styles.cancelUploadBtn} onPress={onCancelUpload} activeOpacity={0.7}>
+            <Ionicons name="close-circle-outline" size={20} color={colors.critico} />
+            <Text style={styles.cancelUploadBtnText}>Cancelar envío</Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity style={styles.retakeBtn} onPress={onRetake} disabled={isActive} activeOpacity={0.7}>
+              <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
+              <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelLink} onPress={onCancelToHome} disabled={isActive} activeOpacity={0.7}>
+              <Text style={styles.cancelLinkText}>Cancelar</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </Animated.View>
+
+      <AnalyzingOverlay
+        isAnalyzing={showOverlay}
+        label={overlayLabel(phase, isSlowMessage)}
+        progress={pollProgress}
+        onBackground={onSendToBackground}
+        canBackground={canCancel && hasActiveTask}
+        onCancel={canCancel ? onCancelAnalysis : undefined}
+      />
+    </View>
+  )
+}
+
 export default function ScanScreen() {
   const navigation = useNavigation<ScanNavProp>()
   const { isConnected, pendingCount, refreshPendingCount } = useNetwork()
@@ -724,10 +900,7 @@ export default function ScanScreen() {
         // Clasificar el error: es la única forma de diagnosticar la causa (429
         // rate-limit, 5xx servidor, o caída de red). Antes el `catch {}` lo descartaba
         // y todo se veía como un genérico "Error de conexión".
-        const status = err?.response?.status as number | undefined
-        const code = err?.code as string | undefined
-        const isNetworkError = !err?.response
-        const isRateLimited = status === 429
+        const { status, code, isNetworkError, isRateLimited } = classifyPollError(err)
         console.warn(
           `[ScanScreen] poll getTaskStatus falló — status=${status ?? "n/a"} code=${code ?? "n/a"} msg=${err?.message ?? "n/a"}`,
         )
@@ -750,34 +923,15 @@ export default function ScanScreen() {
           },
         }
 
-        if (!canRetry) {
-          // Reintentos agotados — el reporte ya está en el servidor procesándose.
-          Alert.alert(
-            "Reporte recibido",
-            "Tu reporte ya fue recibido y se está analizando. No pudimos mostrar el resultado ahora; podrás verlo en tu historial en unos minutos.",
-            [
-              { text: "Cancelar", style: "cancel", onPress: retake },
-              goToHistorial,
-              retryPolling,
-            ],
-          )
-        } else {
-          // Mensaje según el tipo de fallo, dejando claro que el reporte SÍ llegó.
-          const body = isRateLimited
-            ? `El servidor está recibiendo muchas solicitudes. Tu reporte ya fue recibido y se está analizando (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
-            : isNetworkError
-              ? `Tu reporte ya fue recibido. Perdimos la conexión al consultar el estado (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
-              : `Tu reporte ya fue recibido y se está analizando. Hubo un problema temporal al consultar el estado (intento ${pollRetryRef.current} de ${MAX_RETRIES}).`
-          Alert.alert(
-            "Análisis en progreso",
-            body,
-            [
-              { text: "Cancelar", style: "cancel", onPress: retake },
-              goToHistorial,
-              retryPolling,
-            ],
-          )
-        }
+        // El reporte SÍ llegó al servidor en todos los casos; los mensajes lo dejan claro.
+        const [titulo, cuerpo] = canRetry
+          ? ["Análisis en progreso", pollRetryMessage(isRateLimited, isNetworkError, pollRetryRef.current, MAX_RETRIES)]
+          : ["Reporte recibido", "Tu reporte ya fue recibido y se está analizando. No pudimos mostrar el resultado ahora; podrás verlo en tu historial en unos minutos."]
+        Alert.alert(titulo, cuerpo, [
+          { text: "Cancelar", style: "cancel", onPress: retake },
+          goToHistorial,
+          retryPolling,
+        ])
       } finally {
         pollingInProgressRef.current = false
       }
@@ -815,150 +969,25 @@ export default function ScanScreen() {
   // ── Photo review ───────────────────────────────────────────────────────────
 
   if (capturedUri) {
-    const isActive        = phase !== "idle"
-    const showOverlay     = phase === "queued" || phase === "analyzing" || phase === "saving"
-    const canCancel       = phase === "queued" || phase === "analyzing"
-    const hasLocation     = location !== null
-    const isLocationLoading = isRetryingLocation
-    // El botón se bloquea mientras el recorte esté en curso para garantizar que
-    // siempre se envíe la imagen recortada y no el fallback completo.
-    const isAnalyzeBlocked = isActive || isCropping || (!hasLocation && !isLocationLoading)
-
     return (
-      <View style={styles.reviewContainer}>
-        <StatusBar barStyle="light-content" backgroundColor="#000" />
-
-        {/* Imagen completa como fondo contextual */}
-        <Image source={{ uri: capturedUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-
-        {/* ── Overlay del recuadro de captura (solo durante la revisión) ───────
-            Muestra exactamente la misma región que cropToScanFrame recortará,
-            confirmando visualmente al usuario qué área se enviará al ML.     */}
-        {!showOverlay && <CapturedFrameOverlay />}
-
-        <Animated.View entering={SlideInUp.duration(380).springify()} style={styles.reviewCard}>
-          <View style={styles.reviewHandle} />
-
-          <View style={styles.reviewTitleRow}>
-            <View style={styles.reviewIconWrap}>
-              <Ionicons name="checkmark" size={22} color="#fff" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.reviewTitle}>Foto capturada</Text>
-              <Text style={styles.reviewSub}>
-                {isCropping
-                  ? "Calculando región de análisis..."
-                  : "La región encuadrada se enviará al análisis IA"}
-              </Text>
-            </View>
-          </View>
-
-          {/* Indicador de estado de ubicación */}
-          <View style={styles.locationStatus}>
-            {isLocationLoading ? (
-              <>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.locationStatusText}>Obteniendo ubicación...</Text>
-              </>
-            ) : hasLocation ? (
-              <>
-                <Ionicons name="location" size={16} color={colors.success} />
-                <Text style={[styles.locationStatusText, styles.locationSuccess]}>
-                  Ubicación disponible
-                </Text>
-              </>
-            ) : locError ? (
-              <>
-                <Ionicons name="warning" size={16} color={colors.critico} />
-                <Text style={[styles.locationStatusText, styles.locationError]}>
-                  {locError.length > 50 ? locError.substring(0, 50) + "..." : locError}
-                </Text>
-              </>
-            ) : null}
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.analyzeBtn,
-              isActive   && styles.analyzeBtnLoading,
-              isAnalyzeBlocked && !isActive && !isCropping && styles.analyzeBtnDisabled,
-            ]}
-            onPress={handleAnalyze}
-            disabled={isAnalyzeBlocked}
-            activeOpacity={0.85}
-          >
-            {phase === "uploading" ? (
-              <>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.analyzeBtnText}>
-                  {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
-                </Text>
-              </>
-            ) : phase === "checking" ? (
-              <>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
-              </>
-            ) : isCropping ? (
-              <>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="analytics-outline" size={20} color="#fff" />
-                <Text style={styles.analyzeBtnText}>
-                  {(!hasLocation && !isLocationLoading)
-                    ? "Esperando ubicación..."
-                    : "Analizar y Reportar"}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          {phase === "uploading" ? (
-            /* Durante el envío: permitir cancelar la subida (no dejar al usuario varado) */
-            <TouchableOpacity
-              style={styles.cancelUploadBtn}
-              onPress={handleCancelUpload}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close-circle-outline" size={20} color={colors.critico} />
-              <Text style={styles.cancelUploadBtnText}>Cancelar envío</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={styles.retakeBtn}
-                onPress={retake}
-                disabled={isActive}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="camera-reverse-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.retakeBtnText}>Tomar otra foto</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.cancelLink}
-                onPress={handleCancelToHome}
-                disabled={isActive}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.cancelLinkText}>Cancelar</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </Animated.View>
-
-        <AnalyzingOverlay
-          isAnalyzing={showOverlay}
-          label={overlayLabel(phase, isSlowMessage)}
-          progress={pollProgress}
-          onBackground={handleSendToBackground}
-          canBackground={canCancel && !!currentTaskIdRef.current}
-          onCancel={canCancel ? handleCancelAnalysis : undefined}
-        />
-      </View>
+      <PhotoReviewScreen
+        capturedUri={capturedUri}
+        phase={phase}
+        hasLocation={location !== null}
+        isLocationLoading={isRetryingLocation}
+        isCropping={isCropping}
+        locError={locError}
+        uploadProgress={uploadProgress}
+        pollProgress={pollProgress}
+        isSlowMessage={isSlowMessage}
+        hasActiveTask={!!currentTaskIdRef.current}
+        onAnalyze={handleAnalyze}
+        onCancelUpload={handleCancelUpload}
+        onRetake={retake}
+        onCancelToHome={handleCancelToHome}
+        onSendToBackground={handleSendToBackground}
+        onCancelAnalysis={handleCancelAnalysis}
+      />
     )
   }
 

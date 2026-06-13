@@ -51,6 +51,52 @@ export function brightnessToLightingHint(brightness: number): LightingHint {
   return 'OK'
 }
 
+// Recorre la región de interés submuestreando cada STEP px y acumula bordes (gradiente
+// L1 de luminancia) y luminancia total. Worklet: corre en el hilo C++ junto al frame
+// processor. Devuelve los acumuladores para que el caller calcule coverage y brillo.
+function sampleFrameRegion(
+  pixels: Uint8Array, FW: number,
+  startX: number, startY: number, endX: number, endY: number,
+  isYuv: boolean, stride: number,
+): { edgeCount: number; lumaSum: number; totalSampled: number } {
+  'worklet'
+  let edgeCount = 0
+  let lumaSum = 0
+  let totalSampled = 0
+  for (let y = startY; y < endY - STEP; y += STEP) {
+    for (let x = startX; x < endX - STEP; x += STEP) {
+      let L: number, LR: number, LB: number
+      if (isYuv) {
+        // El canal Y es luminancia directa; sin multiplicación
+        L  = pixels[y * FW + x]
+        LR = pixels[y * FW + x + STEP]
+        LB = pixels[(y + STEP) * FW + x]
+      } else {
+        const idx  = (y * FW + x) * stride
+        const idxR = (y * FW + x + STEP) * stride
+        const idxB = ((y + STEP) * FW + x) * stride
+        // Luminancia ≈ 0.299R + 0.587G + 0.114B (aproximación entera)
+        L  = (77 * pixels[idx]  + 150 * pixels[idx + 1]  + 29 * pixels[idx + 2])  >> 8
+        LR = (77 * pixels[idxR] + 150 * pixels[idxR + 1] + 29 * pixels[idxR + 2]) >> 8
+        LB = (77 * pixels[idxB] + 150 * pixels[idxB + 1] + 29 * pixels[idxB + 2]) >> 8
+      }
+      const grad = (L - LR < 0 ? LR - L : L - LR) + (L - LB < 0 ? LB - L : L - LB)
+      if (grad > EDGE_GRAD_THRESHOLD) edgeCount++
+      lumaSum += L
+      totalSampled++
+    }
+  }
+  return { edgeCount, lumaSum, totalSampled }
+}
+
+// Mapea coverage → DistanceHint con los mismos umbrales que ml_utils.py. Worklet.
+function coverageToHint(coverage: number): DistanceHint {
+  'worklet'
+  if (coverage < TOO_FAR_MAX)   return 'TOO_FAR'
+  if (coverage > TOO_CLOSE_MIN) return 'TOO_CLOSE'
+  return 'OPTIMAL'
+}
+
 /**
  * Frame processor hook que estima en tiempo real cuánto ocupa el área de interés
  * (equivalente al scan overlay) en el frame de la cámara, sin enviar datos a red.
@@ -117,35 +163,8 @@ export function useLiveDistanceGuidance(
       const isYuv = bytesPerPixel < 2.5
       const stride = isYuv ? 1 : (bytesPerPixel > 3.5 ? 4 : 3)
 
-      let edgeCount = 0
-      let totalSampled = 0
-      let lumaSum = 0  // suma de luminancia para estimar el brillo del encuadre
-
-      for (let y = startY; y < endY - STEP; y += STEP) {
-        for (let x = startX; x < endX - STEP; x += STEP) {
-          let L: number, LR: number, LB: number
-
-          if (isYuv) {
-            // Y channel is luminance directly; no multiplication needed
-            L  = pixels[y * FW + x]
-            LR = pixels[y * FW + x + STEP]
-            LB = pixels[(y + STEP) * FW + x]
-          } else {
-            const idx  = (y * FW + x) * stride
-            const idxR = (y * FW + x + STEP) * stride
-            const idxB = ((y + STEP) * FW + x) * stride
-            // Luminance ≈ 0.299R + 0.587G + 0.114B (integer approximation)
-            L  = (77 * pixels[idx]  + 150 * pixels[idx + 1]  + 29 * pixels[idx + 2])  >> 8
-            LR = (77 * pixels[idxR] + 150 * pixels[idxR + 1] + 29 * pixels[idxR + 2]) >> 8
-            LB = (77 * pixels[idxB] + 150 * pixels[idxB + 1] + 29 * pixels[idxB + 2]) >> 8
-          }
-
-          const grad = (L - LR < 0 ? LR - L : L - LR) + (L - LB < 0 ? LB - L : L - LB)
-          if (grad > EDGE_GRAD_THRESHOLD) edgeCount++
-          lumaSum += L
-          totalSampled++
-        }
-      }
+      const { edgeCount, lumaSum, totalSampled } =
+        sampleFrameRegion(pixels, FW, startX, startY, endX, endY, isYuv, stride)
 
       if (totalSampled === 0) return
 
@@ -155,14 +174,7 @@ export function useLiveDistanceGuidance(
       // Brillo promedio del encuadre normalizado a [0, 1]
       const brightness = (lumaSum / totalSampled) / 255
 
-      let hint: DistanceHint
-      if (coverage < TOO_FAR_MAX) {
-        hint = 'TOO_FAR'
-      } else if (coverage > TOO_CLOSE_MIN) {
-        hint = 'TOO_CLOSE'
-      } else {
-        hint = 'OPTIMAL'
-      }
+      const hint = coverageToHint(coverage)
 
       callOnJS(hint, coverage, brightness)
     } catch (e: any) {
