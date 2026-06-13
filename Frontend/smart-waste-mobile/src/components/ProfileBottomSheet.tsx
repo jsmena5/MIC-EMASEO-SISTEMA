@@ -256,163 +256,48 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
             contentContainerStyle={{ paddingBottom: 28 }}
           >
             {tab === "perfil" ? (
-              <>
-                {loadingProfile ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color={colors.primary} />
-                    <Text style={styles.loadingText}>Cargando información…</Text>
-                  </View>
-                ) : profileError ? (
-                  <TouchableOpacity style={styles.errorRow} onPress={loadProfile}>
-                    <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
-                    <Text style={styles.errorRowText}>{profileError} Toca para reintentar.</Text>
-                  </TouchableOpacity>
-                ) : profile ? (
-                  <>
-                    {/* Datos identitarios — siempre read-only */}
-                    <InfoRow icon="person-outline" iconBg={colors.primaryLight} iconColor={colors.primary}
-                      label="Nombre completo" value={displayName} />
-                    <InfoRow icon="card-outline" iconBg="#ECFDF5" iconColor="#059669"
-                      label="Cédula" value={profile.cedula_masked} />
-                    <InfoRow icon="mail-outline" iconBg="#F5F3FF" iconColor="#7C3AED"
-                      label="Correo electrónico" value={profile.email} />
-
-                    {perfilCompleto && !editing ? (
-                      /* Perfil completo — vista lectura con opción de rectificar (Art. 17 LOPDP) */
-                      <>
-                        <InfoRow icon="call-outline" iconBg="#ECFDF5" iconColor="#059669"
-                          label="Teléfono" value={profile.telefono ?? "—"} />
-                        <InfoRow icon="calendar-outline" iconBg={colors.primaryLight} iconColor={colors.primary}
-                          label="Fecha de nacimiento" value={fechaLarga(profile.fecha_nacimiento)} />
-                        <InfoRow icon="male-female-outline" iconBg={colors.secondaryLight} iconColor={colors.secondary}
-                          label="Sexo" value={profile.sexo ?? "—"} />
-                        <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)} activeOpacity={0.75}>
-                          <Ionicons name="create-outline" size={15} color={colors.primary} />
-                          <Text style={styles.editBtnText}>Rectificar datos (LOPDP Art. 17)</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (perfilCompleto && editing) || !perfilCompleto ? (
-                      /* Formulario de rectificación / completar perfil */
-                      <View style={styles.completeBox}>
-                        <View style={styles.completeBanner}>
-                          <Ionicons name="information-circle-outline" size={18} color="#B45309" />
-                          <Text style={styles.completeBannerText}>
-                            Completa tu información para terminar de configurar tu cuenta.
-                          </Text>
-                        </View>
-
-                        <Text style={styles.editLabel}>Número de teléfono</Text>
-                        <TextInput
-                          style={styles.textInput}
-                          value={telefono}
-                          onChangeText={setTelefono}
-                          placeholder="09XXXXXXXX"
-                          placeholderTextColor={colors.textTertiary}
-                          keyboardType="phone-pad"
-                          maxLength={20}
-                        />
-
-                        <Text style={styles.editLabel}>Fecha de nacimiento</Text>
-                        <View style={styles.dateGrid}>
-                          <View style={styles.dateCol}>
-                            <Text style={styles.dateColLabel}>Día</Text>
-                            <Picker selectedValue={birthDay} onValueChange={v => setBirthDay(Number(v))}
-                              style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
-                              {days.map(d => <Picker.Item key={d} label={String(d).padStart(2, "0")} value={d} />)}
-                            </Picker>
-                          </View>
-                          <View style={[styles.dateCol, { flex: 1.8 }]}>
-                            <Text style={styles.dateColLabel}>Mes</Text>
-                            <Picker selectedValue={birthMonth} onValueChange={v => setBirthMonth(Number(v))}
-                              style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
-                              {MONTH_LABELS.map((m, i) => <Picker.Item key={i} label={m[0].toUpperCase() + m.slice(1)} value={i + 1} />)}
-                            </Picker>
-                          </View>
-                          <View style={[styles.dateCol, { flex: 1.4 }]}>
-                            <Text style={styles.dateColLabel}>Año</Text>
-                            <Picker selectedValue={birthYear} onValueChange={v => setBirthYear(Number(v))}
-                              style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
-                              {BIRTH_YEARS.map(y => <Picker.Item key={y} label={String(y)} value={y} />)}
-                            </Picker>
-                          </View>
-                        </View>
-
-                        <Text style={styles.editLabel}>Sexo</Text>
-                        <View style={styles.radioGroup}>
-                          {SEXO_OPTS.map(opt => (
-                            <TouchableOpacity
-                              key={opt}
-                              style={[styles.radioChip, sexo === opt && styles.radioChipOn]}
-                              onPress={() => setSexo(opt)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={[styles.radioChipText, sexo === opt && styles.radioChipTextOn]}>{opt}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-
-                        <View style={styles.formActions}>
-                          {editing && (
-                            <TouchableOpacity
-                              style={styles.cancelBtn}
-                              onPress={() => setEditing(false)}
-                              disabled={saving}
-                              activeOpacity={0.75}
-                            >
-                              <Text style={styles.cancelBtnText}>Cancelar</Text>
-                            </TouchableOpacity>
-                          )}
-                          <TouchableOpacity
-                            style={[styles.primaryBtn, { flex: 1 }, saving && styles.btnDisabled]}
-                            onPress={handleGuardar}
-                            disabled={saving}
-                            activeOpacity={0.8}
-                          >
-                            {saving
-                              ? <ActivityIndicator size="small" color="#fff" />
-                              : <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />}
-                            <Text style={styles.primaryBtnText}>{saving ? "Guardando…" : "Guardar"}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ) : null}
-                  </>
-                ) : null}
-              </>
+              <PerfilTabContent
+                loadingProfile={loadingProfile}
+                profileError={profileError}
+                profile={profile}
+                displayName={displayName}
+                perfilCompleto={perfilCompleto}
+                editing={editing}
+                telefono={telefono}
+                sexo={sexo}
+                birthDay={birthDay}
+                birthMonth={birthMonth}
+                birthYear={birthYear}
+                days={days}
+                saving={saving}
+                onReload={loadProfile}
+                setEditing={setEditing}
+                setTelefono={setTelefono}
+                setSexo={setSexo}
+                setBirthDay={setBirthDay}
+                setBirthMonth={setBirthMonth}
+                setBirthYear={setBirthYear}
+                onGuardar={handleGuardar}
+              />
             ) : (
-              /* ── Configuración ── */
-              <>
-                <SectionLabel text="Seguridad" />
-                <TouchableOpacity style={styles.fieldRow} onPress={() => setShowChangePw(v => !v)} activeOpacity={0.7}>
-                  <FieldIcon icon="lock-closed-outline" bg="#FEF3C7" color="#D97706" />
-                  <View style={styles.fieldBody}>
-                    <Text style={styles.fieldLabel}>Cambiar contraseña</Text>
-                    <Text style={styles.fieldValue}>Actualiza tu clave de acceso</Text>
-                  </View>
-                  <Ionicons name={showChangePw ? "chevron-up" : "chevron-forward"} size={18} color={colors.textTertiary} />
-                </TouchableOpacity>
-
-                {showChangePw && (
-                  <View style={styles.changePwBox}>
-                    <PwField label="Contraseña actual" value={currentPw} onChange={setCurrentPw}
-                      show={showCurrentPw} onToggle={() => setShowCurrentPw(v => !v)} />
-                    <PwField label="Nueva contraseña" value={newPw} onChange={setNewPw}
-                      show={showNewPw} onToggle={() => setShowNewPw(v => !v)} />
-                    <PwField label="Confirmar nueva contraseña" value={confirmPw} onChange={setConfirmPw}
-                      show={showConfirmPw} onToggle={() => setShowConfirmPw(v => !v)} />
-                    <TouchableOpacity
-                      style={[styles.primaryBtn, { backgroundColor: "#D97706", marginTop: 4 }, pwSaving && styles.btnDisabled]}
-                      onPress={handleChangePw}
-                      disabled={pwSaving}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="lock-open-outline" size={18} color="#fff" />
-                      <Text style={styles.primaryBtnText}>{pwSaving ? "Actualizando…" : "Actualizar contraseña"}</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-              </>
+              <ConfigTabContent
+                showChangePw={showChangePw}
+                currentPw={currentPw}
+                newPw={newPw}
+                confirmPw={confirmPw}
+                showCurrentPw={showCurrentPw}
+                showNewPw={showNewPw}
+                showConfirmPw={showConfirmPw}
+                pwSaving={pwSaving}
+                setShowChangePw={setShowChangePw}
+                setCurrentPw={setCurrentPw}
+                setNewPw={setNewPw}
+                setConfirmPw={setConfirmPw}
+                setShowCurrentPw={setShowCurrentPw}
+                setShowNewPw={setShowNewPw}
+                setShowConfirmPw={setShowConfirmPw}
+                onChangePw={handleChangePw}
+              />
             )}
 
             {/* Cerrar sesión — siempre visible */}
@@ -426,6 +311,216 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
         </Animated.View>
       </View>
     </Modal>
+  )
+}
+
+// ─── Contenido del tab "Mi perfil" ──────────────────────────────────────────
+// Extraído de ProfileBottomSheet para bajar la complejidad cognitiva del render.
+function PerfilTabContent(p: {
+  loadingProfile: boolean
+  profileError: string | null
+  profile: CitizenProfile | null
+  displayName: string
+  perfilCompleto: boolean
+  editing: boolean
+  telefono: string
+  sexo: Sexo
+  birthDay: number
+  birthMonth: number
+  birthYear: number
+  days: number[]
+  saving: boolean
+  onReload: () => void
+  setEditing: (v: boolean) => void
+  setTelefono: (v: string) => void
+  setSexo: (v: Sexo) => void
+  setBirthDay: (v: number) => void
+  setBirthMonth: (v: number) => void
+  setBirthYear: (v: number) => void
+  onGuardar: () => void
+}) {
+  if (p.loadingProfile) {
+    return (
+      <View style={styles.loadingRow}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={styles.loadingText}>Cargando información…</Text>
+      </View>
+    )
+  }
+  if (p.profileError) {
+    return (
+      <TouchableOpacity style={styles.errorRow} onPress={p.onReload}>
+        <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+        <Text style={styles.errorRowText}>{p.profileError} Toca para reintentar.</Text>
+      </TouchableOpacity>
+    )
+  }
+  if (!p.profile) return null
+
+  return (
+    <>
+      {/* Datos identitarios — siempre read-only */}
+      <InfoRow icon="person-outline" iconBg={colors.primaryLight} iconColor={colors.primary}
+        label="Nombre completo" value={p.displayName} />
+      <InfoRow icon="card-outline" iconBg="#ECFDF5" iconColor="#059669"
+        label="Cédula" value={p.profile.cedula_masked} />
+      <InfoRow icon="mail-outline" iconBg="#F5F3FF" iconColor="#7C3AED"
+        label="Correo electrónico" value={p.profile.email} />
+
+      {p.perfilCompleto && !p.editing ? (
+        /* Perfil completo — vista lectura con opción de rectificar (Art. 17 LOPDP) */
+        <>
+          <InfoRow icon="call-outline" iconBg="#ECFDF5" iconColor="#059669"
+            label="Teléfono" value={p.profile.telefono ?? "—"} />
+          <InfoRow icon="calendar-outline" iconBg={colors.primaryLight} iconColor={colors.primary}
+            label="Fecha de nacimiento" value={fechaLarga(p.profile.fecha_nacimiento)} />
+          <InfoRow icon="male-female-outline" iconBg={colors.secondaryLight} iconColor={colors.secondary}
+            label="Sexo" value={p.profile.sexo ?? "—"} />
+          <TouchableOpacity style={styles.editBtn} onPress={() => p.setEditing(true)} activeOpacity={0.75}>
+            <Ionicons name="create-outline" size={15} color={colors.primary} />
+            <Text style={styles.editBtnText}>Rectificar datos (LOPDP Art. 17)</Text>
+          </TouchableOpacity>
+        </>
+      ) : (p.perfilCompleto && p.editing) || !p.perfilCompleto ? (
+        /* Formulario de rectificación / completar perfil */
+        <View style={styles.completeBox}>
+          <View style={styles.completeBanner}>
+            <Ionicons name="information-circle-outline" size={18} color="#B45309" />
+            <Text style={styles.completeBannerText}>
+              Completa tu información para terminar de configurar tu cuenta.
+            </Text>
+          </View>
+
+          <Text style={styles.editLabel}>Número de teléfono</Text>
+          <TextInput
+            style={styles.textInput}
+            value={p.telefono}
+            onChangeText={p.setTelefono}
+            placeholder="09XXXXXXXX"
+            placeholderTextColor={colors.textTertiary}
+            keyboardType="phone-pad"
+            maxLength={20}
+          />
+
+          <Text style={styles.editLabel}>Fecha de nacimiento</Text>
+          <View style={styles.dateGrid}>
+            <View style={styles.dateCol}>
+              <Text style={styles.dateColLabel}>Día</Text>
+              <Picker selectedValue={p.birthDay} onValueChange={v => p.setBirthDay(Number(v))}
+                style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
+                {p.days.map(d => <Picker.Item key={d} label={String(d).padStart(2, "0")} value={d} />)}
+              </Picker>
+            </View>
+            <View style={[styles.dateCol, { flex: 1.8 }]}>
+              <Text style={styles.dateColLabel}>Mes</Text>
+              <Picker selectedValue={p.birthMonth} onValueChange={v => p.setBirthMonth(Number(v))}
+                style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
+                {MONTH_LABELS.map((m, i) => <Picker.Item key={i} label={m[0].toUpperCase() + m.slice(1)} value={i + 1} />)}
+              </Picker>
+            </View>
+            <View style={[styles.dateCol, { flex: 1.4 }]}>
+              <Text style={styles.dateColLabel}>Año</Text>
+              <Picker selectedValue={p.birthYear} onValueChange={v => p.setBirthYear(Number(v))}
+                style={styles.picker} itemStyle={styles.pickerItem} mode="dropdown">
+                {BIRTH_YEARS.map(y => <Picker.Item key={y} label={String(y)} value={y} />)}
+              </Picker>
+            </View>
+          </View>
+
+          <Text style={styles.editLabel}>Sexo</Text>
+          <View style={styles.radioGroup}>
+            {SEXO_OPTS.map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.radioChip, p.sexo === opt && styles.radioChipOn]}
+                onPress={() => p.setSexo(opt)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.radioChipText, p.sexo === opt && styles.radioChipTextOn]}>{opt}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={styles.formActions}>
+            {p.editing && (
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => p.setEditing(false)}
+                disabled={p.saving}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.primaryBtn, { flex: 1 }, p.saving && styles.btnDisabled]}
+              onPress={p.onGuardar}
+              disabled={p.saving}
+              activeOpacity={0.8}
+            >
+              {p.saving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="checkmark-circle-outline" size={18} color="#fff" />}
+              <Text style={styles.primaryBtnText}>{p.saving ? "Guardando…" : "Guardar"}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+    </>
+  )
+}
+
+// ─── Contenido del tab "Configuración" ───────────────────────────────────────
+function ConfigTabContent(p: {
+  showChangePw: boolean
+  currentPw: string
+  newPw: string
+  confirmPw: string
+  showCurrentPw: boolean
+  showNewPw: boolean
+  showConfirmPw: boolean
+  pwSaving: boolean
+  setShowChangePw: (fn: (v: boolean) => boolean) => void
+  setCurrentPw: (v: string) => void
+  setNewPw: (v: string) => void
+  setConfirmPw: (v: string) => void
+  setShowCurrentPw: (fn: (v: boolean) => boolean) => void
+  setShowNewPw: (fn: (v: boolean) => boolean) => void
+  setShowConfirmPw: (fn: (v: boolean) => boolean) => void
+  onChangePw: () => void
+}) {
+  return (
+    <>
+      <SectionLabel text="Seguridad" />
+      <TouchableOpacity style={styles.fieldRow} onPress={() => p.setShowChangePw(v => !v)} activeOpacity={0.7}>
+        <FieldIcon icon="lock-closed-outline" bg="#FEF3C7" color="#D97706" />
+        <View style={styles.fieldBody}>
+          <Text style={styles.fieldLabel}>Cambiar contraseña</Text>
+          <Text style={styles.fieldValue}>Actualiza tu clave de acceso</Text>
+        </View>
+        <Ionicons name={p.showChangePw ? "chevron-up" : "chevron-forward"} size={18} color={colors.textTertiary} />
+      </TouchableOpacity>
+
+      {p.showChangePw && (
+        <View style={styles.changePwBox}>
+          <PwField label="Contraseña actual" value={p.currentPw} onChange={p.setCurrentPw}
+            show={p.showCurrentPw} onToggle={() => p.setShowCurrentPw(v => !v)} />
+          <PwField label="Nueva contraseña" value={p.newPw} onChange={p.setNewPw}
+            show={p.showNewPw} onToggle={() => p.setShowNewPw(v => !v)} />
+          <PwField label="Confirmar nueva contraseña" value={p.confirmPw} onChange={p.setConfirmPw}
+            show={p.showConfirmPw} onToggle={() => p.setShowConfirmPw(v => !v)} />
+          <TouchableOpacity
+            style={[styles.primaryBtn, { backgroundColor: "#D97706", marginTop: 4 }, p.pwSaving && styles.btnDisabled]}
+            onPress={p.onChangePw}
+            disabled={p.pwSaving}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="lock-open-outline" size={18} color="#fff" />
+            <Text style={styles.primaryBtnText}>{p.pwSaving ? "Actualizando…" : "Actualizar contraseña"}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </>
   )
 }
 
