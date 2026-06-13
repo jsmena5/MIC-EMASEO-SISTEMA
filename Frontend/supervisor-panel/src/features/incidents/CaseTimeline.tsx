@@ -18,7 +18,7 @@ function cleanEstado(raw: string | null): string {
 
 type Entry = { title: string; subtitle: string; meta: string; note: string | null; dot: string }
 
-export default function CaseTimeline({ detail }: { detail: IncidentDetail }) {
+export default function CaseTimeline({ detail }: Readonly<{ detail: IncidentDetail }>) {
   const historial: Entry[] = detail.historial.map((h) => ({
     title:    `${cleanEstado(h.estado_anterior)} → ${cleanEstado(h.estado_nuevo)}`,
     subtitle: cleanActor(h.actor, h.actor_rol),

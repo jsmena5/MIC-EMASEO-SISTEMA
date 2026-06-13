@@ -125,37 +125,7 @@ export default function Step1Validate({
           </p>
         </div>
 
-        {!discarding ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <button
-              onClick={onAdvance}
-              className={[
-                "rounded-xl border-2 px-4 py-4 text-left transition",
-                iaSugiereReal
-                  ? "border-green-500 bg-green-50 hover:bg-green-100"
-                  : "border-slate-200 bg-white hover:border-green-300",
-              ].join(" ")}
-            >
-              <div className="text-sm font-extrabold text-green-700">✓ Es un reporte real</div>
-              <div className="mt-1 text-xs text-slate-600">Pasa a clasificar la incidencia.</div>
-              {iaSugiereReal && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-green-600">Sugerido por IA</div>}
-            </button>
-
-            <button
-              onClick={() => setDiscarding(true)}
-              className={[
-                "rounded-xl border-2 px-4 py-4 text-left transition",
-                iaSugiereDescarte
-                  ? "border-red-300 bg-red-50 hover:bg-red-100"
-                  : "border-slate-200 bg-white hover:border-red-300",
-              ].join(" ")}
-            >
-              <div className="text-sm font-extrabold text-red-700">✕ No es real / descartar</div>
-              <div className="mt-1 text-xs text-slate-600">Rechaza el reporte con un motivo.</div>
-              {iaSugiereDescarte && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-red-600">Sugerido por IA</div>}
-            </button>
-          </div>
-        ) : (
+        {discarding ? (
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 grid gap-3">
             <div>
               <label htmlFor="s1-motivo" className="text-xs font-bold uppercase tracking-wider text-red-700">
@@ -206,6 +176,36 @@ export default function Step1Validate({
                 {saving ? "Descartando…" : "Confirmar descarte"}
               </button>
             </div>
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              onClick={onAdvance}
+              className={[
+                "rounded-xl border-2 px-4 py-4 text-left transition",
+                iaSugiereReal
+                  ? "border-green-500 bg-green-50 hover:bg-green-100"
+                  : "border-slate-200 bg-white hover:border-green-300",
+              ].join(" ")}
+            >
+              <div className="text-sm font-extrabold text-green-700">✓ Es un reporte real</div>
+              <div className="mt-1 text-xs text-slate-600">Pasa a clasificar la incidencia.</div>
+              {iaSugiereReal && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-green-600">Sugerido por IA</div>}
+            </button>
+
+            <button
+              onClick={() => setDiscarding(true)}
+              className={[
+                "rounded-xl border-2 px-4 py-4 text-left transition",
+                iaSugiereDescarte
+                  ? "border-red-300 bg-red-50 hover:bg-red-100"
+                  : "border-slate-200 bg-white hover:border-red-300",
+              ].join(" ")}
+            >
+              <div className="text-sm font-extrabold text-red-700">✕ No es real / descartar</div>
+              <div className="mt-1 text-xs text-slate-600">Rechaza el reporte con un motivo.</div>
+              {iaSugiereDescarte && <div className="mt-1.5 text-[10px] font-bold uppercase tracking-wider text-red-600">Sugerido por IA</div>}
+            </button>
           </div>
         )}
 

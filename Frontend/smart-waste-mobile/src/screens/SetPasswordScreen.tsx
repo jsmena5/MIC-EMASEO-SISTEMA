@@ -15,16 +15,16 @@ import BackButton from "../components/BackButton"
 import LinkButton from "../components/LinkButton"
 import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
-import { setPassword } from "../services/user.service"
+import { setPassword as savePassword } from "../services/user.service"
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
 type Props = NativeStackScreenProps<RootStackParamList, "SetPassword">
 
-export default function SetPasswordScreen({ navigation, route }: Props) {
+export default function SetPasswordScreen({ navigation, route }: Readonly<Props>) {
   const { email } = route.params
 
-  const [password, setPasswordValue]   = useState("")
+  const [password, setPassword]   = useState("")
   const [confirm, setConfirm]          = useState("")
   const [showPass, setShowPass]        = useState(false)
   const [showConfirm, setShowConfirm]  = useState(false)
@@ -46,7 +46,7 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
 
     try {
       setLoading(true)
-      await setPassword({ email, password })
+      await savePassword({ email, password })
       if (!mountedRef.current) return
       // Cuenta creada — navegar a Login para que el usuario inicie sesión.
       // El Alert no cancelable evita que en Android se descarte tocando fuera.
@@ -101,7 +101,7 @@ export default function SetPasswordScreen({ navigation, route }: Props) {
             autoCorrect={false}
             textContentType="newPassword"
             importantForAutofill="no"
-            onChangeText={setPasswordValue}
+            onChangeText={setPassword}
             value={password}
             accessibilityLabel="Campo de nueva contraseña"
             accessibilityRole="none"

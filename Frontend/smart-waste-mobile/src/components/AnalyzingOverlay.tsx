@@ -33,7 +33,7 @@ export default function AnalyzingOverlay({
   if (!isAnalyzing) return null
 
   const pct =
-    progress !== undefined ? Math.min(100, Math.max(0, Math.round(progress))) : undefined
+    progress === undefined ? undefined : Math.min(100, Math.max(0, Math.round(progress)))
 
   return (
     <View style={styles.root}>

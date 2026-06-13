@@ -273,7 +273,7 @@ export default function IncidentsPage() {
                     <KvRow label="Confianza"    value={`${Math.round((detail.confianza_decision ?? detail.confianza ?? 0) * 100)}%`} />
                     <KvRow label="Tipo residuo" value={detail.tipo_residuo ? ({ DOMESTICO:"Doméstico",ORGANICO:"Orgánico",RECICLABLE:"Reciclable",ESCOMBROS:"Escombros",PELIGROSO:"Peligroso",MIXTO:"Mixto",OTRO:"Otro" }[detail.tipo_residuo] ?? detail.tipo_residuo) : "—"} />
                     <KvRow label="Acumulación"  value={detail.nivel_acumulacion ? ({ BAJO:"Bajo",MEDIO:"Medio",ALTO:"Alto",CRITICO:"Crítico" }[detail.nivel_acumulacion] ?? detail.nivel_acumulacion) : "—"} />
-                    <KvRow label="Volumen"      value={detail.volumen_estimado_m3 != null ? `${Number(detail.volumen_estimado_m3).toFixed(2)} m³ (ref.)` : "Sin dato"} />
+                    <KvRow label="Volumen"      value={detail.volumen_estimado_m3 == null ? "Sin dato" : `${Number(detail.volumen_estimado_m3).toFixed(2)} m³ (ref.)`} />
                     <KvRow label="Detecciones"  value={String(detail.num_detecciones ?? 0)} />
                     <KvRow label="Tiempo IA"    value={detail.tiempo_inferencia_ms ? `${detail.tiempo_inferencia_ms} ms` : "—"} />
                   </div>
@@ -328,7 +328,7 @@ export default function IncidentsPage() {
   )
 }
 
-function KvRow({ label, value }: { label: string; value: string }) {
+function KvRow({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="rounded-lg bg-white p-2">
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>

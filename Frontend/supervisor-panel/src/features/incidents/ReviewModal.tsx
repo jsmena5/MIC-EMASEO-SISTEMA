@@ -69,7 +69,7 @@ export default function ReviewModal({
     if (!motivoRechazo) { setError("Selecciona un motivo."); return }
     setSaving(true); setError(null)
     try {
-      await cambiarEstado(detail.id, "RECHAZADA", { motivo_rechazo: motivoRechazo as MR, observaciones: observaciones.trim() || undefined })
+      await cambiarEstado(detail.id, "RECHAZADA", { motivo_rechazo: motivoRechazo, observaciones: observaciones.trim() || undefined })
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo rechazar.")

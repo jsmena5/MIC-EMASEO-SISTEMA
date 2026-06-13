@@ -13,7 +13,7 @@ function buildImageUrl(item: Pick<IncidentListItem, "image_url" | "imagen_audito
 
 export default function IncidentRail({
   incidents, selectedId, onSelect, loading, error, onRetry, sort, onSortChange,
-}: {
+}: Readonly<{
   incidents: IncidentListItem[]
   selectedId: string | null
   onSelect: (id: string) => void
@@ -22,7 +22,7 @@ export default function IncidentRail({
   onRetry: () => void
   sort: SortOrder
   onSortChange: (s: SortOrder) => void
-}) {
+}>) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {/* Header de la bandeja */}
@@ -76,7 +76,7 @@ export default function IncidentRail({
                   <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-slate-100">
                     {imageUrl
                       ? <img src={imageUrl} alt="" className="h-full w-full object-cover"
-                          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none" }} />
+                          onError={(e) => { e.currentTarget.style.display = "none" }} />
                       : <div className="h-full w-full flex items-center justify-center text-[9px] text-slate-400">Sin foto</div>
                     }
                   </div>

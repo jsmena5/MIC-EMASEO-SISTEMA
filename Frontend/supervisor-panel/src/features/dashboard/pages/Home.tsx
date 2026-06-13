@@ -38,9 +38,9 @@ const initial: State = {
 
 // ── KPI card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, hint, href, accent, loading }: {
-  readonly label: string; value: number; hint: string; href: string; accent: string; loading: boolean
-}) {
+function KpiCard({ label, value, hint, href, accent, loading }: Readonly<{
+  label: string; value: number; hint: string; href: string; accent: string; loading: boolean
+}>) {
   return (
     <Link to={href}
       className="group rounded-2xl border border-slate-200 bg-white p-5 transition hover:border-slate-300 hover:shadow-sm">
@@ -59,9 +59,9 @@ function KpiCard({ label, value, hint, href, accent, loading }: {
 
 // ── Progress bar de distribución ─────────────────────────────────────────────
 
-function StatusBar({ pendientes, revisados, enRevision, resueltosHoy }: {
-  readonly pendientes: number; revisados: number; enRevision: number; resueltosHoy: number
-}) {
+function StatusBar({ pendientes, revisados, enRevision, resueltosHoy }: Readonly<{
+  pendientes: number; revisados: number; enRevision: number; resueltosHoy: number
+}>) {
   const total = pendientes + revisados + enRevision + resueltosHoy
   if (total === 0) return null
   const pct = (n: number) => Math.round((n / total) * 100)

@@ -55,7 +55,7 @@ function formatGeocodeResult(result: Location.LocationGeocodedAddress): string |
 
 // Tarjeta "Recibo de IA": estado, metadatos y metricas del análisis. Extraída para
 // mantener ReportDetailScreen por debajo del umbral de complejidad cognitiva.
-function AiReceiptCard({ incident }: { incident: Incident }) {
+function AiReceiptCard({ incident }: Readonly<{ incident: Incident }>) {
   const cfg = ESTADO_CONFIG[incident.estado] ?? ESTADO_CONFIG.PENDIENTE
   const nivelColor = incident.nivel_acumulacion
     ? (NIVEL_COLOR[incident.nivel_acumulacion] ?? colors.gray400)
@@ -151,7 +151,7 @@ function AiReceiptCard({ incident }: { incident: Incident }) {
             <View style={{ flex: 1 }}>
               <Text style={styles.rechazoTitle}>Motivo del rechazo</Text>
               <Text style={styles.rechazoText}>
-                {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo as MotivoRechazo]}
+                {MOTIVO_RECHAZO_LABEL[incident.motivo_rechazo]}
               </Text>
               {incident.observaciones_rechazo ? (
                 <Text style={styles.rechazoObs}>{`"${incident.observaciones_rechazo}"`}</Text>
@@ -164,7 +164,7 @@ function AiReceiptCard({ incident }: { incident: Incident }) {
   )
 }
 
-export default function ReportDetailScreen({ route, navigation }: Props) {
+export default function ReportDetailScreen({ route, navigation }: Readonly<Props>) {
   const [incident, setIncident] = useState<Incident>(route.params.incident)
 
   if (__DEV__) console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
@@ -290,12 +290,12 @@ function MetaRow({
   label,
   value,
   valueColor,
-}: {
+}: Readonly<{
   icon: React.ComponentProps<typeof Ionicons>["name"]
   label: string
   value: string
   valueColor?: string
-}) {
+}>) {
   return (
     <View style={styles.metaRow}>
       <View style={styles.metaLeft}>

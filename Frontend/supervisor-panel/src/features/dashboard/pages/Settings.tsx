@@ -42,7 +42,7 @@ export default function Settings() {
   const allReqsMet     = REQUIREMENTS.every(r => r.test(next.value))
   const canSubmit      = current.value !== "" && allReqsMet && passwordsMatch && !loading
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!canSubmit) return
 
@@ -190,7 +190,7 @@ export default function Settings() {
 
 function PasswordField({
   id, label, value, show, onChange, onToggleShow, autoComplete, error,
-}: {
+}: Readonly<{
   id: string
   label: string
   value: string
@@ -199,7 +199,7 @@ function PasswordField({
   onToggleShow: () => void
   autoComplete?: string
   error?: string
-}) {
+}>) {
   return (
     <div>
       <label htmlFor={id} className="mb-1.5 block text-sm font-semibold text-slate-700">

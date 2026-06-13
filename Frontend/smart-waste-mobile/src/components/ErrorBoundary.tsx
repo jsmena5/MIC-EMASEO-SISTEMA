@@ -23,7 +23,7 @@ interface State {
  * recuperación con un botón para volver al inicio.
  *
  * La recuperación remonta el subárbol hijo con una `key` nueva. Si se envuelve el
- * NavigationContainer, esto descarta TODO el estado de navegación y arranca de
+ * NavigationContainer, esto descarta el estado de navegación completo y arranca de
  * cero en la ruta inicial — evitando un bucle de fallos si la pantalla que rompió
  * se rehidratara con los mismos params inválidos.
  *

@@ -54,7 +54,7 @@ interface Props {
   onFinish?: () => void
 }
 
-export default function SplashScreen({ onFinish: _onFinish }: Props) {
+export default function SplashScreen({ onFinish: _onFinish }: Readonly<Props>) {
   const logoScale = useSharedValue(0)
   const logoOpacity = useSharedValue(0)
 
@@ -201,7 +201,7 @@ export default function SplashScreen({ onFinish: _onFinish }: Props) {
 
 // ─── Dot pulsante ─────────────────────────────────────────────────────────────
 
-function PulseDot({ delay }: { delay: number }) {
+function PulseDot({ delay }: Readonly<{ delay: number }>) {
   const scale = useSharedValue(0.4)
   const opacity = useSharedValue(0.25)
 

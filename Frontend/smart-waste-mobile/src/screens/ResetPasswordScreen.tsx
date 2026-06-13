@@ -19,7 +19,7 @@ import { globalStyles } from "../theme/styles"
 
 type Props = NativeStackScreenProps<RootStackParamList, "ResetPassword">
 
-export default function ResetPasswordScreen({ navigation, route }: Props) {
+export default function ResetPasswordScreen({ navigation, route }: Readonly<Props>) {
   const { email, otp } = route.params
   const { login } = useAuth()
 

@@ -188,7 +188,7 @@ interface FechaPickerProps {
   onChange:  (day: number, month: number, year: number) => void
 }
 
-function FechaNacimientoPicker({ day, month, year, error, onChange }: FechaPickerProps) {
+function FechaNacimientoPicker({ day, month, year, error, onChange }: Readonly<FechaPickerProps>) {
   const safeYear  = year  ?? BIRTH_YEARS[30]
   const safeMonth = month ?? 1
   const maxDay    = daysInMonth(safeMonth, safeYear)
@@ -256,14 +256,14 @@ interface SexoSelectorProps {
   onChange: (value: string) => void
 }
 
-function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
+function SexoSelector({ value, error, onChange }: Readonly<SexoSelectorProps>) {
   return (
     <View style={styles.fieldWrapper}>
       <Text style={styles.label}>Sexo</Text>
       <View style={[styles.inputWrapper, error ? { borderColor: "#EF4444" } : undefined]}>
         <Picker
           selectedValue={value || null}
-          onValueChange={(v) => { if (v) onChange(v as string) }}
+          onValueChange={(v) => { if (v) onChange(v) }}
           style={styles.sexoPicker}
           mode="dropdown"
         >
@@ -280,7 +280,7 @@ function SexoSelector({ value, error, onChange }: SexoSelectorProps) {
 
 // ─── Pantalla Principal ───────────────────────────────────────────────────────
 
-export default function RegisterScreen({ navigation }: Props) {
+export default function RegisterScreen({ navigation }: Readonly<Props>) {
   const [form, setForm] = useState<FormType>({
     nombres: "", apellidos: "",
     sexo: "", telefono: "",

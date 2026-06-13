@@ -34,11 +34,11 @@ function captureGPS(): Promise<{ cierre_lat: number; cierre_lon: number }> {
 
 export default function Step3Assign({
   detail, operarios, onRefresh,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   operarios: OperarioItem[]
   onRefresh: () => void
-}) {
+}>) {
   const [selected,     setSelected]     = useState("")
   const [notas,        setNotas]        = useState("")
   const [observaciones, setObservaciones] = useState("")
@@ -77,7 +77,7 @@ export default function Step3Assign({
     try {
       const res = await cambiarEstado(detail.id, estado, observaciones, gps)
       const dist = res.distancia_cierre_m
-      const distSuffix = dist != null ? ` Distancia al punto: ${dist} m.` : ""
+      const distSuffix = dist == null ? "" : ` Distancia al punto: ${dist} m.`
       setFeedback(`Reporte cerrado correctamente.${distSuffix}`)
       onRefresh()
     } catch (err) {

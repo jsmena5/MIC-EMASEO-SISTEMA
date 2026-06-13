@@ -92,11 +92,11 @@ function pollRetryMessage(isRateLimited: boolean, isNetworkError: boolean, attem
 function AnalyzeButton({
   phase, isActive, isAnalyzeBlocked, isCropping, hasLocation, isLocationLoading,
   uploadProgress, onAnalyze,
-}: {
+}: Readonly<{
   phase: AnalysisPhase; isActive: boolean; isAnalyzeBlocked: boolean
   isCropping: boolean; hasLocation: boolean; isLocationLoading: boolean
   uploadProgress: number; onAnalyze: () => void
-}) {
+}>) {
   return (
     <TouchableOpacity
       style={[
@@ -143,7 +143,7 @@ function AnalyzeButton({
 
 function LocationIndicator({
   isLocationLoading, hasLocation, locError,
-}: { isLocationLoading: boolean; hasLocation: boolean; locError: string | null }) {
+}: Readonly<{ isLocationLoading: boolean; hasLocation: boolean; locError: string | null }>) {
   return (
     <View style={styles.locationStatus}>
       {(() => {
@@ -177,13 +177,13 @@ function LocationIndicator({
 
 function CameraView({
   phase, pendingCount, onPictureTaken, onCoverageUpdate, onBack,
-}: {
+}: Readonly<{
   phase: AnalysisPhase
   pendingCount: number
   onPictureTaken: (b: string, u: string, w: number, h: number) => void
   onCoverageUpdate: (_: unknown, cov: number) => void
   onBack: () => void
-}) {
+}>) {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar
@@ -213,7 +213,7 @@ function PhotoReviewScreen({
   capturedUri, phase, hasLocation, isLocationLoading, isCropping, locError,
   uploadProgress, pollProgress, isSlowMessage, hasActiveTask,
   onAnalyze, onCancelUpload, onRetake, onCancelToHome, onSendToBackground, onCancelAnalysis,
-}: {
+}: Readonly<{
   capturedUri: string
   phase: AnalysisPhase
   hasLocation: boolean
@@ -230,7 +230,7 @@ function PhotoReviewScreen({
   onCancelToHome: () => void
   onSendToBackground: () => void
   onCancelAnalysis: () => void
-}) {
+}>) {
   const isActive    = phase !== "idle"
   const showOverlay = phase === "queued" || phase === "analyzing" || phase === "saving"
   const canCancel   = phase === "queued" || phase === "analyzing"
@@ -677,7 +677,7 @@ export default function ScanScreen() {
         const thumb = await ImageManipulator.manipulateAsync(
           sourceUri,
           [{ resize: { width: 320 } }],
-          { compress: 0.70, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true },
         )
         thumbB64 = thumb.base64 ?? null
       } catch {
@@ -709,7 +709,7 @@ export default function ScanScreen() {
           { text: "Tomar otra foto", onPress: retake },
           {
             text: "Enviar de todos modos",
-            onPress: () => proceedToAnalysis(capturedB64!),
+            onPress: () => { if (capturedB64) proceedToAnalysis(capturedB64) },
           },
         ],
       )
@@ -979,7 +979,7 @@ export default function ScanScreen() {
 
         // Clasificar el error: es la única forma de diagnosticar la causa (429
         // rate-limit, 5xx servidor, o caída de red). Antes el `catch {}` lo descartaba
-        // y todo se veía como un genérico "Error de conexión".
+        // y el error se veía como un genérico "Error de conexión".
         const { status, code, isNetworkError, isRateLimited } = classifyPollError(err)
         console.warn(
           `[ScanScreen] poll getTaskStatus falló — status=${status ?? "n/a"} code=${code ?? "n/a"} msg=${err?.message ?? "n/a"}`,

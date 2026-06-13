@@ -22,7 +22,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "OtpVerification">
 
 const RESEND_COOLDOWN = 60 // segundos
 
-export default function OtpVerificationScreen({ navigation, route }: Props) {
+export default function OtpVerificationScreen({ navigation, route }: Readonly<Props>) {
   const { email, registrationData } = route.params
 
   const [digits, setDigits]       = useState<string[]>(["", "", "", "", "", ""])

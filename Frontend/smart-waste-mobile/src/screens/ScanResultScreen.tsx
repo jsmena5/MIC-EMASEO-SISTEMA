@@ -203,7 +203,7 @@ export default function ScanResultScreen() {
 
 function MetricCard({
   label, value, onInfo,
-}: { label: string; value: string; onInfo?: () => void }) {
+}: Readonly<{ label: string; value: string; onInfo?: () => void }>) {
   return (
     <View style={styles.card}>
       <Text style={styles.cardValue}>{value}</Text>
@@ -221,7 +221,7 @@ function MetricCard({
 
 function DetailRow({
   label, value, onInfo,
-}: { label: string; value: string; onInfo?: () => void }) {
+}: Readonly<{ label: string; value: string; onInfo?: () => void }>) {
   return (
     <View style={styles.detailRow}>
       <View style={styles.detailLabelRow}>

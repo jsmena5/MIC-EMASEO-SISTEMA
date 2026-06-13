@@ -4,8 +4,7 @@
  * Los filtros avanzados (dropdowns, fechas) se expanden solo cuando se necesitan.
  */
 import { useState } from "react"
-import type { DecisionAutomatica, IncidentEstado, Prioridad } from "../../services/incident.service"
-import type { IncidentFilters } from "../../services/incident.service"
+import type { DecisionAutomatica, IncidentEstado, IncidentFilters, Prioridad } from "../../services/incident.service"
 import { palette } from "./styles"
 
 function hasActiveFilters(f: IncidentFilters) {
@@ -23,9 +22,9 @@ const fieldStyle: React.CSSProperties = {
   width: "100%",
 }
 
-function Chip({ label, active, onClick, color }: {
+function Chip({ label, active, onClick, color }: Readonly<{
   label: string; active: boolean; onClick: () => void; color: string
-}) {
+}>) {
   return (
     <button onClick={onClick} style={{
       padding: "5px 11px", borderRadius: 999,
@@ -41,7 +40,7 @@ function Chip({ label, active, onClick, color }: {
 
 export default function FiltersBar({
   filters, onChange,
-}: { filters: IncidentFilters; onChange: (f: IncidentFilters) => void }) {
+}: Readonly<{ filters: IncidentFilters; onChange: (f: IncidentFilters) => void }>) {
   const [expanded, setExpanded] = useState(false)
   const set = (partial: Partial<IncidentFilters>) => onChange({ ...filters, ...partial, page: 1 })
   const active = hasActiveFilters(filters)

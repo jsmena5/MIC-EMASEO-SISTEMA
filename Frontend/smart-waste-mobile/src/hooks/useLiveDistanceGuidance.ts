@@ -18,7 +18,7 @@ const NORM_FACTOR = 3
 // el armado de la auto-captura — NO el valor de coverage que se envía al server como
 // client_coverage_ratio (ese sale de NORM_FACTOR, no lo tocar). Lenientes a propósito:
 // el heurístico de bordes se satura en escenas con textura (basura real), así que
-// ensanchamos OPTIMAL para no marcar "aléjate" todo el tiempo. La validación real de
+// ensanchamos OPTIMAL para no marcar "aléjate" constantemente. La validación real de
 // basura/coverage la hace el server (coverage_to_distance_hint allí es solo otra pista).
 const TOO_FAR_MAX   = 0.12
 const TOO_CLOSE_MIN = 0.9

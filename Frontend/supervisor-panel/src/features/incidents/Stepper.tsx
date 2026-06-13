@@ -4,11 +4,11 @@ export default function Stepper({
   current,
   reachable,
   onJump,
-}: {
+}: Readonly<{
   current: Step
   reachable: Step
   onJump: (step: Step) => void
-}) {
+}>) {
   const steps: { n: Step; label: string }[] = [
     { n: 1, label: "Validar" },
     { n: 2, label: "Clasificar" },

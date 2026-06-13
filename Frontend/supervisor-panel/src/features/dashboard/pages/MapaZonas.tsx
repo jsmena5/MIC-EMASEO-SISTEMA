@@ -126,7 +126,7 @@ export default function MapaZonas() {
     const color = ZONA_COLOR[codigo] ?? COLOR_FALLBACK
     return {
       fillColor:   color,
-      fillOpacity: 0.30,
+      fillOpacity: 0.3,
       color:       color,
       weight:      2,
       opacity:     0.9,
@@ -138,10 +138,10 @@ export default function MapaZonas() {
     layer.on({
       click: () => setZonaPanel(props),
       mouseover: (e: L.LeafletMouseEvent) => {
-        ;(e.target as L.Path).setStyle({ fillOpacity: 0.50, weight: 3 })
+        ;(e.target as L.Path).setStyle({ fillOpacity: 0.5, weight: 3 })
       },
       mouseout: (e: L.LeafletMouseEvent) => {
-        ;(e.target as L.Path).setStyle({ fillOpacity: 0.30, weight: 2 })
+        ;(e.target as L.Path).setStyle({ fillOpacity: 0.3, weight: 2 })
       },
     })
     layer.bindTooltip(props.nombre, {
@@ -241,10 +241,10 @@ export default function MapaZonas() {
       }}>
         {(Object.keys(BASEMAPS) as BasemapKey[]).map(key => {
           let btnBg: string
-          if (basemap !== key) {
-            btnBg = 'transparent'
-          } else {
+          if (basemap === key) {
             btnBg = key === 'oscuro' ? '#1e293b' : '#f97316'
+          } else {
+            btnBg = 'transparent'
           }
           return (
             <button key={key} onClick={() => setBasemap(key)}
@@ -262,7 +262,7 @@ export default function MapaZonas() {
       </div>
 
       {/* Mapa — basemap conmutable claro/oscuro */}
-      <MapContainer center={[-0.22, -78.50]} zoom={11} style={{ height: '100%', width: '100%' }} zoomControl>
+      <MapContainer center={[-0.22, -78.5]} zoom={11} style={{ height: '100%', width: '100%' }} zoomControl>
         <TileLayer
           key={basemap}
           attribution={BASEMAPS[basemap].attribution}

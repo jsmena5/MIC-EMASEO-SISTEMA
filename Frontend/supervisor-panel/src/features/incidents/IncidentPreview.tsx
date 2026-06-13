@@ -12,11 +12,11 @@ export default function IncidentPreview({
   detail,
   onReview,
   onReject,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   onReview: () => void
   onReject: () => void
-}) {
+}>) {
   const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
@@ -127,9 +127,9 @@ export default function IncidentPreview({
   )
 }
 
-function DataCell({ label, value, highlight, small }: {
-  readonly label: string; value: string; highlight?: boolean; small?: boolean
-}) {
+function DataCell({ label, value, highlight, small }: Readonly<{
+  label: string; value: string; highlight?: boolean; small?: boolean
+}>) {
   return (
     <div className="bg-white px-3 py-2.5">
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>

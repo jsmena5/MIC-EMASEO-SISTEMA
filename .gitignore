@@ -120,6 +120,7 @@ tmp/
 temp/
 
 .deploy_creds*
+sonar-scan.bat
 
 # ── Reportes de cobertura y análisis estático (generados localmente) ───────────
 coverage/
