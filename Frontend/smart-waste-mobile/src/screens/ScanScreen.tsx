@@ -87,6 +87,56 @@ function pollRetryMessage(isRateLimited: boolean, isNetworkError: boolean, attem
 // Vista de la cámara con banner de reportes pendientes. Extraída de ScanScreen para
 // reducir su complejidad cognitiva.
 // Indicador de estado de ubicación GPS (cargando / disponible / error).
+// Botón de análisis con estados visuales: subiendo / verificando / recortando / listo.
+// Extraído para bajar PhotoReviewScreen por debajo del umbral de complejidad.
+function AnalyzeButton({
+  phase, isActive, isAnalyzeBlocked, isCropping, hasLocation, isLocationLoading,
+  uploadProgress, onAnalyze,
+}: {
+  phase: AnalysisPhase; isActive: boolean; isAnalyzeBlocked: boolean
+  isCropping: boolean; hasLocation: boolean; isLocationLoading: boolean
+  uploadProgress: number; onAnalyze: () => void
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.analyzeBtn,
+        isActive && styles.analyzeBtnLoading,
+        isAnalyzeBlocked && !isActive && !isCropping && styles.analyzeBtnDisabled,
+      ]}
+      onPress={onAnalyze}
+      disabled={isAnalyzeBlocked}
+      activeOpacity={0.85}
+    >
+      {phase === "uploading" ? (
+        <>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.analyzeBtnText}>
+            {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
+          </Text>
+        </>
+      ) : phase === "checking" ? (
+        <>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
+        </>
+      ) : isCropping ? (
+        <>
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
+        </>
+      ) : (
+        <>
+          <Ionicons name="analytics-outline" size={20} color="#fff" />
+          <Text style={styles.analyzeBtnText}>
+            {(!hasLocation && !isLocationLoading) ? "Esperando ubicación..." : "Analizar y Reportar"}
+          </Text>
+        </>
+      )}
+    </TouchableOpacity>
+  )
+}
+
 function LocationIndicator({
   isLocationLoading, hasLocation, locError,
 }: { isLocationLoading: boolean; hasLocation: boolean; locError: string | null }) {
@@ -213,44 +263,16 @@ function PhotoReviewScreen({
           locError={locError}
         />
 
-        <TouchableOpacity
-          style={[
-            styles.analyzeBtn,
-            isActive   && styles.analyzeBtnLoading,
-            isAnalyzeBlocked && !isActive && !isCropping && styles.analyzeBtnDisabled,
-          ]}
-          onPress={onAnalyze}
-          disabled={isAnalyzeBlocked}
-          activeOpacity={0.85}
-        >
-          {phase === "uploading" ? (
-            <>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={styles.analyzeBtnText}>
-                {`Enviando imagen… ${Math.min(100, Math.max(0, uploadProgress))}%`}
-              </Text>
-            </>
-          ) : phase === "checking" ? (
-            <>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={styles.analyzeBtnText}>Verificando imagen…</Text>
-            </>
-          ) : isCropping ? (
-            <>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={styles.analyzeBtnText}>Preparando imagen...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons name="analytics-outline" size={20} color="#fff" />
-              <Text style={styles.analyzeBtnText}>
-                {(!hasLocation && !isLocationLoading)
-                  ? "Esperando ubicación..."
-                  : "Analizar y Reportar"}
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <AnalyzeButton
+          phase={phase}
+          isActive={isActive}
+          isAnalyzeBlocked={isAnalyzeBlocked}
+          isCropping={isCropping}
+          hasLocation={hasLocation}
+          isLocationLoading={isLocationLoading}
+          uploadProgress={uploadProgress}
+          onAnalyze={onAnalyze}
+        />
 
         {phase === "uploading" ? (
           /* Durante el envío: permitir cancelar la subida (no dejar al usuario varado) */
