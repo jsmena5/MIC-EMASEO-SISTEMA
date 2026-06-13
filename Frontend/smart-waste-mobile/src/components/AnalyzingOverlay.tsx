@@ -10,7 +10,7 @@ import {
 
 import { colors } from "../theme/colors"
 
-interface AnalyzingOverlayProps {
+type AnalyzingOverlayProps = Readonly<{
   isAnalyzing: boolean
   label?: string
   progress?: number
@@ -20,7 +20,7 @@ interface AnalyzingOverlayProps {
   onBackground?: () => void
   /** Controls whether the background button is visible (only during polling phases) */
   canBackground?: boolean
-}
+}>
 
 export default function AnalyzingOverlay({
   isAnalyzing,

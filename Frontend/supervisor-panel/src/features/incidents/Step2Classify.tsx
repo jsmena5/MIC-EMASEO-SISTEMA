@@ -20,10 +20,10 @@ function getInitialForm(detail: IncidentDetail): RevisionIAPayload {
 
 export default function Step2Classify({
   detail, onRefresh,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   onRefresh: () => void
-}) {
+}>) {
   const [form, setForm] = useState<RevisionIAPayload>(getInitialForm(detail))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)

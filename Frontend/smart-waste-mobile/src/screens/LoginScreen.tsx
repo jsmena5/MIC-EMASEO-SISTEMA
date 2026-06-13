@@ -21,7 +21,7 @@ import { RootStackParamList } from "../navigation/AppNavigator"
 import { loginUser } from "../services/auth.service"
 import { colors } from "../theme/colors"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Login">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Login">>
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -174,14 +174,14 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={styles.subtitle}>Inicia sesion para continuar</Text>
 
           {/* ── banner sin conexion (proactivo) ───────────────────────── */}
-          {!isConnected ? (
+          {isConnected ? null : (
             <View style={styles.offlineBanner}>
               <Ionicons name="cloud-offline-outline" size={16} color={colors.warning} />
               <Text style={styles.offlineBannerText}>
                 Sin conexion a internet. Conectate para iniciar sesion.
               </Text>
             </View>
-          ) : null}
+          )}
 
           {/* ── server-level error banner ─────────────────────────────── */}
           {serverError ? (

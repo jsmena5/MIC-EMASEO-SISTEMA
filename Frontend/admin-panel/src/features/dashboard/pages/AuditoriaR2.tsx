@@ -23,7 +23,7 @@ const NIVEL_COLOR: Record<string, string> = {
 
 // ─── Lightbox ─────────────────────────────────────────────────────────────────
 
-function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+function Lightbox({ url, onClose }: Readonly<{ url: string; onClose: () => void }>) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
     globalThis.window.addEventListener("keydown", h)
@@ -45,11 +45,11 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 
 function ImageCard({
   img, onLabel, onRemove,
-}: {
+}: Readonly<{
   img: ImagenAuditoria
   onLabel: (id: string, etiqueta: ImageAuditLabel) => void
   onRemove: (id: string) => void
-}) {
+}>) {
   const [saving,       setSaving]       = useState(false)
   const [lightboxOpen, setLightboxOpen] = useState(false)
   const cfg      = ETIQUETA_CFG[img.etiqueta]

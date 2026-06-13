@@ -49,7 +49,7 @@ export const useAnalysis = () => useContext(AnalysisContext)
 const POLL_INTERVAL_MS = 3000
 const POLL_TIMEOUT_MS  = 180_000
 
-export function AnalysisProvider({ children }: { children: React.ReactNode }) {
+export function AnalysisProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [backgroundTask, setBackgroundTask] = useState<BackgroundTask | null>(null)
 
   const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null)

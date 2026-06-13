@@ -10,11 +10,11 @@ const MOTIVOS = Object.entries(MOTIVO_RECHAZO_LABEL) as [MotivoRechazo, string][
 
 export default function Step1Validate({
   detail, onAdvance, onRefresh,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   onAdvance: () => void
   onRefresh: () => void
-}) {
+}>) {
   const [saving, setSaving] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [motivoRechazo, setMotivoRechazo] = useState<MotivoRechazo | "">("")

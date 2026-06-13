@@ -5,7 +5,7 @@
  * Útil para aclarar conceptos del dominio (p. ej. "Confianza IA") sin saturar
  * la interfaz. Vive en shared/components porque es un primitivo de UI reusable.
  */
-export default function InfoTooltip({ text }: { text: string }) {
+export default function InfoTooltip({ text }: Readonly<{ text: string }>) {
   return (
     <span className="group relative inline-flex items-center align-middle">
       <button

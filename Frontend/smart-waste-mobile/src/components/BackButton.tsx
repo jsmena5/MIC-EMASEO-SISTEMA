@@ -2,12 +2,12 @@ import React from 'react'
 import { StyleSheet, Text, TouchableOpacity } from 'react-native'
 import { colors } from '../theme/colors'
 
-interface BackButtonProps {
+type BackButtonProps = Readonly<{
   onPress: () => void
   label?: string
   disabled?: boolean
   accessibilityHint?: string
-}
+}>
 
 export default function BackButton({
   onPress,

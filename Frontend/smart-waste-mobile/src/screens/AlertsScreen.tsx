@@ -19,7 +19,7 @@ import { colors } from "../theme/colors"
 import api from "../utils/api"
 import { getMyIncidentById } from "../services/image.service"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Alerts">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Alerts">>
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -93,12 +93,12 @@ function AlertItem({
   index,
   onMarkRead,
   onNavigate,
-}: {
+}: Readonly<{
   item: AppAlert
   index: number
   onMarkRead: (id: string) => void
   onNavigate: (item: AppAlert) => void
-}) {
+}>) {
   const cfg = ALERT_CONFIG[item.type]
   const hasLink = !!item.incident_id
 
@@ -169,7 +169,7 @@ function sectionLabelFor(filter: AlertFilter): string {
 function AlertsList({
   filteredAlerts, alerts, activeFilter, refreshing,
   onRefresh, onMarkRead, onNavigate, onResetFilter,
-}: {
+}: Readonly<{
   filteredAlerts: AppAlert[]
   alerts: AppAlert[]
   activeFilter: AlertFilter
@@ -178,7 +178,7 @@ function AlertsList({
   onMarkRead: (id: string) => void
   onNavigate: (item: AppAlert) => void
   onResetFilter: () => void
-}) {
+}>) {
   return (
     <FlatList
       data={filteredAlerts}
@@ -317,7 +317,7 @@ export default function AlertsScreen({ navigation }: Props) {
               <Text style={styles.headerSub}>
                 {(() => {
                   if (unreadCount <= 0) return "Todo al día"
-                  const plural = unreadCount !== 1 ? "es" : ""
+                  const plural = unreadCount === 1 ? "" : "es"
                   return `${unreadCount} notificación${plural} sin leer`
                 })()}
               </Text>

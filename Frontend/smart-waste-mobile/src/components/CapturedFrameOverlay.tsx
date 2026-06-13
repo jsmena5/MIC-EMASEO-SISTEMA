@@ -68,7 +68,7 @@ export default function CapturedFrameOverlay() {
 
 // ─── Esquina ──────────────────────────────────────────────────────────────────
 
-function Bracket({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
+function Bracket({ pos }: Readonly<{ pos: "tl" | "tr" | "bl" | "br" }>) {
   const isTop  = pos === "tl" || pos === "tr"
   const isLeft = pos === "tl" || pos === "bl"
 

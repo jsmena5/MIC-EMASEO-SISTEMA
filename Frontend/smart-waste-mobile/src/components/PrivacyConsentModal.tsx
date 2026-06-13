@@ -33,11 +33,11 @@ import {
 import { Ionicons } from "@expo/vector-icons"
 import { colors } from "../theme/colors"
 
-interface Props {
+type Props = Readonly<{
   visible: boolean
   onAccept: () => void
   onDecline: () => void
-}
+}>
 
 export default function PrivacyConsentModal({ visible, onAccept, onDecline }: Props) {
   return (
@@ -149,7 +149,7 @@ export default function PrivacyConsentModal({ visible, onAccept, onDecline }: Pr
 
 function Section({
   icon, title, children,
-}: { icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; children: React.ReactNode }) {
+}: Readonly<{ icon: React.ComponentProps<typeof Ionicons>["name"]; title: string; children: React.ReactNode }>) {
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
@@ -161,7 +161,7 @@ function Section({
   )
 }
 
-function BulletItem({ text }: { text: string }) {
+function BulletItem({ text }: Readonly<{ text: string }>) {
   return (
     <View style={styles.bullet}>
       <Text style={styles.bulletDot}>•</Text>

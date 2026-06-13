@@ -4,14 +4,14 @@ import { StyleSheet, Text, View } from "react-native"
 
 import { colors } from "../theme/colors"
 
-interface BrandLogoProps {
+type BrandLogoProps = Readonly<{
   /** Lado del emblema en píxeles. */
   size?: number
   /** Color de fondo del badge (default: azul institucional). */
   background?: string
   /** Mostrar el micro-chip "IA" (denota el análisis con inteligencia artificial). */
   showIA?: boolean
-}
+}>
 
 /**
  * BrandLogo — Emblema de marca de EMASEO EP IA.

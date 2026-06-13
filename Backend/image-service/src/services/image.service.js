@@ -46,8 +46,8 @@ const AUTO_REJECT_CONFIDENCE = Number.parseFloat(process.env.ML_AUTO_REJECT_CONF
 // Actualizados (2026-06-10) al subir las bandas de volumen (ALTO 1.3–1.9, CRÍTICO 1.9–6.0).
 // Con el clamp medir+acotar de tasks.py el volumen ya nunca excede vol_max de su banda,
 // así que este chequeo queda como segunda red de seguridad (debe coincidir con vol_max).
-const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.50, MEDIO: 1.30, ALTO: 1.90, CRITICO: 6.0 }
-const VOLUME_COHERENCE_TOLERANCE = 1.10  // +10% sobre el techo
+const VOLUME_CEILING_BY_NIVEL = { BAJO: 0.5, MEDIO: 1.3, ALTO: 1.9, CRITICO: 6 }
+const VOLUME_COHERENCE_TOLERANCE = 1.1  // +10% sobre el techo
 
 // Formato UUID (cualquier versión) para validar la clave de idempotencia del
 // cliente. Una clave malformada se ignora y el reporte se trata como sin clave.
@@ -258,9 +258,9 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
   const motivoLabel = mlResult.semantic_top_label
     ? ` — top_label: ${mlResult.semantic_top_label}`
     : ""
-  const motivoConf = confianza !== null
-    ? ` (confianza: ${(confianza * 100).toFixed(1)} %)`
-    : " (confianza no disponible)"
+  const motivoConf = confianza === null
+    ? " (confianza no disponible)"
+    : ` (confianza: ${(confianza * 100).toFixed(1)} %)`
   const notaFallo = `${motivoBase}${motivoLabel}${motivoConf}`
 
   await retry(

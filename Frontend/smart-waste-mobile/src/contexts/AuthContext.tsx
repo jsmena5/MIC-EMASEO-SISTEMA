@@ -73,7 +73,7 @@ async function migrateTokensToSecureStore(): Promise<void> {
   await AsyncStorage.setItem("emaseo_tokens_migrated", "true")
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   const [user, setUser] = useState<DecodedToken | null>(null)
   const [token, setToken] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)

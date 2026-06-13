@@ -18,7 +18,7 @@ const ESTADO_STYLE: Record<string, string> = {
 
 // ─── Modal base ───────────────────────────────────────────────────────────────
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Modal({ title, onClose, children }: Readonly<{ title: string; onClose: () => void; children: React.ReactNode }>) {
   const overlay = useRef<HTMLDivElement>(null)
   return (
     <div
@@ -41,10 +41,10 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 function Field({
   label, name, type = "text", value, onChange, required, placeholder,
-}: {
+}: Readonly<{
   label: string; name: string; type?: string; value: string; onChange: (v: string) => void
   required?: boolean; placeholder?: string
-}) {
+}>) {
   return (
     <div>
       <label className="mb-1 block text-xs font-semibold text-slate-600">
@@ -68,7 +68,7 @@ const EMPTY_CREATE: CreateSupervisorPayload = {
   nombre: "", apellido: "", cedula: "", telefono: "", email: "", password: "",
 }
 
-function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateModal({ onClose, onCreated }: Readonly<{ onClose: () => void; onCreated: () => void }>) {
   const [form, setForm] = useState<CreateSupervisorPayload>(EMPTY_CREATE)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState("")
@@ -155,7 +155,7 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
 // ─── Edit modal ───────────────────────────────────────────────────────────────
 
-function EditModal({ sup, onClose, onSaved }: { sup: Supervisor; onClose: () => void; onSaved: () => void }) {
+function EditModal({ sup, onClose, onSaved }: Readonly<{ sup: Supervisor; onClose: () => void; onSaved: () => void }>) {
   const [form, setForm] = useState<UpdateSupervisorPayload>({
     nombre: sup.nombre, apellido: sup.apellido, telefono: sup.telefono, estado: sup.estado,
   })
@@ -221,7 +221,7 @@ function EditModal({ sup, onClose, onSaved }: { sup: Supervisor; onClose: () => 
 
 // ─── Delete confirm ───────────────────────────────────────────────────────────
 
-function DeleteConfirm({ sup, onClose, onDeleted }: { sup: Supervisor; onClose: () => void; onDeleted: () => void }) {
+function DeleteConfirm({ sup, onClose, onDeleted }: Readonly<{ sup: Supervisor; onClose: () => void; onDeleted: () => void }>) {
   const [deleting, setDeleting] = useState(false)
   const [error, setError]       = useState("")
 
@@ -365,7 +365,7 @@ function CiudadanosTab() {
       {/* Stats — solo cuando hay búsqueda activa con resultados */}
       {searchActive && !loading && !error && hasSearched && (
         <p className="text-xs text-slate-400 font-medium">
-          {total} resultado{total !== 1 ? "s" : ""} para “{term}”
+          {total} resultado{total === 1 ? "" : "s"} para &ldquo;{term}&rdquo;
         </p>
       )}
 
@@ -492,7 +492,21 @@ function CiudadanosTab() {
               <button onClick={() => { setPwModal(null); setTempPwd(null) }} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
             </div>
             <div className="px-6 py-5 space-y-4">
-              {!tempPwd ? (
+              {tempPwd ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="text-sm font-bold text-amber-700 mb-2">Contraseña temporal generada</div>
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-white px-4 py-2.5 font-mono text-base font-bold text-slate-900 text-center tracking-widest select-all">
+                      {tempPwd}
+                    </div>
+                    <div className="mt-2 text-[11px] text-amber-600">Copia y comparte esta contraseña con el ciudadano. No se podrá ver de nuevo.</div>
+                  </div>
+                  <button
+                    onClick={() => { setPwModal(null); setTempPwd(null) }}
+                    className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition"
+                  >Entendido</button>
+                </div>
+              ) : (
                 <>
                   <p className="text-sm text-slate-600">
                     Se generará una contraseña temporal para <strong>{pwModal.nombre}</strong>. Deberás entregársela de forma segura para que pueda iniciar sesión.
@@ -509,20 +523,6 @@ function CiudadanosTab() {
                     >{savingId === pwModal.id ? "Generando…" : "Generar contraseña"}</button>
                   </div>
                 </>
-              ) : (
-                <div className="space-y-4">
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                    <div className="text-sm font-bold text-amber-700 mb-2">Contraseña temporal generada</div>
-                    <div className="mt-2 rounded-lg border border-amber-300 bg-white px-4 py-2.5 font-mono text-base font-bold text-slate-900 text-center tracking-widest select-all">
-                      {tempPwd}
-                    </div>
-                    <div className="mt-2 text-[11px] text-amber-600">Copia y comparte esta contraseña con el ciudadano. No se podrá ver de nuevo.</div>
-                  </div>
-                  <button
-                    onClick={() => { setPwModal(null); setTempPwd(null) }}
-                    className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition"
-                  >Entendido</button>
-                </div>
               )}
             </div>
           </div>

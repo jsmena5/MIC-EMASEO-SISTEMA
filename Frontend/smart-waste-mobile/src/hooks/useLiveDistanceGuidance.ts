@@ -21,7 +21,7 @@ const NORM_FACTOR = 3
 // ensanchamos OPTIMAL para no marcar "aléjate" todo el tiempo. La validación real de
 // basura/coverage la hace el server (coverage_to_distance_hint allí es solo otra pista).
 const TOO_FAR_MAX   = 0.12
-const TOO_CLOSE_MIN = 0.90
+const TOO_CLOSE_MIN = 0.9
 // Throttle por conteo de frames: procesa 1 de cada FRAME_STRIDE (~5 fps a 30 fps de cámara).
 // Evitamos performance.now()/Date.now(): no están garantizados en el runtime del worklet.
 const FRAME_STRIDE = 6
@@ -145,7 +145,7 @@ export function useLiveDistanceGuidance(
       const FH = frame.height
 
       // Región central proporcional al scan overlay
-      const minDim    = FW < FH ? FW : FH
+      const minDim    = Math.min(FW, FH)
       const regionSz  = Math.round(minDim * FRAME_REGION_FRAC)
       const startX    = Math.round((FW - regionSz) / 2)
       const startY    = Math.round((FH - regionSz) / 2)

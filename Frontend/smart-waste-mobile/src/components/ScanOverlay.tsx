@@ -20,10 +20,10 @@ const BRACKET = 30
 const THICKNESS = 4
 const CORNER_COLOR = "#00E676"
 
-interface ScanOverlayProps {
+type ScanOverlayProps = Readonly<{
   /** Pass false once the scan phase ends (area locked) to trigger the ready animation */
   scanning?: boolean
-}
+}>
 
 export default function ScanOverlay({ scanning = true }: ScanOverlayProps) {
   const scanY = useSharedValue(0)
@@ -94,7 +94,7 @@ export default function ScanOverlay({ scanning = true }: ScanOverlayProps) {
 
 // ─── Corner bracket ──────────────────────────────────────────────────────────
 
-function Bracket({ pos }: { pos: "tl" | "tr" | "bl" | "br" }) {
+function Bracket({ pos }: Readonly<{ pos: "tl" | "tr" | "bl" | "br" }>) {
   const isTop = pos === "tl" || pos === "tr"
   const isLeft = pos === "tl" || pos === "bl"
 

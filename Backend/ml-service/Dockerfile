@@ -26,11 +26,9 @@ COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
-# pytest en capa separada: no invalida la caché de torch/ultralytics del RUN anterior
-RUN pip install --no-cache-dir "pytest>=8.0.0"
-
-# Directorios de datos (los volúmenes de producción los sobreescriben en runtime)
-RUN mkdir -p /app/uploads /app/torch_cache /app/hf_cache
+# pytest y directorios de datos en un solo RUN para reducir capas de imagen
+RUN pip install --no-cache-dir "pytest>=8.0.0" && \
+    mkdir -p /app/uploads /app/torch_cache /app/hf_cache
 
 # ── Pre-descarga MiDaS en build-time ──────────────────────────────────────────
 # Elimina la latencia de cold-start: el worker arranca con el modelo ya en caché.

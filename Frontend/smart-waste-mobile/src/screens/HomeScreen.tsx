@@ -25,7 +25,7 @@ import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 import ProfileBottomSheet from "../components/ProfileBottomSheet"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Home">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Home">>
 
 const { width: SW } = Dimensions.get("window")
 
@@ -203,13 +203,13 @@ function GridCard({
   sublabel,
   color,
   onPress,
-}: {
+}: Readonly<{
   icon: React.ComponentProps<typeof Ionicons>["name"]
   label: string
   sublabel: string
   color: string
   onPress: () => void
-}) {
+}>) {
   return (
     <TouchableOpacity style={styles.gridCard} onPress={onPress} activeOpacity={0.8}>
       <View style={[styles.gridCardIcon, { backgroundColor: color + "18" }]}>

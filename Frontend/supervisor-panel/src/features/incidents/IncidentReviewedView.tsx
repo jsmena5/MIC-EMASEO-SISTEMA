@@ -6,10 +6,10 @@ import { NIVEL_LABEL, TIPO_LABEL, fmtDate, fmtPercent, fmtVolume } from "./style
 export default function IncidentReviewedView({
   detail,
   onEdit,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   onEdit: () => void
-}) {
+}>) {
   const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
@@ -98,7 +98,7 @@ export default function IncidentReviewedView({
   )
 }
 
-function KvRow({ label, value }: { label: string; value: string }) {
+function KvRow({ label, value }: Readonly<{ label: string; value: string }>) {
   return (
     <div className="rounded-lg bg-white p-2">
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>

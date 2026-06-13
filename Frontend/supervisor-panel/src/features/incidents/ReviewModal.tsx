@@ -26,12 +26,12 @@ export default function ReviewModal({
   initialStep = "validate",
   onClose,
   onDone,
-}: {
+}: Readonly<{
   detail: IncidentDetail
   initialStep?: ModalStep
   onClose: () => void
   onDone: () => void
-}) {
+}>) {
   const [step, setStep] = useState<ModalStep>(initialStep)
   const [form, setForm] = useState<RevisionIAPayload>(getInitialClassify(detail))
   const [motivoRechazo, setMotivoRechazo] = useState<MR | "">("")

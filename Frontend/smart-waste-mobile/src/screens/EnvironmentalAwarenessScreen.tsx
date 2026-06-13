@@ -1,5 +1,5 @@
 // src/screens/EnvironmentalAwarenessScreen.tsx
-import React, { useRef } from "react"
+import React from "react"
 import {
   ScrollView,
   StatusBar,
@@ -15,7 +15,7 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 
-type Props = NativeStackScreenProps<RootStackParamList, "EnvironmentalAwareness">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "EnvironmentalAwareness">>
 
 // ─── Datos estáticos ─────────────────────────────────────────────────────────
 

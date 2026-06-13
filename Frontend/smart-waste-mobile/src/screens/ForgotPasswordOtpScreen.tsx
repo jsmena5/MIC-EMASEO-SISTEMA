@@ -15,7 +15,7 @@ import { requestPasswordReset, verifyPasswordResetOtp } from "../services/auth.s
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
-type Props = NativeStackScreenProps<RootStackParamList, "ForgotPasswordOtp">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "ForgotPasswordOtp">>
 
 const RESEND_COOLDOWN = 60
 

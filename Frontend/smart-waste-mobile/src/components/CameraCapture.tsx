@@ -27,7 +27,7 @@ import { useLiveDistanceGuidance, brightnessToLightingHint } from "../hooks/useL
 import ScanOverlay from "./ScanOverlay"
 import { SCAN_FRAME_SIZE, SCAN_OVERLAY_V } from "../utils/cropToScanFrame"
 
-export interface CameraCaptureProps {
+export type CameraCaptureProps = Readonly<{
   /**
    * Llamado al disparar el obturador. `width` y `height` son dimensiones del sensor,
    * necesarias para cropToScanFrame.
@@ -36,7 +36,7 @@ export interface CameraCaptureProps {
   /** Llamado en cada actualización del frame processor con la pista de distancia. */
   onCoverageUpdate?: (hint: DistanceHint, coverage: number) => void
   onBack?: () => void
-}
+}>
 
 // Color de feedback semafórico para cada estado
 const READY_COLOR = colors.secondary
@@ -369,7 +369,7 @@ export default function CameraCapture({
 function CameraBottomControls({
   hint, lighting, guidanceLive, fpEnabled, autoCaptureArmed,
   hintColor, statusColor, statusMsg, indicatorStyle, capturing, countdown, onCapture,
-}: {
+}: Readonly<{
   hint: DistanceHint
   lighting: LightingHint
   guidanceLive: boolean
@@ -382,7 +382,7 @@ function CameraBottomControls({
   capturing: boolean
   countdown: number | null
   onCapture: () => void
-}) {
+}>) {
   return (
     <View style={styles.bottomControls}>
       <View style={styles.instructionPill}>

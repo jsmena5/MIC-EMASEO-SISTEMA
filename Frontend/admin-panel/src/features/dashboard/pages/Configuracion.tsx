@@ -180,7 +180,7 @@ function SystemInfo() {
       <dl className="space-y-2 text-sm">
         {[
           { key: "API Gateway", value: API_URL },
-          { key: "Panel",       value: window.location.origin },
+          { key: "Panel",       value: globalThis.location.origin },
           { key: "Versión",     value: "v3.0.0" },
           { key: "Ambiente",    value: import.meta.env.DEV ? "Desarrollo" : "Producción" },
         ].map(({ key, value }) => (

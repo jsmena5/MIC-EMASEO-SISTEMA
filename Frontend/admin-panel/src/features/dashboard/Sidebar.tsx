@@ -12,7 +12,7 @@ const navigation = [
 
 type IconKind = "home" | "users" | "map" | "ia" | "gallery" | "settings"
 
-function SidebarIcon({ kind }: { kind: IconKind }) {
+function SidebarIcon({ kind }: Readonly<{ kind: IconKind }>) {
   const paths: Record<IconKind, ReactNode> = {
     home: (
       <>
@@ -68,9 +68,9 @@ const STORAGE_KEY = "admin-sidebar-expanded"
 
 export default function Sidebar() {
   const [expanded, setExpanded] = useState<boolean>(() => {
-    const saved = globalThis.window !== undefined ? localStorage.getItem(STORAGE_KEY) : null
+    const saved = globalThis.window === undefined ? null : localStorage.getItem(STORAGE_KEY)
     if (saved !== null) return saved === "true"
-    return globalThis.window !== undefined ? window.innerWidth >= 1024 : true
+    return globalThis.window === undefined ? true : window.innerWidth >= 1024
   })
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export default function Sidebar() {
           <NavLink
             key={item.to}
             to={item.to}
-            title={!expanded ? item.label : undefined}
+            title={expanded ? undefined : item.label}
             className={({ isActive }) =>
               [
                 "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition border-l-2",

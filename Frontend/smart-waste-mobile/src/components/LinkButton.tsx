@@ -2,7 +2,7 @@ import React from 'react'
 import { StyleSheet, Text, TextStyle, TouchableOpacity, ViewStyle } from 'react-native'
 import { colors } from '../theme/colors'
 
-interface LinkButtonProps {
+type LinkButtonProps = Readonly<{
   label: string
   onPress: () => void
   disabled?: boolean
@@ -10,7 +10,7 @@ interface LinkButtonProps {
   textStyle?: TextStyle
   accessibilityLabel?: string
   accessibilityHint?: string
-}
+}>
 
 export default function LinkButton({
   label,

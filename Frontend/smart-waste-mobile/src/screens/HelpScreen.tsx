@@ -9,7 +9,7 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Help">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Help">>
 
 // ─── Definición de estados ───────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ const FAQ: FaqItem[] = [
 
 // ─── Componentes ─────────────────────────────────────────────────────────────
 
-function StatusCard({ info, index }: { info: StatusInfo; index: number }) {
+function StatusCard({ info, index }: Readonly<{ info: StatusInfo; index: number }>) {
   const [expanded, setExpanded] = useState(false)
   return (
     <Animated.View entering={FadeInDown.delay(index * 60).duration(360)}>
@@ -171,7 +171,7 @@ function StatusCard({ info, index }: { info: StatusInfo; index: number }) {
   )
 }
 
-function FaqCard({ item, index }: { item: FaqItem; index: number }) {
+function FaqCard({ item, index }: Readonly<{ item: FaqItem; index: number }>) {
   const [open, setOpen] = useState(false)
   return (
     <Animated.View entering={FadeInDown.delay(index * 60 + 200).duration(360)}>

@@ -25,7 +25,7 @@ import { colors } from "../theme/colors"
 import type { CitizenProfile, Sexo } from "../types/user.types"
 
 const { height: SCREEN_H } = Dimensions.get("window")
-const SHEET_MAX_H = SCREEN_H * 0.90
+const SHEET_MAX_H = SCREEN_H * 0.9
 
 const MONTH_LABELS = [
   "enero","febrero","marzo","abril","mayo","junio",
@@ -63,7 +63,7 @@ function fechaLarga(iso: string | null): string {
   const p = partsFromIso(iso)
   if (!p) return "No registrada"
   const edad = calcAgeFromParts(p)
-  const edadSuffix = edad != null ? `  ·  ${edad} años` : ""
+  const edadSuffix = edad == null ? "" : `  ·  ${edad} años`
   return `${String(p.day).padStart(2, "0")} de ${MONTH_LABELS[p.month - 1]} de ${p.year}${edadSuffix}`
 }
 
@@ -84,11 +84,11 @@ function iniciales(p: CitizenProfile | null, fallback: string): string {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-interface Props {
+type Props = Readonly<{
   visible:  boolean
   onClose:  () => void
   onLogout: () => void
-}
+}>
 
 type Tab = "perfil" | "config"
 
@@ -317,7 +317,7 @@ export default function ProfileBottomSheet({ visible, onClose, onLogout }: Props
 
 // ─── Contenido del tab "Mi perfil" ──────────────────────────────────────────
 // Extraído de ProfileBottomSheet para bajar la complejidad cognitiva del render.
-function PerfilTabContent(p: {
+function PerfilTabContent(p: Readonly<{
   loadingProfile: boolean
   profileError: string | null
   profile: CitizenProfile | null
@@ -339,7 +339,7 @@ function PerfilTabContent(p: {
   setBirthMonth: (v: number) => void
   setBirthYear: (v: number) => void
   onGuardar: () => void
-}) {
+}>) {
   if (p.loadingProfile) {
     return (
       <View style={styles.loadingRow}>
@@ -473,7 +473,7 @@ function PerfilTabContent(p: {
 }
 
 // ─── Contenido del tab "Configuración" ───────────────────────────────────────
-function ConfigTabContent(p: {
+function ConfigTabContent(p: Readonly<{
   showChangePw: boolean
   currentPw: string
   newPw: string
@@ -490,7 +490,7 @@ function ConfigTabContent(p: {
   setShowNewPw: (fn: (v: boolean) => boolean) => void
   setShowConfirmPw: (fn: (v: boolean) => boolean) => void
   onChangePw: () => void
-}) {
+}>) {
   return (
     <>
       <SectionLabel text="Seguridad" />
@@ -546,7 +546,7 @@ function TabButton({ label, icon, active, onPress }: {
   )
 }
 
-function SectionLabel({ text }: { text: string }) {
+function SectionLabel({ text }: Readonly<{ text: string }>) {
   return (
     <View style={s.sectionRow}>
       <Text style={s.sectionText}>{text.toUpperCase()}</Text>
@@ -555,9 +555,9 @@ function SectionLabel({ text }: { text: string }) {
   )
 }
 
-function FieldIcon({ icon, bg, color }: {
-  readonly icon: React.ComponentProps<typeof Ionicons>["name"]; bg: string; color: string
-}) {
+function FieldIcon({ icon, bg, color }: Readonly<{
+  icon: React.ComponentProps<typeof Ionicons>["name"]; bg: string; color: string
+}>) {
   return (
     <View style={[s.fieldIcon, { backgroundColor: bg }]}>
       <Ionicons name={icon} size={20} color={color} />
@@ -565,10 +565,10 @@ function FieldIcon({ icon, bg, color }: {
   )
 }
 
-function InfoRow({ icon, iconBg, iconColor, label, value }: {
-  readonly icon: React.ComponentProps<typeof Ionicons>["name"]
-  readonly iconBg: string; iconColor: string; label: string; value: string
-}) {
+function InfoRow({ icon, iconBg, iconColor, label, value }: Readonly<{
+  icon: React.ComponentProps<typeof Ionicons>["name"]
+  iconBg: string; iconColor: string; label: string; value: string
+}>) {
   return (
     <View style={styles.fieldRow}>
       <FieldIcon icon={icon} bg={iconBg} color={iconColor} />
@@ -580,9 +580,9 @@ function InfoRow({ icon, iconBg, iconColor, label, value }: {
   )
 }
 
-function PwField({ label, value, onChange, show, onToggle }: {
-  readonly label: string; value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void
-}) {
+function PwField({ label, value, onChange, show, onToggle }: Readonly<{
+  label: string; value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void
+}>) {
   return (
     <View style={s.pwField}>
       <Text style={s.pwLabel}>{label}</Text>

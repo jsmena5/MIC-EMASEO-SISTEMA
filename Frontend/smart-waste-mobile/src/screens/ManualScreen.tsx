@@ -15,7 +15,7 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { colors } from "../theme/colors"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Manual">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Manual">>
 
 // ─── Datos estáticos ─────────────────────────────────────────────────────────
 

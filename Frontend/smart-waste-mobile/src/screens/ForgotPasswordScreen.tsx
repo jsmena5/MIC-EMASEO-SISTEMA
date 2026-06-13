@@ -15,7 +15,7 @@ import { requestPasswordReset } from "../services/auth.service"
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
-type Props = NativeStackScreenProps<RootStackParamList, "ForgotPassword">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "ForgotPassword">>
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
   const [email, setEmail]     = useState("")

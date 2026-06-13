@@ -9,7 +9,7 @@ import { colors } from '../theme/colors';
 
 type Variant = 'primary' | 'secondary' | 'danger';
 
-interface ButtonPrimaryProps {
+type ButtonPrimaryProps = Readonly<{
   label: string;
   onPress: () => void;
   loading?: boolean;
@@ -17,7 +17,7 @@ interface ButtonPrimaryProps {
   variant?: Variant;
   accessibilityLabel?: string;
   accessibilityHint?: string;
-}
+}>
 
 const variantStyles: Record<Variant, { background: string; border: string }> = {
   primary: { background: colors.primary, border: colors.primaryDark },

@@ -213,7 +213,7 @@ def handle_dead_letter(
         "retries_attempted": retries_attempted,
     }
     try:
-        # TODO: persistir en tabla 'failed_tasks' de PostgreSQL o enviar alerta
+        # Pendiente: persistir en tabla 'failed_tasks' de PostgreSQL o enviar alerta
         logger.error(
             "[DLQ] Tarea muerta | task=%s error=%s:%s reintentos=%d/3 timestamp=%s payload=%s",
             original_task, error_type, error, retries_attempted, failed_at, payload,

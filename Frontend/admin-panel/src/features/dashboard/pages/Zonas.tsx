@@ -21,7 +21,7 @@ L.Icon.Default.mergeOptions({
 
 // ─── Assign supervisor modal ─────────────────────────────────────────────────
 
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Modal({ title, onClose, children }: Readonly<{ title: string; onClose: () => void; children: React.ReactNode }>) {
   const overlay = useRef<HTMLDivElement>(null)
   return (
     <div
@@ -44,9 +44,9 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 
 function AssignModal({
   zona, supervisores, onClose, onSaved,
-}: {
+}: Readonly<{
   zona: Zona; supervisores: Supervisor[]; onClose: () => void; onSaved: () => void
-}) {
+}>) {
   const [supId,   setSupId]   = useState<string>(zona.supervisor_id ?? "")
   const [nombre,  setNombre]  = useState(zona.nombre)
   const [desc,    setDesc]    = useState(zona.descripcion ?? "")
@@ -143,7 +143,7 @@ function AssignModal({
 function extractPolygonFeatures(json: FeatureCollection | Feature): Feature<Polygon | MultiPolygon>[] {
   const isPoly = (t?: string) => t === "Polygon" || t === "MultiPolygon"
   if (json.type === "FeatureCollection") {
-    return (json as FeatureCollection).features.filter(
+    return json.features.filter(
       (f) => isPoly(f.geometry?.type)
     ) as Feature<Polygon | MultiPolygon>[]
   }
@@ -174,14 +174,14 @@ async function parseGeoJsonFile(file: File): Promise<Feature<Polygon | MultiPoly
   }
 }
 
-function ImportSuccessView({ count, onClose }: { count: number; onClose: () => void }) {
+function ImportSuccessView({ count, onClose }: Readonly<{ count: number; onClose: () => void }>) {
   return (
     <Modal title="Importación completada" onClose={onClose}>
       <div className="space-y-4">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
           <div className="text-3xl font-black text-emerald-700">{count}</div>
           <div className="text-sm font-semibold text-emerald-600">
-            zona{count !== 1 ? "s" : ""} importada{count !== 1 ? "s" : ""}
+            zona{count === 1 ? "" : "s"} importada{count === 1 ? "" : "s"}
           </div>
           <div className="mt-2 text-xs text-emerald-500">Las zonas ya existentes fueron actualizadas; las nuevas fueron creadas.</div>
         </div>
@@ -196,7 +196,7 @@ function ImportSuccessView({ count, onClose }: { count: number; onClose: () => v
   )
 }
 
-function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
+function ImportModal({ onClose, onImported }: Readonly<{ onClose: () => void; onImported: () => void }>) {
   const [importing, setImporting] = useState(false)
   const [error, setError]         = useState("")
   const [result, setResult]       = useState<{ imported: number } | null>(null)
@@ -270,7 +270,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
         {preview && (
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             <div className="border-b border-slate-100 bg-slate-50 px-4 py-2">
-              <span className="text-xs font-semibold text-slate-600">{preview.length} zona{preview.length !== 1 ? "s" : ""} detectada{preview.length !== 1 ? "s" : ""}</span>
+              <span className="text-xs font-semibold text-slate-600">{preview.length} zona{preview.length === 1 ? "" : "s"} detectada{preview.length === 1 ? "" : "s"}</span>
             </div>
             <div className="max-h-40 overflow-y-auto divide-y divide-slate-100">
               {preview.map((f, i) => (
@@ -310,7 +310,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
             {(() => {
               if (importing) return "Importando…"
               const n = preview?.length ?? 0
-              return `Importar ${n > 0 ? n : ""} zona${n !== 1 ? "s" : ""}`
+              return `Importar ${n > 0 ? n : ""} zona${n === 1 ? "" : "s"}`
             })()}
           </button>
         </div>
@@ -384,7 +384,7 @@ export default function Zonas() {
           <p className="text-sm text-slate-500">
             {(() => {
               if (loading) return "Cargando…"
-              const plural = zonas.length !== 1 ? "s" : ""
+              const plural = zonas.length === 1 ? "" : "s"
               return `${zonas.length} zona${plural} · toca un polígono para editar`
             })()}
           </p>

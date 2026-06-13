@@ -25,7 +25,7 @@ import { useNetwork } from "../contexts/NetworkContext"
 import { colors } from "../theme/colors"
 import { toPublicMediaUrl } from "../utils/mediaUrl"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Historial">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Historial">>
 
 // ─── Tipos de item de la lista combinada ─────────────────────────────────────
 
@@ -38,7 +38,7 @@ type ListItem =
 // Además normalizamos a NFC para resolver formas descompuestas (n + tilde).
 function sanitizeText(raw: string | null | undefined): string {
   if (!raw) return ""
-  return raw.normalize("NFC").replace(/ð/g, "ñ").replace(/Ð/g, "Ñ")
+  return raw.normalize("NFC").replaceAll("ð", "ñ").replaceAll("Ð", "Ñ")
 }
 
 // ─── Filtros ─────────────────────────────────────────────────────────────────
@@ -94,11 +94,11 @@ export function formatDate(iso: string) {
 
 // ─── ReportCard (reporte del servidor) ───────────────────────────────────────
 
-interface CardProps {
+type CardProps = Readonly<{
   item: Incident
   index: number
   onPress: () => void
-}
+}>
 
 function ReportCard({ item, index, onPress }: CardProps) {
   const [address, setAddress] = useState<string | null>(null)
@@ -178,13 +178,13 @@ function ReportCard({ item, index, onPress }: CardProps) {
 
 // ─── PendingCard (reporte en cola offline) ────────────────────────────────────
 
-interface PendingCardProps {
+type PendingCardProps = Readonly<{
   item: PendingReport
   index: number
   isSyncing: boolean
   isConnected: boolean
   onRetry: () => void
-}
+}>
 
 function PendingCard({ item, index, isSyncing, isConnected, onRetry }: PendingCardProps) {
   return (
@@ -256,10 +256,10 @@ function listCountLabel(
   filteredCount: number,
 ): string {
   if (activeFilter === "todos") {
-    const base = `${incidents.length} reporte${incidents.length !== 1 ? "s" : ""}`
+    const base = `${incidents.length} reporte${incidents.length === 1 ? "" : "s"}`
     return pendingReports.length > 0 ? `${base} · ${pendingReports.length} en cola` : base
   }
-  return `${filteredCount} resultado${filteredCount !== 1 ? "s" : ""}`
+  return `${filteredCount} resultado${filteredCount === 1 ? "" : "s"}`
 }
 
 // Lista combinada (online + cola offline) con cabecera y estados vacíos. Extraída
@@ -267,7 +267,7 @@ function listCountLabel(
 function HistorialList({
   filteredData, renderItem, filteredCount, totalCount, incidents, pendingReports,
   serverError, activeFilter, refreshing, onRefresh, onRetry, onResetFilter, onGoScan,
-}: {
+}: Readonly<{
   filteredData: ListItem[]
   renderItem: ListRenderItem<ListItem>
   filteredCount: number
@@ -281,7 +281,7 @@ function HistorialList({
   onRetry: () => void
   onResetFilter: () => void
   onGoScan: () => void
-}) {
+}>) {
   return (
     <FlatList
       data={filteredData}

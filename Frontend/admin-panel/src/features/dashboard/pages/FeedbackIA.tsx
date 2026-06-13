@@ -9,7 +9,7 @@ function fmtTime(iso: string) {
   return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
-function PrecisionBar({ pct }: { pct: number }) {
+function PrecisionBar({ pct }: Readonly<{ pct: number }>) {
   let color: string
   if (pct >= 80) color = "#16A34A"
   else if (pct >= 60) color = "#CA8A04"
@@ -29,7 +29,7 @@ function PrecisionBar({ pct }: { pct: number }) {
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, hint, accent }: { label: string; value: string | number; hint: string; accent: string }) {
+function KpiCard({ label, value, hint, accent }: Readonly<{ label: string; value: string | number; hint: string; accent: string }>) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="h-2 w-2 rounded-full mb-3" style={{ background: accent }} />
@@ -42,7 +42,7 @@ function KpiCard({ label, value, hint, accent }: { label: string; value: string 
 
 // ─── Errors by type table ─────────────────────────────────────────────────────
 
-function ErroresTipoTable({ rows }: { rows: ErrorTipo[] }) {
+function ErroresTipoTable({ rows }: Readonly<{ rows: ErrorTipo[] }>) {
   if (rows.length === 0) return (
     <div className="px-4 py-6 text-center text-sm text-slate-400">Sin correcciones registradas</div>
   )
@@ -91,7 +91,7 @@ const NIVEL_COLOR: Record<string, string> = {
   BAJO: "#16A34A", MEDIO: "#CA8A04", ALTO: "#EA580C", CRITICO: "#DC2626",
 }
 
-function ErroresNivelTable({ rows }: { rows: ErrorNivel[] }) {
+function ErroresNivelTable({ rows }: Readonly<{ rows: ErrorNivel[] }>) {
   if (rows.length === 0) return (
     <div className="px-4 py-6 text-center text-sm text-slate-400">Sin correcciones registradas</div>
   )
@@ -127,7 +127,7 @@ function ErroresNivelTable({ rows }: { rows: ErrorNivel[] }) {
 
 // ─── Corrections list ─────────────────────────────────────────────────────────
 
-function CorreccionesList({ rows }: { rows: Correccion[] }) {
+function CorreccionesList({ rows }: Readonly<{ rows: Correccion[] }>) {
   if (rows.length === 0) return (
     <div className="px-4 py-6 text-center text-sm text-slate-400">Sin correcciones aún</div>
   )

@@ -27,7 +27,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   triggerFlush: async () => {},
 })
 
-export function NetworkProvider({ children }: { children: React.ReactNode }) {
+export function NetworkProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const [isConnected, setIsConnected] = useState(true)
   const [pendingCount, setPendingCount] = useState(0)
   const [isProcessingQueue, setIsProcessingQueue] = useState(false)

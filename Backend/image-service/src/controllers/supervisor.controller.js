@@ -365,7 +365,7 @@ export const cambiarEstado = async (req, res) => {
            cierre_distancia_m  = COALESCE($5::numeric,           cierre_distancia_m)
        WHERE id = $2`,
       [estado, id, cierre_lat ?? null, cierre_lon ?? null,
-       distanciaM != null ? distanciaM.toFixed(2) : null],
+       distanciaM == null ? null : distanciaM.toFixed(2)],
     )
 
     await actualizarObservacionesHistorial(client, { id, estado, observaciones, motivo_rechazo })

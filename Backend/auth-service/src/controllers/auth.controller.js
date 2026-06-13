@@ -298,7 +298,7 @@ export const verifyResetOtp = async (req, res) => {
 
 // ─── Reset Password ───────────────────────────────────────────────────────────
 // Valida OTP, actualiza password_hash y emite un JWT listo para usar.
-// Operación atómica: el token se marca como usado solo si todo sale bien.
+// Operación atómica: el token se marca como usado solo si el proceso finaliza sin errores.
 
 export const resetPassword = async (req, res) => {
   const { email, otp, newPassword } = req.body
@@ -360,7 +360,7 @@ export const resetPassword = async (req, res) => {
     )
 
     // Transacción atómica: incluye la emisión del refresh token para que un
-    // fallo en cualquier paso revierta TODO y no deje estado inconsistente.
+    // fallo en cualquier paso revierta los cambios y no deje estado inconsistente.
     const rawRefreshToken = generateOpaqueToken()
     const refreshHash     = hashToken(rawRefreshToken)
     const refreshExpires  = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
