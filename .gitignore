@@ -57,3 +57,7 @@ _*_cache.json
 *.pytest_cache/
 
 .deploy_creds*
+
+# ── Reportes de cobertura y análisis (generados localmente, no versionar) ──────
+coverage/
+.scannerwork/
