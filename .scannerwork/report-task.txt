@@ -1,6 +1,0 @@
-projectKey=mic-emaseo-sistema
-serverUrl=http://localhost:9000
-serverVersion=26.6.0.123539
-dashboardUrl=http://localhost:9000/dashboard?id=mic-emaseo-sistema
-ceTaskId=5bdaf124-3d34-4b4f-93ef-7f1df484614d
-ceTaskUrl=http://localhost:9000/api/ce/task?id=5bdaf124-3d34-4b4f-93ef-7f1df484614d
