@@ -358,6 +358,20 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
 // IMPORTANTE: Las imágenes ya subidas a S3 NUNCA se eliminan.
 // Se conservan siempre como imagen_auditoria_url para auditoría de decisiones.
 
+// Cierra el incidente como caso negativo (DESCARTADO/EN_REVISION) vía finalizeNegativeCase.
+// Centraliza el try/catch repetido de los pasos 5-7: si el guardado en BD falla, cae a
+// FALLIDO técnico conservando la imagen en S3. Devuelve el resultado de finalizeNegativeCase,
+// o null si hubo fallo (el incidente ya quedó marcado como FALLIDO).
+async function tryFinalizeNegative(incidentId, pendingS3Key, mlResultLike, logError, failLabel) {
+  try {
+    return await finalizeNegativeCase(incidentId, pendingS3Key, mlResultLike, logError)
+  } catch (dbErr) {
+    await markIncidentAsFailed(incidentId, `${failLabel}: ${dbErr.message}`, logError, { s3Key: pendingS3Key })
+    logError(`✗ FALLIDO — ${failLabel}: ${dbErr.message}`)
+    return null
+  }
+}
+
 async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio }) {
   const log      = (msg) => console.log(`[image-service] [incident=${incidentId}] ${msg}`)
   const logError = (msg) => console.error(`[image-service] [incident=${incidentId}] ${msg}`)
@@ -449,19 +463,8 @@ async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio 
     //      • confianza < AUTO_REJECT_CONFIDENCE → EN_REVISION (caso ambiguo, supervisor decide)
     //    La imagen SIEMPRE se conserva en S3 para auditoría.
     if (!mlResult.has_waste) {
-      try {
-        const { nuevoEstado } = await finalizeNegativeCase(incidentId, pendingS3Key, mlResult, logError)
-        log(`⚠ Sin residuos detectados — estado=${nuevoEstado} confianza=${mlResult.confianza ?? "N/A"}`)
-      } catch (dbErr) {
-        // Si el guardado del caso negativo falla, caer a FALLIDO técnico como último recurso
-        await markIncidentAsFailed(
-          incidentId,
-          `error al registrar resultado negativo: ${dbErr.message}`,
-          logError,
-          { s3Key: pendingS3Key }
-        )
-        logError(`✗ FALLIDO (fallback) — Error en finalizeNegativeCase: ${dbErr.message}`)
-      }
+      const neg = await tryFinalizeNegative(incidentId, pendingS3Key, mlResult, logError, "error al registrar resultado negativo")
+      if (neg) log(`⚠ Sin residuos detectados — estado=${neg.nuevoEstado} confianza=${mlResult.confianza ?? "N/A"}`)
       return
     }
 
@@ -474,24 +477,14 @@ async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio 
     const volume  = mlResult.volumen_estimado_m3 ?? 0
     if (ceiling != null && volume > ceiling * VOLUME_COHERENCE_TOLERANCE) {
       log(`⚠ Incoherencia vol/nivel: ${volume}m³ excede techo de ${mlResult.nivel_acumulacion} (${ceiling}m³) → EN_REVISION`)
-      try {
-        // Fuerza EN_REVISION (no DESCARTADO) bajando la confianza al límite del auto-reject.
-        // Reusa finalizeNegativeCase para mantener un solo punto de cierre negativo.
-        await finalizeNegativeCase(incidentId, pendingS3Key, {
-          ...mlResult,
-          has_waste: false,
-          confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
-          rechazo_motivo: "volume_nivel_incoherence",
-        }, logError)
-      } catch (dbErr) {
-        await markIncidentAsFailed(
-          incidentId,
-          `coherence-check: ${dbErr.message}`,
-          logError,
-          { s3Key: pendingS3Key }
-        )
-        logError(`✗ FALLIDO — Error registrando incoherencia: ${dbErr.message}`)
-      }
+      // Fuerza EN_REVISION (no DESCARTADO) bajando la confianza al límite del auto-reject.
+      // Reusa finalizeNegativeCase para mantener un solo punto de cierre negativo.
+      await tryFinalizeNegative(incidentId, pendingS3Key, {
+        ...mlResult,
+        has_waste: false,
+        confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
+        rechazo_motivo: "volume_nivel_incoherence",
+      }, logError, "coherence-check")
       return
     }
 
@@ -504,24 +497,14 @@ async function runMlAnalysis(incidentId, { buffer, image, client_coverage_ratio 
     if (mlResult.requiere_revision === true) {
       const motivo = mlResult.rechazo_motivo ?? "verificacion_semantica_ambigua"
       log(`⚠ Gate semántico (CLIP) ambiguo: requiere_revision=true motivo=${motivo} → EN_REVISION`)
-      try {
-        await finalizeNegativeCase(incidentId, pendingS3Key, {
-          ...mlResult,
-          has_waste: false,
-          // Forzar EN_REVISION (no DESCARTADO): confianza justo bajo el umbral de auto-rechazo
-          confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
-          rechazo_motivo: motivo,
-        }, logError)
-        log(`⚠ Incidente marcado EN_REVISION por gate semántico`)
-      } catch (dbErr) {
-        await markIncidentAsFailed(
-          incidentId,
-          `semantic-gate-revision: ${dbErr.message}`,
-          logError,
-          { s3Key: pendingS3Key }
-        )
-        logError(`✗ FALLIDO — Error registrando revisión semántica: ${dbErr.message}`)
-      }
+      const rev = await tryFinalizeNegative(incidentId, pendingS3Key, {
+        ...mlResult,
+        has_waste: false,
+        // Forzar EN_REVISION (no DESCARTADO): confianza justo bajo el umbral de auto-rechazo
+        confianza: Math.min(mlResult.confianza ?? 0, AUTO_REJECT_CONFIDENCE - 0.01),
+        rechazo_motivo: motivo,
+      }, logError, "semantic-gate-revision")
+      if (rev) log(`⚠ Incidente marcado EN_REVISION por gate semántico`)
       return
     }
 
@@ -873,6 +856,54 @@ export async function recoverStaleIncidents() {
 // NOTA: la imagen ya está en S3 (pending_s3_key). En todos los casos de fallo
 // la imagen se conserva como imagen_auditoria_url — NO se elimina.
 
+// Completa una tarea Celery recuperada cuyo estado Celery es "completed".
+async function finalizeRecoveredTask(incidentId, pending_s3_key, result, log, logError) {
+  if (!result.has_waste) {
+    log(`ML recuperado — sin residuos detectados (confianza: ${result.confianza ?? "N/A"})`)
+    try {
+      const { nuevoEstado } = await finalizeNegativeCase(incidentId, pending_s3_key, result, logError)
+      log(`✓ Caso negativo recuperado — estado=${nuevoEstado}`)
+    } catch (dbErr) {
+      await markIncidentAsFailed(incidentId, `recovery: error en caso negativo: ${dbErr.message}`, logError, { s3Key: pending_s3_key })
+    }
+    return
+  }
+  await finalizeIncident(incidentId, pending_s3_key, result, logError)
+  log(`✓ Incidente recuperado exitosamente — PENDIENTE prioridad=${result.prioridad}`)
+}
+
+// Procesa una sola tarea Celery huérfana. La imagen ya está en S3 (pending_s3_key)
+// y se conserva como auditoría en todos los casos de fallo — NO se elimina.
+async function recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key) {
+  const log      = (msg) => console.log(`[image-service] [recovery=${incidentId}] ${msg}`)
+  const logError = (msg) => console.error(`[image-service] [recovery=${incidentId}] ${msg}`)
+
+  try {
+    const { status, result, error } = await checkMlTaskStatus(celery_task_id)
+
+    if (status === "pending" || status === "processing") {
+      log(`Tarea Celery aún en progreso (${status}) — próxima iteración`)
+      return
+    }
+
+    if (status === "failed") {
+      logError(`Tarea Celery FALLIDA: ${error ?? "unknown"}`)
+      // Imagen ya en S3 → se conserva como auditoría
+      await markIncidentAsFailed(incidentId, `recovery: ML inference failed: ${error ?? "unknown"}`, logError, { s3Key: pending_s3_key })
+      return
+    }
+
+    if (status === "completed") {
+      await finalizeRecoveredTask(incidentId, pending_s3_key, result, log, logError)
+      return
+    }
+
+    logError(`Estado Celery desconocido: '${status}' — se reintentará en próxima iteración`)
+  } catch (err) {
+    logError(`Error en recovery check: ${err.message} — se reintentará en próxima iteración`)
+  }
+}
+
 export async function recoverCeleryTasks() {
   let rows
   try {
@@ -895,54 +926,7 @@ export async function recoverCeleryTasks() {
   console.log(`[image-service] recoverCeleryTasks: revisando ${rows.length} tarea(s) Celery pendiente(s)`)
 
   for (const { id: incidentId, celery_task_id, pending_s3_key } of rows) {
-    const log      = (msg) => console.log(`[image-service] [recovery=${incidentId}] ${msg}`)
-    const logError = (msg) => console.error(`[image-service] [recovery=${incidentId}] ${msg}`)
-
-    try {
-      const { status, result, error } = await checkMlTaskStatus(celery_task_id)
-
-      if (status === "pending" || status === "processing") {
-        log(`Tarea Celery aún en progreso (${status}) — próxima iteración`)
-        continue
-      }
-
-      if (status === "failed") {
-        logError(`Tarea Celery FALLIDA: ${error ?? "unknown"}`)
-        // Imagen ya en S3 → se conserva como auditoría
-        await markIncidentAsFailed(
-          incidentId,
-          `recovery: ML inference failed: ${error ?? "unknown"}`,
-          logError,
-          { s3Key: pending_s3_key }
-        )
-        continue
-      }
-
-      if (status === "completed") {
-        if (!result.has_waste) {
-          log(`ML recuperado — sin residuos detectados (confianza: ${result.confianza ?? "N/A"})`)
-          try {
-            const { nuevoEstado } = await finalizeNegativeCase(incidentId, pending_s3_key, result, logError)
-            log(`✓ Caso negativo recuperado — estado=${nuevoEstado}`)
-          } catch (dbErr) {
-            await markIncidentAsFailed(
-              incidentId,
-              `recovery: error en caso negativo: ${dbErr.message}`,
-              logError,
-              { s3Key: pending_s3_key }
-            )
-          }
-          continue
-        }
-        await finalizeIncident(incidentId, pending_s3_key, result, logError)
-        log(`✓ Incidente recuperado exitosamente — PENDIENTE prioridad=${result.prioridad}`)
-        continue
-      }
-
-      logError(`Estado Celery desconocido: '${status}' — se reintentará en próxima iteración`)
-    } catch (err) {
-      logError(`Error en recovery check: ${err.message} — se reintentará en próxima iteración`)
-    }
+    await recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key)
   }
 }
 

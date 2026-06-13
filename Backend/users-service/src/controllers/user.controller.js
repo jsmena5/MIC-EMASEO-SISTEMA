@@ -75,6 +75,32 @@ function validarApellido(v, campo) {
   return null
 }
 
+// Valida todos los campos del registro y devuelve el primer mensaje de error (o null).
+// Mantiene el orden de prioridad original: nombres → apellidos → teléfono → fecha →
+// sexo → cédula/email requeridos → formato de cédula (este último solo si lo anterior pasó).
+function validarDatosRegistro(body) {
+  const {
+    primer_nombre, segundo_nombre,
+    primer_apellido, segundo_apellido,
+    cedula, telefono, fecha_nacimiento, sexo, email,
+  } = body
+  const errores = [
+    validarNombre(primer_nombre, "El primer nombre"),
+    // Segundo nombre y segundo apellido son opcionales; solo validar si vienen presentes
+    segundo_nombre ? validarNombre(segundo_nombre, "El segundo nombre") : null,
+    validarApellido(primer_apellido, "El primer apellido"),
+    segundo_apellido ? validarApellido(segundo_apellido, "El segundo apellido") : null,
+    validarTelefono(telefono, "El celular"),
+    validarFechaNacimiento(fecha_nacimiento, "La fecha de nacimiento"),
+    validarSexo(sexo),
+    (!cedula || !email) ? "Cédula y correo son requeridos" : null,
+  ].filter(Boolean)
+  if (errores.length) return errores[0]
+  // Cédula ecuatoriana (algoritmo módulo 10)
+  if (!validarCedula(cedula)) return "Número de cédula inválido"
+  return null
+}
+
 // ============================================================================
 // POST /api/users/register  — Paso 1: datos básicos + envío de OTP
 // Body: { primer_nombre, segundo_nombre?, primer_apellido, segundo_apellido, cedula, email }
@@ -88,30 +114,9 @@ export const registerUser = async (req, res) => {
       cedula, telefono, fecha_nacimiento, sexo, email,
     } = req.body
 
-    // Validar nombres
-    const errores = []
-    const e1 = validarNombre(primer_nombre, "El primer nombre")
-    // Segundo nombre y segundo apellido son opcionales en la UI; solo validar si vienen presentes
-    const e2 = segundo_nombre ? validarNombre(segundo_nombre, "El segundo nombre") : null
-    const e3 = validarApellido(primer_apellido, "El primer apellido")
-    const e4 = segundo_apellido ? validarApellido(segundo_apellido, "El segundo apellido") : null
-    const e5 = validarTelefono(telefono, "El celular")
-    const e6 = validarFechaNacimiento(fecha_nacimiento, "La fecha de nacimiento")
-    const e7 = validarSexo(sexo)
-    if (e1) errores.push(e1)
-    if (e2) errores.push(e2)
-    if (e3) errores.push(e3)
-    if (e4) errores.push(e4)
-    if (e5) errores.push(e5)
-    if (e6) errores.push(e6)
-    if (e7) errores.push(e7)
-    if (!cedula || !email) errores.push("Cédula y correo son requeridos")
-    if (errores.length) return res.status(400).json({ message: errores[0] })
-
-    // Validar cédula ecuatoriana (algoritmo módulo 10)
-    if (!validarCedula(cedula)) {
-      return res.status(400).json({ message: "Número de cédula inválido" })
-    }
+    // Validar todos los campos; el primer error encontrado gana
+    const errorValidacion = validarDatosRegistro(req.body)
+    if (errorValidacion) return res.status(400).json({ message: errorValidacion })
 
     // Para compatibilidad con el JWT y la tabla, nombre = primer_nombre, apellido = primer_apellido
     const nombre   = primer_nombre.trim()

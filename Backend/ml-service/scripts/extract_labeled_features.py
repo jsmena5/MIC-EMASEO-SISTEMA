@@ -48,22 +48,25 @@ def _detect(model, img, img_w, img_h, valid_aliases):
     """Reproduce el filtrado de detecciones de run_inference (tasks.py)."""
     min_bbox_area = MIN_BBOX_AREA_RATIO * img_w * img_h
     results = model.predict(img, conf=NMS_CONF, iou=NMS_IOU, verbose=False)
+    if not results:
+        return []
+    boxes, names = results[0].boxes, results[0].names
+    if boxes is None or len(boxes) == 0:
+        return []
+
     detecciones = []
-    if results and len(results) > 0:
-        boxes, names = results[0].boxes, results[0].names
-        if boxes is not None and len(boxes) > 0:
-            for box in boxes:
-                class_name = names[int(box.cls[0])]
-                if class_name.lower() not in valid_aliases:
-                    continue
-                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
-                if (x2 - x1) * (y2 - y1) < min_bbox_area:
-                    continue
-                detecciones.append({
-                    "class":      class_name,
-                    "confidence": round(float(box.conf[0]), 4),
-                    "bbox":       [x1, y1, x2, y2],
-                })
+    for box in boxes:
+        class_name = names[int(box.cls[0])]
+        if class_name.lower() not in valid_aliases:
+            continue
+        x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+        if (x2 - x1) * (y2 - y1) < min_bbox_area:
+            continue
+        detecciones.append({
+            "class":      class_name,
+            "confidence": round(float(box.conf[0]), 4),
+            "bbox":       [x1, y1, x2, y2],
+        })
     return detecciones
 
 

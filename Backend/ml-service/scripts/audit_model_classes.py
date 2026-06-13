@@ -24,6 +24,38 @@ import sys
 from pathlib import Path
 
 
+def _header(title: str) -> None:
+    print("\n" + "=" * 72)
+    print(title)
+    print("=" * 72)
+
+
+def _print_trained_classes(model, alias_map) -> None:
+    _header(f"Clases entrenadas en el modelo ({len(model.names)}):")
+    for idx, name in sorted(model.names.items()):
+        mapped = alias_map.get(name.lower())
+        marker = f"→ {mapped}" if mapped else "✗ NO MAPEADA (caerá en OTRO o se descartará)"
+        print(f"  [{idx:>3}] {name:<25} {marker}")
+
+
+def _print_set(title: str, items: set, footer: str, empty: str) -> None:
+    _header(f"{title} ({len(items)}):")
+    if items:
+        for name in sorted(items):
+            print(f"  - {name}")
+        print(footer)
+    else:
+        print(empty)
+
+
+def _print_category_summary(waste_registry, model_classes: set) -> None:
+    _header("Resumen por categoría canónica:")
+    for wc in waste_registry:
+        emitted = [a for a in wc.aliases if a in model_classes]
+        status = "✓" if emitted else "✗"
+        print(f"  {status} {wc.canonical:<12} aliases={wc.aliases} → emitidos: {emitted or '(ninguno)'}")
+
+
 def main() -> int:
     # Permitir importar config_classes desde la raíz del ml-service
     here = Path(__file__).resolve().parent
@@ -48,46 +80,25 @@ def main() -> int:
     model_classes = {name.lower() for name in model.names.values()}
     registry_aliases = set(VALID_ALIASES)
 
-    print("\n" + "=" * 72)
-    print(f"Clases entrenadas en el modelo ({len(model.names)}):")
-    print("=" * 72)
-    for idx, name in sorted(model.names.items()):
-        mapped = ALIAS_MAP.get(name.lower())
-        marker = f"→ {mapped}" if mapped else "✗ NO MAPEADA (caerá en OTRO o se descartará)"
-        print(f"  [{idx:>3}] {name:<25} {marker}")
+    _print_trained_classes(model, ALIAS_MAP)
 
-    only_in_model = model_classes - registry_aliases
-    only_in_registry = registry_aliases - model_classes
+    _print_set(
+        "Clases del modelo SIN mapeo en config_classes",
+        model_classes - registry_aliases,
+        "\n  ⚠ Estas detecciones se DESCARTAN en tasks.py:246 (VALID_ALIASES check)."
+        "\n    Si una de estas es realmente basura, agrégala como alias al registry.",
+        "  (ninguna)",
+    )
 
-    print("\n" + "=" * 72)
-    print(f"Clases del modelo SIN mapeo en config_classes ({len(only_in_model)}):")
-    print("=" * 72)
-    if only_in_model:
-        for name in sorted(only_in_model):
-            print(f"  - {name}")
-        print("\n  ⚠ Estas detecciones se DESCARTAN en tasks.py:246 (VALID_ALIASES check).")
-        print("    Si una de estas es realmente basura, agrégala como alias al registry.")
-    else:
-        print("  (ninguna)")
+    _print_set(
+        "Aliases en config_classes que el modelo NUNCA emite",
+        registry_aliases - model_classes,
+        "\n  ℹ Estos aliases son código muerto en el filtro VALID_ALIASES."
+        "\n    Considera removerlos del registry si el modelo no los emite.",
+        "  (todos los aliases del registry son emitidos por el modelo)",
+    )
 
-    print("\n" + "=" * 72)
-    print(f"Aliases en config_classes que el modelo NUNCA emite ({len(only_in_registry)}):")
-    print("=" * 72)
-    if only_in_registry:
-        for name in sorted(only_in_registry):
-            print(f"  - {name}")
-        print("\n  ℹ Estos aliases son código muerto en el filtro VALID_ALIASES.")
-        print("    Considera removerlos del registry si el modelo no los emite.")
-    else:
-        print("  (todos los aliases del registry son emitidos por el modelo)")
-
-    print("\n" + "=" * 72)
-    print("Resumen por categoría canónica:")
-    print("=" * 72)
-    for wc in WASTE_REGISTRY:
-        emitted = [a for a in wc.aliases if a in model_classes]
-        status = "✓" if emitted else "✗"
-        print(f"  {status} {wc.canonical:<12} aliases={wc.aliases} → emitidos: {emitted or '(ninguno)'}")
+    _print_category_summary(WASTE_REGISTRY, model_classes)
 
     print("\nAuditoría completa.")
     return 0

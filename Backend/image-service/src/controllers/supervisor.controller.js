@@ -252,18 +252,47 @@ export const getIncidentDetail = async (req, res) => {
 //   EN_REVISION → RECHAZADA  (supervisor rechaza el reporte dudoso)
 //   DESCARTADO  → PENDIENTE  (supervisor anula rechazo automático)
 
+const MOTIVOS_RECHAZO_VALIDOS = ["NO_ES_BASURA", "MUY_LEJOS_PEQUENO", "IMAGEN_BORROSA", "DUPLICADO", "OTRO"]
+
+// Valida el body de cambiarEstado. Devuelve un mensaje de error (400) o null si es válido.
+function validarCambioEstado({ estado, motivo_rechazo }) {
+  if (!estado) return "El campo 'estado' es requerido."
+  if (estado === "RECHAZADA" && !motivo_rechazo)
+    return "El campo 'motivo_rechazo' es requerido al rechazar."
+  if (motivo_rechazo && !MOTIVOS_RECHAZO_VALIDOS.includes(motivo_rechazo))
+    return `motivo_rechazo inválido. Valores aceptados: ${MOTIVOS_RECHAZO_VALIDOS.join(", ")}.`
+  return null
+}
+
+// Actualiza observaciones/motivo_rechazo en la última fila de status_history del incidente.
+// No-op si no se proveyó ninguno de los dos campos.
+async function actualizarObservacionesHistorial(client, { id, estado, observaciones, motivo_rechazo }) {
+  if (!observaciones && !motivo_rechazo) return
+  const sets = []
+  const vals = []
+  let idx = 1
+  if (observaciones)  { sets.push(`observaciones = $${idx++}`);  vals.push(observaciones) }
+  if (motivo_rechazo) { sets.push(`motivo_rechazo = $${idx++}`); vals.push(motivo_rechazo) }
+  vals.push(id, estado)
+  await client.query(
+    `UPDATE incidents.status_history
+     SET ${sets.join(", ")}
+     WHERE incident_id = $${idx++} AND estado_nuevo = $${idx++}
+       AND created_at = (
+         SELECT MAX(created_at) FROM incidents.status_history
+         WHERE incident_id = $${idx - 2} AND estado_nuevo = $${idx - 1}
+       )`,
+    vals,
+  )
+}
+
 export const cambiarEstado = async (req, res) => {
   const { id }                                          = req.params
   const { estado, observaciones, motivo_rechazo, cierre_lat, cierre_lon } = req.body
   const userId = req.headers["x-user-id"]
 
-  const MOTIVOS_VALIDOS = ["NO_ES_BASURA", "MUY_LEJOS_PEQUENO", "IMAGEN_BORROSA", "DUPLICADO", "OTRO"]
-
-  if (!estado) return res.status(400).json({ error: "El campo 'estado' es requerido." })
-  if (estado === "RECHAZADA" && !motivo_rechazo)
-    return res.status(400).json({ error: "El campo 'motivo_rechazo' es requerido al rechazar." })
-  if (motivo_rechazo && !MOTIVOS_VALIDOS.includes(motivo_rechazo))
-    return res.status(400).json({ error: `motivo_rechazo inválido. Valores aceptados: ${MOTIVOS_VALIDOS.join(", ")}.` })
+  const errEntrada = validarCambioEstado({ estado, motivo_rechazo })
+  if (errEntrada) return res.status(400).json({ error: errEntrada })
 
   const client = await pool.connect()
   try {
@@ -339,24 +368,7 @@ export const cambiarEstado = async (req, res) => {
        distanciaM != null ? distanciaM.toFixed(2) : null],
     )
 
-    if (observaciones || motivo_rechazo) {
-      const sets = []
-      const vals = []
-      let idx = 1
-      if (observaciones)  { sets.push(`observaciones = $${idx++}`);  vals.push(observaciones) }
-      if (motivo_rechazo) { sets.push(`motivo_rechazo = $${idx++}`); vals.push(motivo_rechazo) }
-      vals.push(id, estado)
-      await client.query(
-        `UPDATE incidents.status_history
-         SET ${sets.join(", ")}
-         WHERE incident_id = $${idx++} AND estado_nuevo = $${idx++}
-           AND created_at = (
-             SELECT MAX(created_at) FROM incidents.status_history
-             WHERE incident_id = $${idx - 2} AND estado_nuevo = $${idx - 1}
-           )`,
-        vals,
-      )
-    }
+    await actualizarObservacionesHistorial(client, { id, estado, observaciones, motivo_rechazo })
 
     await client.query("COMMIT")
 

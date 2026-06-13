@@ -3,27 +3,42 @@ import sharp from "sharp"
 export const MIN_FILE_BYTES = 1_000
 export const MIN_SIDE_PX   = 320
 
-export function getImageDimensions(buf) {
-  // PNG: IHDR en offset 16-23
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-    if (buf.length < 24) return null
-    return { format: "PNG", width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
-  }
-  // JPEG: recorrer segmentos buscando marcador SOF
-  if (buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2
-    while (i + 8 < buf.length) {
-      if (buf[i] !== 0xff) break
-      const m = buf[i + 1]
-      if (
-        (m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) ||
-        (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)
-      ) {
-        return { format: "JPEG", height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) }
-      }
-      i += 2 + buf.readUInt16BE(i + 2)
+// Marcadores SOF (Start Of Frame) — contienen las dimensiones reales del JPEG.
+// Son 0xC0–0xCF excepto DHT(0xC4), JPG(0xC8) y DAC(0xCC).
+function isJpegSofMarker(m) {
+  return (
+    (m >= 0xc0 && m <= 0xc3) || (m >= 0xc5 && m <= 0xc7) ||
+    (m >= 0xc9 && m <= 0xcb) || (m >= 0xcd && m <= 0xcf)
+  )
+}
+
+// PNG: IHDR en offset 16-23
+function parsePngDimensions(buf) {
+  if (buf.length < 24) return null
+  return { format: "PNG", width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) }
+}
+
+// JPEG: recorrer segmentos buscando el marcador SOF
+function parseJpegDimensions(buf) {
+  let i = 2
+  while (i + 8 < buf.length) {
+    if (buf[i] !== 0xff) break
+    if (isJpegSofMarker(buf[i + 1])) {
+      return { format: "JPEG", height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) }
     }
-    return { format: "JPEG", width: 0, height: 0 }
+    i += 2 + buf.readUInt16BE(i + 2)
+  }
+  return { format: "JPEG", width: 0, height: 0 }
+}
+
+export function getImageDimensions(buf) {
+  // PNG: magic bytes 0x89 'P' 'N' 'G'
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return parsePngDimensions(buf)
+  }
+  // JPEG: magic bytes 0xFF 0xD8
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    return parseJpegDimensions(buf)
   }
   return null
 }

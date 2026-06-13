@@ -261,6 +261,28 @@ def compute_garbage_score(
 # Clasificación de severidad (banda nivel/prioridad + volumen interpolado)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _apply_scale_penalty(effective_ratio, num_detecciones, coverage_ratio, garbage_score, clustered):
+    """Paso 2 de classify_severity: corrige la ambigüedad de escala.
+
+    Una sola caja que cubre casi todo el encuadre (full-frame), o una detección
+    aislada/clusterizada, se penaliza interpolando por garbage_score.
+    Devuelve (effective_ratio_corregido, scale_penalty_applied).
+    """
+    is_single = (num_detecciones <= ISOLATION_DET_THRESHOLD)
+
+    if is_single and coverage_ratio > FULL_FRAME_COVERAGE_THRESHOLD:
+        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
+        penalty = FULL_FRAME_PENALTY + (ISOLATION_PENALTY - FULL_FRAME_PENALTY) * t_score
+        return effective_ratio * penalty, True
+
+    if (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
+        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
+        penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
+        return effective_ratio * penalty, penalty < 0.999
+
+    return effective_ratio, False
+
+
 def classify_severity(
     coverage_ratio: float,
     confianza: float,
@@ -310,20 +332,9 @@ def classify_severity(
 
     # ── Paso 2: corrección de ambigüedad de escala ────────────────────────────
     clustered = is_clustered(detecciones, img_w, img_h)
-    is_single = (num_detecciones <= ISOLATION_DET_THRESHOLD)
-
-    if is_single and coverage_ratio > FULL_FRAME_COVERAGE_THRESHOLD:
-        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-        penalty = FULL_FRAME_PENALTY + (ISOLATION_PENALTY - FULL_FRAME_PENALTY) * t_score
-        effective_ratio *= penalty
-        scale_penalty_applied = True
-    elif (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
-        t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-        penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
-        effective_ratio *= penalty
-        scale_penalty_applied = penalty < 0.999
-    else:
-        scale_penalty_applied = False
+    effective_ratio, scale_penalty_applied = _apply_scale_penalty(
+        effective_ratio, num_detecciones, coverage_ratio, garbage_score, clustered
+    )
 
     # ── Paso 3: ajuste por peligrosidad del tipo de residuo ───────────────────
     class_weight    = CLASS_WEIGHTS.get(tipo_residuo, 1.00)
