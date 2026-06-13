@@ -134,6 +134,20 @@ function AssignModal({
 
 // ─── GeoJSON Import modal ─────────────────────────────────────────────────────
 
+// Extrae los Features de tipo Polygon/MultiPolygon de un GeoJSON (FeatureCollection o Feature).
+function extractPolygonFeatures(json: FeatureCollection | Feature): Feature<Polygon | MultiPolygon>[] {
+  const isPoly = (t?: string) => t === "Polygon" || t === "MultiPolygon"
+  if (json.type === "FeatureCollection") {
+    return (json as FeatureCollection).features.filter(
+      (f) => isPoly(f.geometry?.type)
+    ) as Feature<Polygon | MultiPolygon>[]
+  }
+  if (json.type === "Feature" && isPoly(json.geometry?.type)) {
+    return [json as Feature<Polygon | MultiPolygon>]
+  }
+  return []
+}
+
 function ImportModal({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const [importing, setImporting] = useState(false)
   const [error, setError]         = useState("")
@@ -151,14 +165,7 @@ function ImportModal({ onClose, onImported }: { onClose: () => void; onImported:
       reader.onload = () => {
         try {
           const json = JSON.parse(reader.result as string) as FeatureCollection | Feature
-          let features: Feature<Polygon | MultiPolygon>[] = []
-          if (json.type === "FeatureCollection") {
-            features = (json as FeatureCollection).features.filter(
-              (f) => f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon"
-            ) as Feature<Polygon | MultiPolygon>[]
-          } else if (json.type === "Feature" && (json.geometry?.type === "Polygon" || json.geometry?.type === "MultiPolygon")) {
-            features = [json as Feature<Polygon | MultiPolygon>]
-          }
+          const features = extractPolygonFeatures(json)
           if (features.length === 0) { setError("El archivo no contiene polígonos válidos (Polygon o MultiPolygon)"); return }
           setPreview(features)
         } catch {

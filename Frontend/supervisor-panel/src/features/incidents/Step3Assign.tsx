@@ -61,37 +61,35 @@ export default function Step3Assign({
     }
   }
 
-  const handleEstado = async (estado: IncidentEstado) => {
-    setError(null); setFeedback(null)
-
-    // Al cerrar se requiere GPS para la geocerca
-    if (estado === "RESUELTA") {
-      setCapturandoGps(true)
-      let gps: { cierre_lat: number; cierre_lon: number }
-      try {
-        gps = await captureGPS()
-      } catch (err) {
-        setCapturandoGps(false)
-        setError(err instanceof Error ? err.message : "Error al capturar GPS")
-        return
-      }
+  // Cierre con geocerca: captura GPS y luego marca RESUELTA con la ubicación.
+  const resolverConGps = async (estado: IncidentEstado) => {
+    setCapturandoGps(true)
+    let gps: { cierre_lat: number; cierre_lon: number }
+    try {
+      gps = await captureGPS()
+    } catch (err) {
       setCapturandoGps(false)
-      setSaving(true)
-      try {
-        const res = await cambiarEstado(detail.id, estado, observaciones, gps)
-        const dist = res.distancia_cierre_m
-        setFeedback(
-          `Reporte cerrado correctamente.${dist != null ? ` Distancia al punto: ${dist} m.` : ""}`,
-        )
-        onRefresh()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "No se pudo cerrar el reporte.")
-      } finally {
-        setSaving(false)
-      }
+      setError(err instanceof Error ? err.message : "Error al capturar GPS")
       return
     }
+    setCapturandoGps(false)
+    setSaving(true)
+    try {
+      const res = await cambiarEstado(detail.id, estado, observaciones, gps)
+      const dist = res.distancia_cierre_m
+      setFeedback(
+        `Reporte cerrado correctamente.${dist != null ? ` Distancia al punto: ${dist} m.` : ""}`,
+      )
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo cerrar el reporte.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
+  // Transición simple (sin GPS): PENDIENTE / EN_ATENCION / RECHAZADA.
+  const cambiarEstadoSimple = async (estado: IncidentEstado) => {
     setSaving(true)
     try {
       await cambiarEstado(detail.id, estado, observaciones)
@@ -101,6 +99,16 @@ export default function Step3Assign({
       setError(err instanceof Error ? err.message : "No se pudo cambiar el estado.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleEstado = async (estado: IncidentEstado) => {
+    setError(null); setFeedback(null)
+    // Al cerrar (RESUELTA) se requiere GPS para validar la geocerca
+    if (estado === "RESUELTA") {
+      await resolverConGps(estado)
+    } else {
+      await cambiarEstadoSimple(estado)
     }
   }
 

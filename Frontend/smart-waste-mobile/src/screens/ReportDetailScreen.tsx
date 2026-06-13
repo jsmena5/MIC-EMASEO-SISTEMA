@@ -32,15 +32,33 @@ function formatDateTime(iso: string) {
   })
 }
 
+// Normaliza lat/lon del incidente y valida rango geográfico.
+function parseCoords(latitud: unknown, longitud: unknown): {
+  lat: number | null
+  lon: number | null
+  hasCoords: boolean
+} {
+  const lat = latitud != null && !isNaN(Number(latitud)) ? Number(latitud) : null
+  const lon = longitud != null && !isNaN(Number(longitud)) ? Number(longitud) : null
+  const hasCoords =
+    lat != null && lon != null && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+  return { lat, lon, hasCoords }
+}
+
+// Construye una dirección legible a partir del resultado de reverseGeocode.
+function formatGeocodeResult(result: Location.LocationGeocodedAddress): string | null {
+  const street = result.street ?? ""
+  const area = result.district ?? result.subregion ?? result.city ?? ""
+  const parts = [street, area].filter(Boolean)
+  return parts.length > 0 ? parts.join(", ") : null
+}
+
 export default function ReportDetailScreen({ route, navigation }: Props) {
   const [incident, setIncident] = useState<Incident>(route.params.incident)
 
   if (__DEV__) console.log("Datos recibidos en detalle:", JSON.stringify(route.params, null, 2))
 
-  const lat = incident.latitud != null && !isNaN(Number(incident.latitud)) ? Number(incident.latitud) : null
-  const lon = incident.longitud != null && !isNaN(Number(incident.longitud)) ? Number(incident.longitud) : null
-  const hasCoords = lat != null && lon != null &&
-    lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
+  const { lat, lon, hasCoords } = parseCoords(incident.latitud, incident.longitud)
 
   const [address, setAddress] = useState<string | null>(null)
   const [imgError, setImgError] = useState(false)
@@ -58,10 +76,7 @@ export default function ReportDetailScreen({ route, navigation }: Props) {
     Location.reverseGeocodeAsync({ latitude: lat!, longitude: lon! })
       .then(([result]) => {
         if (!result) return
-        const street = result.street ?? ""
-        const area = result.district ?? result.subregion ?? result.city ?? ""
-        const parts = [street, area].filter(Boolean)
-        setAddress(parts.length > 0 ? parts.join(", ") : null)
+        setAddress(formatGeocodeResult(result))
       })
       .catch(() => {})
   }, [lat, lon, hasCoords])

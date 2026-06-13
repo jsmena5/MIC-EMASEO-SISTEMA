@@ -82,6 +82,60 @@ export async function getPendingReports(): Promise<PendingReport[]> {
   return readQueue()
 }
 
+// Envía el reporte si aún no tiene taskId. Garantiza una idempotencyKey estable
+// ANTES de enviar y persiste el taskId en la cola. Devuelve el taskId resultante.
+// Muta workingQueue[0] en el sitio (igual que el flujo original) para que un fallo
+// posterior vea el taskId ya guardado.
+async function ensureReportSubmitted(
+  workingQueue: PendingReport[],
+  report: PendingReport,
+): Promise<string> {
+  if (report.taskId) return report.taskId
+
+  let idempotencyKey = report.idempotencyKey
+  if (!idempotencyKey) {
+    idempotencyKey = uuidv4()
+    workingQueue[0] = { ...report, idempotencyKey }
+    await writeQueue(workingQueue)
+  }
+
+  const accepted = await analyzeImage(
+    report.imageBase64,
+    report.latitude,
+    report.longitude,
+    report.descripcion,
+    { idempotencyKey },
+  )
+  workingQueue[0] = { ...workingQueue[0], taskId: accepted.task_id }
+  await writeQueue(workingQueue)
+  return accepted.task_id
+}
+
+// Decide el destino de un reporte cuyo procesamiento lanzó error. Devuelve la cola
+// resultante y si debe contarse como enviado (succeeded) o fallido (failed).
+function resolveQueueAfterError(
+  error: unknown,
+  workingQueue: PendingReport[],
+  currentReport: PendingReport,
+): { queue: PendingReport[]; sent: boolean } {
+  // El servidor rechazó el análisis (FALLIDO) → no reintentar, descartar.
+  if (error instanceof TaskAnalysisFailedError) {
+    return { queue: workingQueue.slice(1), sent: false }
+  }
+  // Si ya hay taskId, el reporte SE ENVIÓ: el incidente existe en el servidor y
+  // aparece en el Historial. NO re-subir la imagen — sacarlo de la cola como enviado.
+  if (currentReport.taskId) {
+    return { queue: workingQueue.slice(1), sent: true }
+  }
+  // Sin taskId ⇒ el envío falló por red. Reintentar con tope para no atascar el item.
+  const nextRetries = currentReport.retries + 1
+  const queue =
+    nextRetries >= MAX_QUEUE_RETRIES
+      ? workingQueue.slice(1)
+      : [...workingQueue.slice(1), { ...currentReport, retries: nextRetries }]
+  return { queue, sent: false }
+}
+
 export async function processQueue(
   onProgress?: (current: number, total: number) => void,
 ): Promise<QueueProcessResult> {
@@ -100,67 +154,17 @@ export async function processQueue(
     onProgress?.(i + 1, total)
 
     try {
-      let taskId = report.taskId
-
-      if (!taskId) {
-        // Garantiza una clave de idempotencia estable ANTES de enviar: si este
-        // flush se interrumpe tras llegar al servidor pero antes de guardar el
-        // taskId, el próximo intento reusa la misma clave y el backend no duplica.
-        let idempotencyKey = report.idempotencyKey
-        if (!idempotencyKey) {
-          idempotencyKey = uuidv4()
-          workingQueue[0] = { ...report, idempotencyKey }
-          await writeQueue(workingQueue)
-        }
-
-        const accepted = await analyzeImage(
-          report.imageBase64,
-          report.latitude,
-          report.longitude,
-          report.descripcion,
-          { idempotencyKey },
-        )
-        taskId = accepted.task_id
-
-        workingQueue[0] = { ...workingQueue[0], taskId }
-        await writeQueue(workingQueue)
-      }
-
+      const taskId = await ensureReportSubmitted(workingQueue, report)
       await waitForAnalysisResult(taskId)
       workingQueue = workingQueue.slice(1)
       await writeQueue(workingQueue)
       succeeded++
     } catch (error) {
       const currentReport = workingQueue[0] ?? report
-
-      // El servidor rechazó el análisis (FALLIDO) → no reintentar, descartar.
-      if (error instanceof TaskAnalysisFailedError) {
-        failed++
-        workingQueue = workingQueue.slice(1)
-        await writeQueue(workingQueue)
-        continue
-      }
-
-      // Si ya hay taskId, el reporte SE ENVIÓ: el incidente existe en el servidor y
-      // aparece en el Historial (como "Procesando" si el análisis aún no terminó).
-      // Da igual que el análisis no terminara a tiempo (TaskAnalysisTimeoutError) o
-      // que fallara la consulta de estado: NO re-subir la imagen. Sacarlo de la cola.
-      // Esto corta el bucle infinito de "Pendiente de envío · Intento N".
-      if (currentReport.taskId) {
-        succeeded++
-        workingQueue = workingQueue.slice(1)
-        await writeQueue(workingQueue)
-        continue
-      }
-
-      // Sin taskId ⇒ el envío (analyzeImage) falló por red. Reintentar más tarde,
-      // con tope para no dejar el item atascado para siempre con thumbnail roto.
-      failed++
-      const nextRetries = currentReport.retries + 1
-      workingQueue =
-        nextRetries >= MAX_QUEUE_RETRIES
-          ? workingQueue.slice(1)
-          : [...workingQueue.slice(1), { ...currentReport, retries: nextRetries }]
+      const { queue, sent } = resolveQueueAfterError(error, workingQueue, currentReport)
+      workingQueue = queue
+      if (sent) succeeded++
+      else failed++
       await writeQueue(workingQueue)
     }
   }
