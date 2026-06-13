@@ -54,7 +54,8 @@ export const getOperarioById = async (req, res) => {
     }
 
     res.json(result.rows[0])
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     res.status(500).json({ message: "Error" })
   }
 }
@@ -146,7 +147,8 @@ export const updateOperario = async (req, res) => {
 
     res.json({ message: "Actualizado" })
 
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     await client.query("ROLLBACK")
     res.status(500).json({ message: "Error actualizando" })
   } finally {

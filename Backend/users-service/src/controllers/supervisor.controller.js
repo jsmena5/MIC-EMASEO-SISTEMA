@@ -28,7 +28,8 @@ export const getSupervisores = async (req, res) => {
     `)
 
     res.json(result.rows)
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     res.status(500).json({ message: "Error obteniendo supervisores" })
   }
 }
@@ -50,7 +51,8 @@ export const getSupervisorById = async (req, res) => {
     }
 
     res.json(result.rows[0])
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     res.status(500).json({ message: "Error" })
   }
 }
@@ -91,7 +93,8 @@ export const createSupervisor = async (req, res) => {
 
     res.status(201).json(response)
 
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     await client.query("ROLLBACK")
     res.status(500).json({ message: "Error creando supervisor" })
   } finally {
@@ -140,7 +143,8 @@ export const updateSupervisor = async (req, res) => {
 
     res.json({ message: "Actualizado" })
 
-  } catch (_) {
+  } catch (error) {
+    console.error(error)
     await client.query("ROLLBACK")
     res.status(500).json({ message: "Error actualizando" })
   } finally {

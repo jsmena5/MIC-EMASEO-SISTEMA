@@ -47,9 +47,9 @@ const STORAGE_KEY = "sidebar-expanded"
 export default function Sidebar() {
   // En tablet portrait (<1024px) colapsado por defecto, en landscape expandido.
   const [expanded, setExpanded] = useState<boolean>(() => {
-    const saved = typeof globalThis.window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null
+    const saved = globalThis.window !== undefined ? localStorage.getItem(STORAGE_KEY) : null
     if (saved !== null) return saved === "true"
-    return typeof globalThis.window !== "undefined" ? window.innerWidth >= 1024 : true
+    return globalThis.window !== undefined ? window.innerWidth >= 1024 : true
   })
 
   useEffect(() => {

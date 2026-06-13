@@ -16,7 +16,7 @@ export type AuthTokens = {
 let refreshPromise: Promise<AuthTokens | null> | null = null;
 
 const emitSessionCleared = () => {
-  if (typeof globalThis.window !== "undefined") {
+  if (globalThis.window !== undefined) {
     globalThis.window.dispatchEvent(new Event(AUTH_SESSION_CLEARED_EVENT));
   }
 };
