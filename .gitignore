@@ -3,9 +3,13 @@
 *.onnx
 *.engine
 *.pth
+*.bin
+*.safetensors
 
-# ── Carpetas generadas por Ultralytics ─────────────────────────────────────────
+# ── Carpetas generadas por Ultralytics / ML ────────────────────────────────────
 runs/
+mlruns/
+outputs/
 
 # ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -13,51 +17,112 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+dist/
+*.egg
+.eggs/
+pip-wheel-metadata/
 
 # ── Entornos virtuales ─────────────────────────────────────────────────────────
 venv*/
 .venv/
 env/
+ENV/
 
 # ── Variables de entorno (secretos) ────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+*.pem
+*.key
+*.cert
+secrets/
 
 # ── Node.js ────────────────────────────────────────────────────────────────────
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+
+# ── Build / compilados ─────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.nuxt/
+.output/
+web-build/
+*.tsbuildinfo
 
 # ── Expo / React Native ────────────────────────────────────────────────────────
 .expo/
-dist/
-build/
 *.orig.*
-web-build/
+android/
+ios/
+*.apk
+*.aab
+*.ipa
 
 # ── Herramientas del IDE ────────────────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+*.swo
 .claude/
 
 # ── Sistema operativo ──────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
 desktop.ini
+ehthumbs.db
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+logs/
+*.log
+pids/
+*.pid
+*.seed
 
 # ── Dumps de base de datos (nunca versionar — pueden contener datos) ───────────
 backups/
+*.sql
+*.dump
+*.sqlite
+*.db
 
-# ── Artefactos generados de entrenamiento ML (logs/reportes, no código) ────────
+# ── Docker ─────────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+.dockerignore
+
+# ── Artefactos generados de entrenamiento ML ───────────────────────────────────
 ML/logs/
 ML/reporte_labels.txt
 
-# ── Datos temporales de desarrollo (caches, blobs binarios) ─────────────────
+# ── Datos temporales de desarrollo ────────────────────────────────────────────
 _*.b64
 _*_cache.json
 *.pytest_cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__snapshots__/
+tmp/
+temp/
 
 .deploy_creds*
 
-# ── Reportes de cobertura y análisis (generados localmente, no versionar) ──────
+# ── Reportes de cobertura y análisis estático (generados localmente) ───────────
 coverage/
 .scannerwork/
+*.lcov
+htmlcov/
