@@ -23,9 +23,9 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <div
       ref={overlay}
-      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === overlay.current) onClose() }}
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
     >
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -480,9 +480,9 @@ function CiudadanosTab() {
       {/* Modal reset de contraseña */}
       {pwModal && (
         <div
-          role="presentation"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={(e) => { if (e.target === e.currentTarget) { setPwModal(null); setTempPwd(null) } }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setPwModal(null); setTempPwd(null) } }}
         >
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">

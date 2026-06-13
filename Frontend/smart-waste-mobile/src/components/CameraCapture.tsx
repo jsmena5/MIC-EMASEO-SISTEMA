@@ -234,7 +234,7 @@ export default function CameraCapture({
   }
 
   // Mantener captureRef apuntando a la última handleCapture (para los timers).
-  useEffect(() => { captureRef.current = handleCapture })
+  useEffect(() => { captureRef.current = () => { void handleCapture() } })
 
   // ── Estilo animado del indicador ──
   const indicatorStyle = useAnimatedStyle(() => ({

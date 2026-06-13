@@ -242,7 +242,7 @@ def compute_garbage_score(
 
             # ── 3. Posición vertical ─────────────────────────────────────────
             center_y = (y1 + y2) / 2.0
-            pos_score = center_y / img_h                 # 0=arriba, 1=abajo
+            pos_score = center_y / img_h
 
             det_score = 0.45 * color_score + 0.40 * edge_score + 0.15 * pos_score
             scores.append(det_score)

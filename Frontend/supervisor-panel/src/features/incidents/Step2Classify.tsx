@@ -65,9 +65,9 @@ export default function Step2Classify({
           </button>
           {lightboxOpen && (
             <div
-              role="presentation"
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/85"
               onClick={() => setLightboxOpen(false)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setLightboxOpen(false) }}
             >
               <button
                 type="button"
@@ -76,12 +76,13 @@ export default function Step2Classify({
               >
                 ✕
               </button>
-              <img
-                src={imageUrl}
-                alt="Incidente ampliado"
-                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-              />
+              <button type="button" className="focus:outline-none" onClick={(e) => e.stopPropagation()}>
+                <img
+                  src={imageUrl}
+                  alt="Incidente ampliado"
+                  className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+                />
+              </button>
             </div>
           )}
         </>

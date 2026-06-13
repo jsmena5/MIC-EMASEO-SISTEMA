@@ -272,8 +272,8 @@ export default function AuditoriaR2() {
         if (loading) {
           return (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={`skeleton-${i}`} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
+              {Array.from({ length: 8 }, (_, i) => `skeleton-${i}`).map((key) => (
+                <div key={key} className="h-64 rounded-2xl bg-slate-100 animate-pulse" />
               ))}
             </div>
           )

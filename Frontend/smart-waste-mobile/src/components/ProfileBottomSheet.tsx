@@ -358,6 +358,8 @@ function PerfilTabContent(p: {
   }
   if (!p.profile) return null
 
+  const showForm = (p.perfilCompleto && p.editing) || !p.perfilCompleto
+
   return (
     <>
       {/* Datos identitarios — siempre read-only */}
@@ -382,7 +384,7 @@ function PerfilTabContent(p: {
             <Text style={styles.editBtnText}>Rectificar datos (LOPDP Art. 17)</Text>
           </TouchableOpacity>
         </>
-      ) : (p.perfilCompleto && p.editing) || !p.perfilCompleto ? (
+      ) : showForm ? (
         /* Formulario de rectificación / completar perfil */
         <View style={styles.completeBox}>
           <View style={styles.completeBanner}>

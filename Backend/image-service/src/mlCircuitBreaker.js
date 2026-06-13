@@ -37,7 +37,7 @@ async function submitMlTask({ image_base64, image_width, image_height, client_co
     throw err
   }
 
-  return postRes.json()  // { task_id }
+  return postRes.json()
 }
 
 export const mlBreaker = new CircuitBreaker(submitMlTask, {

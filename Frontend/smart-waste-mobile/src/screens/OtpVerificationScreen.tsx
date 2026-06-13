@@ -124,15 +124,15 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
 
         {/* 6 casillas OTP */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 32 }}>
-          {digits.map((digit, i) => (
+          {([0, 1, 2, 3, 4, 5] as const).map((pos) => (
             <TextInput
-              key={`otp-${i}`}
-              ref={(ref) => { inputs.current[i] = ref }}
+              key={`otp-${pos}`}
+              ref={(ref) => { inputs.current[pos] = ref }}
               style={{
                 width: 44,
                 height: 54,
                 borderWidth: 2,
-                borderColor: digit ? colors.primary : colors.lightGray,
+                borderColor: digits[pos] ? colors.primary : colors.lightGray,
                 borderRadius: 10,
                 textAlign: "center",
                 fontSize: 22,
@@ -142,10 +142,10 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
               }}
               keyboardType="number-pad"
               maxLength={1}
-              value={digit}
-              onChangeText={(v) => handleDigitChange(v, i)}
-              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
-              accessibilityLabel={`Dígito ${i + 1} de 6 del código de verificación`}
+              value={digits[pos]}
+              onChangeText={(v) => handleDigitChange(v, pos)}
+              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, pos)}
+              accessibilityLabel={`Dígito ${pos + 1} de 6 del código de verificación`}
               accessibilityRole="none"
               accessibilityHint="Ingresa un dígito numérico del 0 al 9"
             />

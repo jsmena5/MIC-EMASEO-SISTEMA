@@ -239,18 +239,21 @@ export default function MapaZonas() {
         boxShadow: '0 4px 16px rgba(0,0,0,0.15)', display: 'flex',
         border: '1px solid #e2e8f0',
       }}>
-        {(Object.keys(BASEMAPS) as BasemapKey[]).map(key => (
-          <button key={key} onClick={() => setBasemap(key)}
-            style={{
-              padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
-              fontSize: 11, fontWeight: basemap === key ? 700 : 500,
-              background: basemap !== key ? 'transparent' : key === 'oscuro' ? '#1e293b' : '#f97316',
-              color:      basemap === key ? 'white' : '#64748b',
-              transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4,
-            }}>
-            {key === 'oscuro' ? '🌙' : '☀️'} {BASEMAPS[key].label}
-          </button>
-        ))}
+        {(Object.keys(BASEMAPS) as BasemapKey[]).map(key => {
+          const btnBg = basemap !== key ? 'transparent' : key === 'oscuro' ? '#1e293b' : '#f97316'
+          return (
+            <button key={key} onClick={() => setBasemap(key)}
+              style={{
+                padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                fontSize: 11, fontWeight: basemap === key ? 700 : 500,
+                background: btnBg,
+                color:      basemap === key ? 'white' : '#64748b',
+                transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4,
+              }}>
+              {key === 'oscuro' ? '🌙' : '☀️'} {BASEMAPS[key].label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Mapa — basemap conmutable claro/oscuro */}
