@@ -179,13 +179,14 @@ export default function Home() {
         const days = Array.from({ length: 7 }, (_, i) => isoDay(i - 6))
 
         const [
-          sinRevisar, validos, enAtencion, rechazados, descartados, fallidos, resueltas, resueltosHoy,
+          procesando, pendiente, validos, enAtencion, rechazados, descartados, fallidos, resueltas, resueltosHoy,
           critica, alta, media, baja,
           recientes, criticos,
           allRecent,
           ...weekResults
         ] = await Promise.all([
-          getIncidents({ sin_supervisar: true,  limit: 1, page: 1 }),
+          getIncidents({ estado: "PROCESANDO",  limit: 1, page: 1 }),
+          getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
           getIncidents({ estado: "VALIDO",      limit: 1, page: 1 }),
           getIncidents({ estado: "EN_ATENCION", limit: 1, page: 1 }),
           getIncidents({ estado: "RECHAZADO",   limit: 1, page: 1 }),
@@ -223,7 +224,7 @@ export default function Home() {
 
         setState({
           loading: false,
-          entrantes:   sinRevisar.pagination.total,
+          entrantes:   procesando.pagination.total + pendiente.pagination.total,
           validos:     validos.pagination.total,
           enAtencion:  enAtencion.pagination.total,
           rechazados:  rechazados.pagination.total,

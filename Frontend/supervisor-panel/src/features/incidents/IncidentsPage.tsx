@@ -29,7 +29,8 @@ type ActiveGroup = "entrantes" | "validos" | "rechazados" | "descartados" | null
 
 // Mapa de grupo → filtros aplicados al hacer click en la tarjeta
 const GROUP_FILTERS: Record<string, Partial<IncidentFilters>> = {
-  entrantes:   { sin_supervisar: true,  estado: "" },
+  // ENTRANTES: muestra PENDIENTE (los que el supervisor puede clasificar ahora)
+  entrantes:   { sin_supervisar: false, estado: "PENDIENTE" },
   validos:     { sin_supervisar: false, estado: "VALIDO" },
   rechazados:  { sin_supervisar: false, estado: "RECHAZADO" },
   descartados: { sin_supervisar: false, estado: "DESCARTADO" },
@@ -114,9 +115,10 @@ export default function IncidentsPage() {
   const loadGroupCounts = useCallback(async () => {
     setGroupLoading(true)
     try {
-      const [entrantes, validos, rechazados, descartados, fallidos, revisados] = await Promise.all([
-        // ENTRANTES = sin revisar por supervisor (sin_supervisar:true)
-        getIncidents({ sin_supervisar: true,  limit: 1, page: 1 }),
+      const [procesando, pendiente, validos, rechazados, descartados, fallidos, revisados] = await Promise.all([
+        // ENTRANTES = PROCESANDO + PENDIENTE (aún no clasificados por supervisor)
+        getIncidents({ estado: "PROCESANDO",  limit: 1, page: 1 }),
+        getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
         getIncidents({ estado: "VALIDO",      limit: 1, page: 1 }),
         getIncidents({ estado: "RECHAZADO",   limit: 1, page: 1 }),
         getIncidents({ estado: "DESCARTADO",  limit: 1, page: 1 }),
@@ -124,7 +126,7 @@ export default function IncidentsPage() {
         getIncidents({ sin_supervisar: false, limit: 1, page: 1 }),
       ])
       setGroupCounts({
-        entrantes:   entrantes.pagination.total,
+        entrantes:   procesando.pagination.total + pendiente.pagination.total,
         validos:     validos.pagination.total,
         rechazados:  rechazados.pagination.total,
         descartados: descartados.pagination.total + fallidos.pagination.total,
