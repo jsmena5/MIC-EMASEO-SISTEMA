@@ -65,9 +65,9 @@ export default function IncidentPreview({
               </button>
             </div>
           )}
-          {isRevisado && (
+          {detail.estado === "VALIDO" && (
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700">✓ Revisado</span>
+              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700">✓ Válido</span>
               <button onClick={onReview}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition">
                 Editar
