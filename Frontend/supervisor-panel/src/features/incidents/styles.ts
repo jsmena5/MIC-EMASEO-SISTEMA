@@ -5,32 +5,32 @@
 import type { CSSProperties } from "react"
 
 export const palette = {
-  primary:       "#005BAC",
-  primaryDark:   "#003F7A",
-  primarySoft:   "#EBF4FF",
-  secondary:     "#00A859",
-  secondarySoft: "#E6F7EF",
-  bg:            "#F0F4F8",
+  primary:       "#1D4ED8",   // blue-700 — más oscuro, más profesional
+  primaryDark:   "#1E40AF",   // blue-800
+  primarySoft:   "#EFF6FF",   // blue-50
+  secondary:     "#047857",   // emerald-700
+  secondarySoft: "#ECFDF5",   // emerald-50
+  bg:            "#F8FAFC",   // slate-50
   card:          "#FFFFFF",
-  text:          "#0F172A",
-  muted:         "#475569",
-  faint:         "#94A3B8",
-  border:        "#E2E8F0",
-  warning:       "#D97706",
-  warningSoft:   "#FFF7ED",
-  danger:        "#DC2626",
-  dangerSoft:    "#FEF2F2",
+  text:          "#0F172A",   // slate-900
+  muted:         "#64748B",   // slate-500
+  faint:         "#94A3B8",   // slate-400
+  border:        "#E2E8F0",   // slate-200
+  warning:       "#92400E",   // amber-800 — muted
+  warningSoft:   "#FFFBEB",   // amber-50
+  danger:        "#991B1B",   // red-800 — muted
+  dangerSoft:    "#FEF2F2",   // red-50
 }
 
 export const ESTADO_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-  PROCESANDO:  { bg: "#DBEAFE", text: "#1D4ED8", label: "Procesando"  },
-  PENDIENTE:   { bg: "#FEF3C7", text: "#B45309", label: "Pendiente"   },
-  VALIDO:      { bg: "#E0F2FE", text: "#0369A1", label: "Válido"      },
-  EN_ATENCION: { bg: "#EDE9FE", text: "#6D28D9", label: "En atención" },
-  RESUELTA:    { bg: "#DCFCE7", text: "#166534", label: "Resuelta"    },
-  RECHAZADO:   { bg: "#FEE2E2", text: "#991B1B", label: "Rechazado"   },
-  FALLIDO:     { bg: "#FCE7F3", text: "#BE185D", label: "Fallido"     },
-  DESCARTADO:  { bg: "#F1F5F9", text: "#475569", label: "Descartado"  },
+  PROCESANDO:  { bg: "#EFF6FF", text: "#1E40AF", label: "Procesando"  },
+  PENDIENTE:   { bg: "#FFFBEB", text: "#92400E", label: "Pendiente"   },
+  VALIDO:      { bg: "#F0F9FF", text: "#075985", label: "Válido"      },
+  EN_ATENCION: { bg: "#F5F3FF", text: "#5B21B6", label: "En atención" },
+  RESUELTA:    { bg: "#F0FDF4", text: "#166534", label: "Resuelta"    },
+  RECHAZADO:   { bg: "#FFF1F2", text: "#881337", label: "Rechazado"   },
+  FALLIDO:     { bg: "#FDF2F8", text: "#831843", label: "Fallido"     },
+  DESCARTADO:  { bg: "#F8FAFC", text: "#475569", label: "Descartado"  },
 }
 
 export const DECISION_STYLE: Record<string, { bg: string; text: string; label: string }> = {

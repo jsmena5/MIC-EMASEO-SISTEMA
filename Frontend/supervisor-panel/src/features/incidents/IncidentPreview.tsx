@@ -7,6 +7,7 @@ import { useState } from "react"
 import type { IncidentDetail } from "../../services/incident.service"
 import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import { ESTADO_STYLE, NIVEL_LABEL, PRIORIDAD_STYLE, TIPO_LABEL, fmtDate, fmtPercent, fmtVolume } from "./styles"
+import { XCircle, ClipboardCheck, Pencil } from "lucide-react"
 
 export default function IncidentPreview({
   detail,
@@ -61,23 +62,26 @@ export default function IncidentPreview({
           {canClassify && (
             <div className="flex items-center gap-2">
               <button onClick={onReject}
-                className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 transition">
+                className="flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition">
+                <XCircle size={13} strokeWidth={2} />
                 Rechazar
               </button>
               <button onClick={onReview}
-                className="rounded-lg bg-[#005BAC] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#004B8E] transition">
-                Revisar →
+                className="flex items-center gap-1.5 rounded-lg bg-blue-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-800 transition">
+                <ClipboardCheck size={13} strokeWidth={2} />
+                Revisar
               </button>
             </div>
           )}
           {/* VALIDO / EN_ATENCION: ya clasificado, solo editar */}
           {isEditable && (
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700">
+              <span className="rounded-full bg-sky-50 border border-sky-200 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
                 {detail.estado === "VALIDO" ? "✓ Válido" : "✓ En atención"}
               </span>
               <button onClick={onReview}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition">
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition">
+                <Pencil size={12} strokeWidth={2} />
                 Editar
               </button>
             </div>

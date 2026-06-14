@@ -6,6 +6,7 @@
 import { useState } from "react"
 import type { DecisionAutomatica, IncidentEstado, IncidentFilters, Prioridad } from "../../services/incident.service"
 import { palette } from "./styles"
+import { SlidersHorizontal, X } from "lucide-react"
 
 function hasActiveFilters(f: IncidentFilters) {
   return Boolean(f.estado || f.prioridad || f.decision_automatica || f.fecha_desde || f.fecha_hasta || f.ia_incorrecta || f.sin_supervisar)
@@ -62,15 +63,13 @@ export default function FiltersBar({
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {active && (
             <button onClick={() => onChange({ page: 1, limit: filters.limit })}
-              style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-              ✕ Limpiar
+              style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
+              <X size={11} /> Limpiar
             </button>
           )}
           <button onClick={() => setExpanded(v => !v)}
-            style={{ padding: "5px 11px", borderRadius: 999, border: `1px solid ${expanded ? palette.primary : "#E2E8F0"}`, background: expanded ? "#EBF4FF" : "#fff", color: expanded ? palette.primary : "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="16" y2="12"/><line x1="4" y1="18" x2="12" y2="18"/>
-            </svg>
+            style={{ padding: "5px 11px", borderRadius: 999, border: `1px solid ${expanded ? palette.primary : "#E2E8F0"}`, background: expanded ? palette.primarySoft : "#fff", color: expanded ? palette.primary : "#64748B", fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+            <SlidersHorizontal size={12} />
             <span className="hidden sm:inline">Filtros</span>
           </button>
         </div>

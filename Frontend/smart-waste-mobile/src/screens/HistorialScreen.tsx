@@ -14,6 +14,7 @@ import {
   type ListRenderItemInfo,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { Clock, CheckCircle, Check, Wrench, XCircle, AlertCircle, Trash2, Timer } from "lucide-react-native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useFocusEffect } from "@react-navigation/native"
 import Animated, { FadeInDown } from "react-native-reanimated"
@@ -68,18 +69,20 @@ function applyFilter(data: ListItem[], filter: HistorialFilter): ListItem[] {
 
 // ─── Configuración de estados ─────────────────────────────────────────────────
 
+type LucideIcon = typeof Clock
+
 export const ESTADO_CONFIG: Record<
   Incident["estado"],
-  { label: string; color: string; bg: string; icon: React.ComponentProps<typeof Ionicons>["name"] }
+  { label: string; color: string; bg: string; LucideIcon: LucideIcon }
 > = {
-  PROCESANDO:  { label: "Procesando",  color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline"        },
-  PENDIENTE:   { label: "Pendiente",   color: "#D97706", bg: "#FEF3C7", icon: "time-outline"             },
-  VALIDO:      { label: "Válido",      color: "#0369A1", bg: "#E0F2FE", icon: "checkmark-outline"        },
-  EN_ATENCION: { label: "En proceso",  color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline"        },
-  RESUELTA:    { label: "Atendido",    color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
-  RECHAZADO:   { label: "Rechazado",   color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline"     },
-  FALLIDO:     { label: "Error envío", color: "#9D174D", bg: "#FCE7F3", icon: "alert-circle-outline"     },
-  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F1F5F9", icon: "trash-outline"            },
+  PROCESANDO:  { label: "Procesando",  color: "#1E40AF", bg: "#EFF6FF", LucideIcon: Timer       },
+  PENDIENTE:   { label: "Pendiente",   color: "#92400E", bg: "#FFFBEB", LucideIcon: Clock       },
+  VALIDO:      { label: "Válido",      color: "#075985", bg: "#F0F9FF", LucideIcon: Check       },
+  EN_ATENCION: { label: "En proceso",  color: "#5B21B6", bg: "#F5F3FF", LucideIcon: Wrench      },
+  RESUELTA:    { label: "Atendido",    color: "#166534", bg: "#F0FDF4", LucideIcon: CheckCircle },
+  RECHAZADO:   { label: "Rechazado",   color: "#881337", bg: "#FFF1F2", LucideIcon: XCircle     },
+  FALLIDO:     { label: "Error envío", color: "#831843", bg: "#FDF2F8", LucideIcon: AlertCircle },
+  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F8FAFC", LucideIcon: Trash2      },
 }
 
 export const NIVEL_COLOR: Record<string, string> = {
@@ -147,7 +150,7 @@ function ReportCard({ item, index, onPress }: CardProps) {
         {/* Content */}
         <View style={styles.cardContent}>
           <View style={[styles.estadoBadge, { backgroundColor: cfg.bg }]}>
-            <Ionicons name={cfg.icon} size={11} color={cfg.color} />
+            <cfg.LucideIcon size={11} color={cfg.color} strokeWidth={2.2} />
             <Text style={[styles.estadoText, { color: cfg.color }]}>{cfg.label}</Text>
           </View>
 

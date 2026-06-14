@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
+import { RefreshCw, ArrowLeft, CheckCircle, ClipboardList } from "lucide-react"
 import {
   getIncidentDetail,
   getIncidents,
@@ -298,11 +299,9 @@ export default function IncidentsPage() {
         <button
           onClick={refresh}
           title="Actualizar"
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition sm:py-2.5 sm:shrink-0"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-700 active:scale-95 transition sm:py-2.5 sm:shrink-0"
         >
-          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <RefreshCw size={13} strokeWidth={2} />
           Actualizar
         </button>
       </div>
@@ -314,9 +313,7 @@ export default function IncidentsPage() {
             // Inbox vacío: buenas noticias
             <>
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
-                <svg className="h-8 w-8 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <CheckCircle size={32} strokeWidth={1.5} className="text-emerald-500" />
               </div>
               <div className="text-center">
                 <p className="text-xl font-extrabold text-slate-700">¡Todo al día!</p>
@@ -327,9 +324,7 @@ export default function IncidentsPage() {
           ) : (
             // Filtro activo sin resultados
             <>
-              <svg className="h-14 w-14 text-slate-200" fill="none" stroke="currentColor" strokeWidth={1.2} viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
+              <ClipboardList size={56} strokeWidth={1} className="text-slate-200" />
               <div className="text-center">
                 <p className="text-xl font-extrabold text-slate-400">Nada por aquí…</p>
                 <p className="mt-1 text-sm text-slate-400">No hay casos con los filtros actuales.</p>
@@ -353,11 +348,9 @@ export default function IncidentsPage() {
             next.set("estado", "PENDIENTE")
             setParams(next, { replace: true })
           }}
-          className="flex items-center gap-2 text-sm font-bold text-[#005BAC] hover:underline w-fit"
+          className="flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-900 w-fit transition"
         >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
+          <ArrowLeft size={16} strokeWidth={2} />
           Volver a la bandeja
         </button>
       )}
