@@ -27,12 +27,12 @@ interface GroupCount {
 
 type ActiveGroup = "entrantes" | "validos" | "rechazados" | "descartados" | null
 
-// Mapa de grupo → estados DB que lo componen
-const GROUP_STATES: Record<string, IncidentEstado[]> = {
-  entrantes:   ["PROCESANDO", "PENDIENTE"],
-  validos:     ["VALIDO", "EN_ATENCION", "RESUELTA"],
-  rechazados:  ["RECHAZADO"],
-  descartados: ["DESCARTADO", "FALLIDO"],
+// Mapa de grupo → filtros aplicados al hacer click en la tarjeta
+const GROUP_FILTERS: Record<string, Partial<IncidentFilters>> = {
+  entrantes:   { sin_supervisar: true,  estado: "" },
+  validos:     { sin_supervisar: false, estado: "VALIDO" },
+  rechazados:  { sin_supervisar: false, estado: "RECHAZADO" },
+  descartados: { sin_supervisar: false, estado: "DESCARTADO" },
 }
 
 function StatCard({ label, value, color, dot, active, onClick, loading }: Readonly<{
@@ -115,7 +115,8 @@ export default function IncidentsPage() {
     setGroupLoading(true)
     try {
       const [entrantes, validos, rechazados, descartados, fallidos, revisados] = await Promise.all([
-        getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
+        // ENTRANTES = sin revisar por supervisor (sin_supervisar:true)
+        getIncidents({ sin_supervisar: true,  limit: 1, page: 1 }),
         getIncidents({ estado: "VALIDO",      limit: 1, page: 1 }),
         getIncidents({ estado: "RECHAZADO",   limit: 1, page: 1 }),
         getIncidents({ estado: "DESCARTADO",  limit: 1, page: 1 }),
@@ -207,8 +208,8 @@ export default function IncidentsPage() {
       return
     }
     setActiveGroup(group)
-    const states = GROUP_STATES[group] ?? []
-    handleFiltersChange({ ...filters, estado: states[0] ?? "", sin_supervisar: false, page: 1 })
+    const extra = GROUP_FILTERS[group] ?? {}
+    handleFiltersChange({ ...filters, ...extra, page: 1 })
   }
 
   const handleSelect = (id: string) => {

@@ -23,8 +23,9 @@ export default function IncidentPreview({
   const status   = ESTADO_STYLE[detail.estado] ?? { bg: "#E2E8F0", text: "#475569" }
   const priority = detail.prioridad ? PRIORIDAD_STYLE[detail.prioridad] : null
 
-  const isTerminal = ["RESUELTA", "RECHAZADO", "DESCARTADO", "FALLIDO"].includes(detail.estado)
-  const canReview  = !isTerminal
+  // PROCESANDO: el ML aún está analizando, el supervisor no puede actuar todavía
+  const isTerminal   = ["RESUELTA", "RECHAZADO", "DESCARTADO", "FALLIDO", "PROCESANDO"].includes(detail.estado)
+  const canReview    = !isTerminal
 
   return (
     <>
