@@ -34,18 +34,37 @@ const COLOR_FALLBACK = '#64748b'
 const PRIORIDAD_COLOR: Record<string, string> = {
   CRITICA: '#dc2626', ALTA: '#f97316', MEDIA: '#eab308', BAJA: '#22c55e',
 }
+const PRIORIDAD_LABEL: Record<string, string> = {
+  CRITICA: 'Crítica', ALTA: 'Alta', MEDIA: 'Media', BAJA: 'Baja',
+}
+const ESTADO_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  PROCESANDO:  { bg: '#DBEAFE', text: '#1D4ED8', label: 'Procesando'  },
+  PENDIENTE:   { bg: '#FEF3C7', text: '#B45309', label: 'Pendiente'   },
+  VALIDO:      { bg: '#E0F2FE', text: '#0369A1', label: 'Válido'      },
+  EN_ATENCION: { bg: '#EDE9FE', text: '#6D28D9', label: 'En atención' },
+  RESUELTA:    { bg: '#DCFCE7', text: '#166534', label: 'Resuelta'    },
+  RECHAZADO:   { bg: '#FEE2E2', text: '#991B1B', label: 'Rechazado'   },
+  DESCARTADO:  { bg: '#F1F5F9', text: '#475569', label: 'Descartado'  },
+  FALLIDO:     { bg: '#FCE7F3', text: '#BE185D', label: 'Fallido'     },
+}
 
 function crearIcono(prioridad: string | null): L.DivIcon {
   const color = PRIORIDAD_COLOR[prioridad ?? ''] ?? '#94a3b8'
+  // Pulso animado para prioridad CRITICA
+  const pulse = prioridad === 'CRITICA'
+    ? `<div style="position:absolute;inset:-5px;border-radius:50%;background:${color};opacity:0.25;animation:pulse-map 1.8s ease-out infinite;"></div>` : ''
   return L.divIcon({
-    html: `<div style="
-      width:26px;height:26px;border-radius:50%;
-      background:${color};border:2.5px solid white;
-      display:flex;align-items:center;justify-content:center;
-      box-shadow:0 2px 6px rgba(0,0,0,0.4);
-      font-size:13px;font-weight:900;color:white;font-family:sans-serif;
-    ">!</div>`,
-    className: '', iconSize: [26, 26], iconAnchor: [13, 13], popupAnchor: [0, -14],
+    html: `<div style="position:relative;width:28px;height:28px;">
+      ${pulse}
+      <div style="
+        position:absolute;inset:0;border-radius:50%;
+        background:${color};border:2.5px solid white;
+        display:flex;align-items:center;justify-content:center;
+        box-shadow:0 2px 8px rgba(0,0,0,0.35);
+        font-size:11px;font-weight:900;color:white;font-family:sans-serif;
+      ">${(prioridad ?? 'B')[0]}</div>
+    </div>`,
+    className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16],
   })
 }
 
@@ -70,6 +89,115 @@ function centroideFeature(f: GeoJSON.Feature): [number, number] | null {
   const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length
   const lon = coords.reduce((s, c) => s + c[0], 0) / coords.length
   return [lat, lon]
+}
+
+// ── Popup de incidente — tarjeta completa con acciones ───────────────────────
+
+function IncidentePopup({ inc }: Readonly<{ inc: IncidenteMapa }>) {
+  const prioColor  = PRIORIDAD_COLOR[inc.prioridad ?? ''] ?? '#94a3b8'
+  const prioLabel  = PRIORIDAD_LABEL[inc.prioridad ?? ''] ?? inc.prioridad ?? '—'
+  const estadoSty  = ESTADO_STYLE[inc.estado] ?? { bg: '#F1F5F9', text: '#475569', label: inc.estado }
+  const fecha      = new Date(inc.created_at).toLocaleString('es-EC', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+
+  const gMapsUrl  = `https://www.google.com/maps/dir/?api=1&destination=${inc.latitud},${inc.longitud}`
+  const wazeUrl   = `https://waze.com/ul?ll=${inc.latitud},${inc.longitud}&navigate=yes`
+  const bandeja   = `/dashboard/incidentes?id=${inc.id}&sin_supervisar=false`
+
+  return (
+    <div style={{ fontFamily: 'system-ui, sans-serif', width: 260 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#94a3b8', fontWeight: 600 }}>
+            #{inc.id.slice(0, 8).toUpperCase()}
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>
+            {fecha}
+          </span>
+        </div>
+        <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', lineHeight: 1.3 }}>
+          {inc.zona_nombre ?? 'Sin zona asignada'}
+        </div>
+      </div>
+
+      {/* Badges */}
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10 }}>
+        <span style={{
+          background: prioColor, color: 'white',
+          padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 800,
+        }}>
+          ● {prioLabel}
+        </span>
+        <span style={{
+          background: estadoSty.bg, color: estadoSty.text,
+          padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+        }}>
+          {estadoSty.label}
+        </span>
+      </div>
+
+      {/* Descripción */}
+      {inc.descripcion ? (
+        <div style={{
+          fontSize: 11, color: '#475569', marginBottom: 10,
+          background: '#f8fafc', borderRadius: 8, padding: '7px 9px',
+          borderLeft: `3px solid ${prioColor}`, lineHeight: 1.5,
+        }}>
+          {inc.descripcion.slice(0, 120)}{inc.descripcion.length > 120 ? '…' : ''}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: '#cbd5e1', marginBottom: 10, fontStyle: 'italic' }}>
+          Sin descripción
+        </div>
+      )}
+
+      {/* Coordenadas */}
+      <div style={{ fontSize: 10, color: '#94a3b8', marginBottom: 10, display: 'flex', gap: 6 }}>
+        <span>📍 {Number(inc.latitud).toFixed(5)}, {Number(inc.longitud).toFixed(5)}</span>
+      </div>
+
+      <hr style={{ border: 'none', borderTop: '1px solid #f1f5f9', margin: '8px 0' }} />
+
+      {/* Acción: ver caso */}
+      <a href={bandeja} target="_blank" rel="noopener noreferrer" style={{
+        display: 'block', textAlign: 'center',
+        background: '#005BAC', color: 'white', borderRadius: 10,
+        padding: '8px 0', fontSize: 12, fontWeight: 800, textDecoration: 'none',
+        marginBottom: 8,
+      }}>
+        Ver caso en bandeja →
+      </a>
+
+      {/* Navegación */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <a href={gMapsUrl} target="_blank" rel="noopener noreferrer" style={{
+          flex: 1, textAlign: 'center',
+          background: '#4285F4', color: 'white', borderRadius: 10,
+          padding: '7px 0', fontSize: 11, fontWeight: 700, textDecoration: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+          </svg>
+          Google Maps
+        </a>
+        <a href={wazeUrl} target="_blank" rel="noopener noreferrer" style={{
+          flex: 1, textAlign: 'center',
+          background: '#33CCFF', color: 'white', borderRadius: 10,
+          padding: '7px 0', fontSize: 11, fontWeight: 700, textDecoration: 'none',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
+            <path d="M20.54 6.63c.06.29.1.59.1.9 0 1.3-.44 2.5-1.16 3.46l-1.7 2.14c-.3.38-.76.6-1.25.6-.87 0-1.57-.7-1.57-1.57 0-.36.13-.7.35-.97l1.87-2.35c.13-.17.21-.38.21-.6 0-.55-.45-1-1-1H6.61C5.72 7.24 5 6.52 5 5.63S5.72 4 6.61 4h11.91c.83 0 1.59.4 2.02 1.06.18.26.31.54.39.84z"/>
+            <path d="M4.44 16.62c.5.58 1.22.88 1.96.88.64 0 1.26-.24 1.73-.68l7.08-6.56c.47-.44.74-1.06.74-1.71 0-.28-.06-.56-.17-.82-.22-.52-.65-.93-1.18-1.12l-5.46 6.47L4.44 16.62z"/>
+          </svg>
+          Waze
+        </a>
+      </div>
+    </div>
+  )
 }
 
 const FILTROS = [
@@ -193,6 +321,11 @@ export default function MapaZonas() {
     }}>
       {/* CSS para tooltips y labels — adapta según basemap claro/oscuro */}
       <style>{`
+        @keyframes pulse-map {
+          0%   { transform: scale(1);   opacity: 0.4; }
+          70%  { transform: scale(2.2); opacity: 0;   }
+          100% { transform: scale(2.2); opacity: 0;   }
+        }
         .zona-tooltip {
           background: rgba(255,255,255,0.95); border: 1px solid #e2e8f0;
           border-radius: 8px; font-weight: 700; font-size: 12px; color: #1e293b;
@@ -208,6 +341,12 @@ export default function MapaZonas() {
           text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
           pointer-events: none;
         }
+        .incident-popup .leaflet-popup-content-wrapper {
+          border-radius: 14px; padding: 0; overflow: hidden;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        .incident-popup .leaflet-popup-content { margin: 14px; }
+        .incident-popup .leaflet-popup-tip-container { margin-top: -1px; }
       `}</style>
 
       {/* Barra de filtros */}
@@ -286,28 +425,8 @@ export default function MapaZonas() {
         {incidentesFiltrados.map(inc =>
           inc.latitud && inc.longitud ? (
             <Marker key={inc.id} position={[inc.latitud, inc.longitud]} icon={crearIcono(inc.prioridad)}>
-              <Popup>
-                <div style={{ minWidth: 180, fontFamily: 'sans-serif' }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: '#0f172a' }}>
-                    {inc.zona_nombre ?? 'Sin zona'}
-                  </div>
-                  {inc.descripcion && (
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-                      {inc.descripcion.slice(0, 100)}{inc.descripcion.length > 100 ? '…' : ''}
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    <span style={{ background: PRIORIDAD_COLOR[inc.prioridad ?? ''] ?? '#cbd5e1', color: 'white', padding: '2px 8px', borderRadius: 8, fontSize: 10, fontWeight: 700 }}>
-                      {inc.prioridad ?? 'Sin prioridad'}
-                    </span>
-                    <span style={{ background: '#f1f5f9', color: '#475569', padding: '2px 8px', borderRadius: 8, fontSize: 10 }}>
-                      {inc.estado}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 6 }}>
-                    {new Date(inc.created_at).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
+              <Popup minWidth={260} maxWidth={300} className="incident-popup">
+                <IncidentePopup inc={inc} />
               </Popup>
             </Marker>
           ) : null
@@ -334,7 +453,7 @@ export default function MapaZonas() {
 
           {[
             { label: 'Activos total',  value: zonaPanel.incidentes_activos, color: '#f97316' },
-            { label: 'Pendientes',     value: zonaPanel.pendientes,         color: '#eab308' },
+            { label: 'Entrantes',      value: zonaPanel.pendientes,         color: '#eab308' },
             { label: 'En atención',    value: zonaPanel.en_atencion,        color: '#3b82f6' },
             { label: 'Críticos',       value: zonaPanel.criticas,           color: '#ef4444' },
             { label: 'Últimas 24 h',   value: zonaPanel.ultimas_24h,        color: '#64748b' },
