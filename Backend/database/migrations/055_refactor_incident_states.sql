@@ -2,36 +2,18 @@
 -- MIC-EMASEO SISTEMA — Migración 055
 -- Estandarización del ciclo de vida de incidencias
 --
--- Problema:
---   9 estados con semántica solapada generaban confusión en app, panel supervisor
---   y panel admin. EN_REVISION era funcionalmente idéntico a PENDIENTE (ambos
---   requerían validación del supervisor). REVISADO era ambiguo (¿revisado = válido
---   o solo visto?). RECHAZADA era inconsistente con el género del sustantivo.
---
 -- Cambios:
---   EN_REVISION → PENDIENTE   (merge: ambos significan "espera validación supervisor")
---   REVISADO    → VALIDO      (rename: deja claro que el supervisor confirmó el caso)
---   RECHAZADA   → RECHAZADO   (rename: coherencia gramatical con el modelo de dominio)
+--   EN_REVISION → PENDIENTE   (merge: mismo significado operativo)
+--   REVISADO    → VALIDO      (rename: semántica clara)
+--   RECHAZADA   → RECHAZADO   (rename: coherencia gramatical)
 --
--- Resultado: 7 estados bien delimitados
---   PROCESANDO  — ML analizando la imagen (transitorio, automático)
---   PENDIENTE   — Espera validación del supervisor (entrante)
---   VALIDO      — Supervisor confirmó como caso real a atender
---   EN_ATENCION — Asignado a operario de campo
---   RESUELTA    — Caso cerrado exitosamente
---   RECHAZADO   — Supervisor rechazó manualmente
---   DESCARTADO  — ML o supervisor descartó (sin acción requerida)
---   FALLIDO     — Error técnico de transmisión o procesamiento (sin acción requerida)
+-- Resultado: 7 estados (PROCESANDO, PENDIENTE, VALIDO, EN_ATENCION,
+--            RESUELTA, RECHAZADO, DESCARTADO, FALLIDO)
 --
--- Agrupaciones de display en el panel supervisor:
---   ENTRANTES   = PROCESANDO + PENDIENTE
---   VÁLIDOS     = VALIDO + EN_ATENCION + RESUELTA
---   RECHAZADOS  = RECHAZADO
---   DESCARTADOS = DESCARTADO + FALLIDO
---   REVISADOS   = total (todos excepto PROCESANDO)
---
--- NOTA: ADD VALUE no puede ejecutarse dentro de una transacción explícita en
--- PostgreSQL ≤ 11. Los ADD VALUE van fuera del bloque BEGIN..COMMIT.
+-- NOTA: ADD VALUE no puede ejecutarse en bloque de transacción explícito.
+-- Los ADD VALUE van fuera del BEGIN..COMMIT.
+-- NOTA 2: Los triggers que dependen del tipo de columna deben dropearse
+-- antes de alterar el tipo y recrearse al final.
 -- ============================================================================
 
 -- ── 1. Añadir nuevos valores al ENUM (fuera de transacción) ──────────────────
@@ -39,7 +21,7 @@
 ALTER TYPE incidents.incident_status ADD VALUE IF NOT EXISTS 'VALIDO';
 ALTER TYPE incidents.incident_status ADD VALUE IF NOT EXISTS 'RECHAZADO';
 
--- ── 2. Migrar datos y reconstruir el tipo dentro de transacción ──────────────
+-- ── 2. Migrar datos y reconstruir el tipo ────────────────────────────────────
 
 BEGIN;
 
@@ -48,10 +30,15 @@ UPDATE incidents.incidents SET estado = 'PENDIENTE' WHERE estado = 'EN_REVISION'
 UPDATE incidents.incidents SET estado = 'VALIDO'    WHERE estado = 'REVISADO';
 UPDATE incidents.incidents SET estado = 'RECHAZADO' WHERE estado = 'RECHAZADA';
 
--- 2b. Convertir la columna a TEXT para poder reemplazar el tipo ENUM
+-- 2b. Dropear triggers que dependen del tipo de la columna estado
+DROP TRIGGER IF EXISTS trg_10_log_status_change ON incidents.incidents;
+DROP TRIGGER IF EXISTS trg_20_notify_citizen    ON incidents.incidents;
+DROP TRIGGER IF EXISTS trg_05_log_initial_status ON incidents.incidents;
+
+-- 2c. Convertir la columna a TEXT para reemplazar el tipo ENUM
 ALTER TABLE incidents.incidents ALTER COLUMN estado TYPE TEXT;
 
--- 2c. Eliminar el tipo antiguo y crear uno limpio sin los valores obsoletos
+-- 2d. Eliminar el tipo antiguo y crear uno limpio
 DROP TYPE incidents.incident_status;
 
 CREATE TYPE incidents.incident_status AS ENUM (
@@ -65,12 +52,12 @@ CREATE TYPE incidents.incident_status AS ENUM (
     'FALLIDO'
 );
 
--- 2d. Restaurar el tipo en la columna
+-- 2e. Restaurar el tipo en la columna
 ALTER TABLE incidents.incidents
     ALTER COLUMN estado TYPE incidents.incident_status
     USING estado::incidents.incident_status;
 
--- 2e. Actualizar fn_notify_citizen: reflejar nuevos nombres de estado
+-- 2f. Actualizar fn_notify_citizen para reflejar nuevos estados
 CREATE OR REPLACE FUNCTION incidents.fn_notify_citizen()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -113,5 +100,18 @@ EXCEPTION
         RETURN NEW;
 END;
 $$;
+
+-- 2g. Recrear triggers que se dropearon en 2b
+CREATE TRIGGER trg_05_log_initial_status
+    AFTER INSERT ON incidents.incidents
+    FOR EACH ROW EXECUTE FUNCTION incidents.fn_log_initial_status();
+
+CREATE TRIGGER trg_10_log_status_change
+    BEFORE UPDATE OF estado ON incidents.incidents
+    FOR EACH ROW EXECUTE FUNCTION incidents.fn_log_status_change();
+
+CREATE TRIGGER trg_20_notify_citizen
+    AFTER UPDATE OF estado ON incidents.incidents
+    FOR EACH ROW EXECUTE FUNCTION incidents.fn_notify_citizen();
 
 COMMIT;
