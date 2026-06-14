@@ -3,61 +3,31 @@
 -- Estandarización del ciclo de vida de incidencias
 --
 -- Cambios:
---   EN_REVISION → PENDIENTE   (merge: mismo significado operativo)
---   REVISADO    → VALIDO      (rename: semántica clara)
---   RECHAZADA   → RECHAZADO   (rename: coherencia gramatical)
+--   EN_REVISION → datos migran a PENDIENTE (valor queda en el enum sin uso)
+--   REVISADO    → renombrado a VALIDO      (ALTER TYPE RENAME VALUE)
+--   RECHAZADA   → renombrado a RECHAZADO   (ALTER TYPE RENAME VALUE)
 --
--- Resultado: 7 estados (PROCESANDO, PENDIENTE, VALIDO, EN_ATENCION,
---            RESUELTA, RECHAZADO, DESCARTADO, FALLIDO)
+-- ALTER TYPE ... RENAME VALUE (PostgreSQL 10+) opera solo sobre el catálogo,
+-- no toca datos ni triggers. Mucho más seguro que DROP TYPE + recrear.
 --
--- NOTA: ADD VALUE no puede ejecutarse en bloque de transacción explícito.
--- Los ADD VALUE van fuera del BEGIN..COMMIT.
--- NOTA 2: Los triggers que dependen del tipo de columna deben dropearse
--- antes de alterar el tipo y recrearse al final.
+-- Resultado funcional: 7 estados activos
+--   PROCESANDO, PENDIENTE, VALIDO, EN_ATENCION, RESUELTA, RECHAZADO,
+--   DESCARTADO, FALLIDO
+-- (EN_REVISION permanece como valor legacy inactivo en el catálogo)
 -- ============================================================================
-
--- ── 1. Añadir nuevos valores al ENUM (fuera de transacción) ──────────────────
-
-ALTER TYPE incidents.incident_status ADD VALUE IF NOT EXISTS 'VALIDO';
-ALTER TYPE incidents.incident_status ADD VALUE IF NOT EXISTS 'RECHAZADO';
-
--- ── 2. Migrar datos y reconstruir el tipo ────────────────────────────────────
 
 BEGIN;
 
--- 2a. Migrar registros a los nuevos valores
-UPDATE incidents.incidents SET estado = 'PENDIENTE' WHERE estado = 'EN_REVISION';
-UPDATE incidents.incidents SET estado = 'VALIDO'    WHERE estado = 'REVISADO';
-UPDATE incidents.incidents SET estado = 'RECHAZADO' WHERE estado = 'RECHAZADA';
+-- ── 1. Migrar datos EN_REVISION → PENDIENTE ──────────────────────────────────
+UPDATE incidents.incidents
+SET estado = 'PENDIENTE'
+WHERE estado = 'EN_REVISION';
 
--- 2b. Dropear triggers que dependen del tipo de la columna estado
-DROP TRIGGER IF EXISTS trg_10_log_status_change ON incidents.incidents;
-DROP TRIGGER IF EXISTS trg_20_notify_citizen    ON incidents.incidents;
-DROP TRIGGER IF EXISTS trg_05_log_initial_status ON incidents.incidents;
+-- ── 2. Renombrar valores del ENUM (operación sobre catálogo, no sobre datos) ──
+ALTER TYPE incidents.incident_status RENAME VALUE 'REVISADO'  TO 'VALIDO';
+ALTER TYPE incidents.incident_status RENAME VALUE 'RECHAZADA' TO 'RECHAZADO';
 
--- 2c. Convertir la columna a TEXT para reemplazar el tipo ENUM
-ALTER TABLE incidents.incidents ALTER COLUMN estado TYPE TEXT;
-
--- 2d. Eliminar el tipo antiguo y crear uno limpio
-DROP TYPE incidents.incident_status;
-
-CREATE TYPE incidents.incident_status AS ENUM (
-    'PROCESANDO',
-    'PENDIENTE',
-    'VALIDO',
-    'EN_ATENCION',
-    'RESUELTA',
-    'RECHAZADO',
-    'DESCARTADO',
-    'FALLIDO'
-);
-
--- 2e. Restaurar el tipo en la columna
-ALTER TABLE incidents.incidents
-    ALTER COLUMN estado TYPE incidents.incident_status
-    USING estado::incidents.incident_status;
-
--- 2f. Actualizar fn_notify_citizen para reflejar nuevos estados
+-- ── 3. Actualizar fn_notify_citizen con los nuevos nombres de estado ──────────
 CREATE OR REPLACE FUNCTION incidents.fn_notify_citizen()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -84,7 +54,7 @@ BEGIN
             v_titulo  := 'Reporte descartado';
             v_mensaje := 'La imagen enviada no mostró acumulación de residuos detectable.';
         ELSE
-            -- PROCESANDO, VALIDO, FALLIDO: sin notificación al ciudadano
+            -- PROCESANDO, VALIDO, FALLIDO, EN_REVISION (legacy): sin notificación
             RETURN NEW;
     END CASE;
 
@@ -100,18 +70,5 @@ EXCEPTION
         RETURN NEW;
 END;
 $$;
-
--- 2g. Recrear triggers que se dropearon en 2b
-CREATE TRIGGER trg_05_log_initial_status
-    AFTER INSERT ON incidents.incidents
-    FOR EACH ROW EXECUTE FUNCTION incidents.fn_log_initial_status();
-
-CREATE TRIGGER trg_10_log_status_change
-    BEFORE UPDATE OF estado ON incidents.incidents
-    FOR EACH ROW EXECUTE FUNCTION incidents.fn_log_status_change();
-
-CREATE TRIGGER trg_20_notify_citizen
-    AFTER UPDATE OF estado ON incidents.incidents
-    FOR EACH ROW EXECUTE FUNCTION incidents.fn_notify_citizen();
 
 COMMIT;
