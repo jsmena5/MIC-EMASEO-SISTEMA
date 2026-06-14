@@ -47,15 +47,15 @@ const STATUSES: StatusInfo[] = [
       "Un supervisor de EMASEO EP lo verá próximamente y lo asignará a un equipo.",
   },
   {
-    key: "EN_REVISION",
-    label: "En revisión",
-    color: "#7C3AED",
-    bg: "#F5F3FF",
-    icon: "eye-outline",
+    key: "VALIDO",
+    label: "Válido",
+    color: "#0369A1",
+    bg: "#E0F2FE",
+    icon: "checkmark-outline",
     description:
-      "Un supervisor está evaluando si la imagen corresponde realmente a una acumulación de residuos.",
+      "Un supervisor confirmó que tu reporte corresponde a una acumulación real de residuos.",
     whatToExpect:
-      "Recibirás una notificación cuando el supervisor decida aceptar o rechazar el reporte.",
+      "El caso será asignado a un equipo operativo que irá a atenderlo.",
   },
   {
     key: "EN_ATENCION",
@@ -80,7 +80,7 @@ const STATUSES: StatusInfo[] = [
       "No se requiere ninguna acción de tu parte. Gracias por contribuir con tu ciudad.",
   },
   {
-    key: "RECHAZADA",
+    key: "RECHAZADO",
     label: "Rechazado",
     color: "#DC2626",
     bg: "#FEF2F2",

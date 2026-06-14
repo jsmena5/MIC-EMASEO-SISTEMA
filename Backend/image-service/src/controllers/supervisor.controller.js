@@ -2,31 +2,30 @@ import { pool } from "../db.js"
 
 // ─── Transiciones de estado permitidas ────────────────────────────────────────
 //
-// Máquina de estados completa (migración 032):
+// Máquina de estados (migración 055 — estados estandarizados):
 //
 //  Pipeline ML (automático):
 //    PROCESANDO → PENDIENTE    (has_waste=true, INCIDENTE_VALIDO)
-//    PROCESANDO → EN_REVISION  (has_waste=false, confianza < umbral, REVISION_REQUERIDA)
+//    PROCESANDO → PENDIENTE    (has_waste=false, confianza < umbral, REVISION_REQUERIDA)
 //    PROCESANDO → DESCARTADO   (has_waste=false, confianza ≥ umbral, RECHAZO_CONFIABLE)
 //    PROCESANDO → FALLIDO      (error técnico, ERROR_TECNICO)
 //
 //  Supervisor (manual):
-//    PENDIENTE    → EN_ATENCION | RECHAZADA
-//    EN_ATENCION  → RESUELTA | RECHAZADA | PENDIENTE
-//    EN_REVISION  → PENDIENTE (supervisor valida) | RECHAZADA (supervisor rechaza)
+//    PENDIENTE    → VALIDO | EN_ATENCION | RECHAZADO
+//    VALIDO       → EN_ATENCION | RECHAZADO
+//    EN_ATENCION  → RESUELTA | RECHAZADO | PENDIENTE
 //    DESCARTADO   → PENDIENTE (supervisor anula el rechazo automático)
 //    RESUELTA     → (terminal)
-//    RECHAZADA    → (terminal)
+//    RECHAZADO    → (terminal)
 //    FALLIDO      → (terminal)
 
 const TRANSICIONES_VALIDAS = {
-  PENDIENTE:   ["REVISADO", "EN_ATENCION", "RECHAZADA"],
-  REVISADO:    [],                           // terminal en el alcance actual del supervisor
-  EN_ATENCION: ["RESUELTA", "RECHAZADA", "PENDIENTE"],
-  EN_REVISION: ["PENDIENTE", "RECHAZADA"],   // supervisor valida o descarta
+  PENDIENTE:   ["VALIDO", "EN_ATENCION", "RECHAZADO"],
+  VALIDO:      ["EN_ATENCION", "RECHAZADO"],
+  EN_ATENCION: ["RESUELTA", "RECHAZADO", "PENDIENTE"],
   DESCARTADO:  ["PENDIENTE"],                // supervisor puede anular rechazo automático
   RESUELTA:    [],
-  RECHAZADA:   [],
+  RECHAZADO:   [],
   PROCESANDO:  [],
   FALLIDO:     [],
 }
@@ -247,9 +246,9 @@ export const getIncidentDetail = async (req, res) => {
 // Cambia el estado del incidente con validación de transición y trazabilidad.
 // Body: { estado: string, observaciones? }
 //
-// Transiciones disponibles (migración 032):
-//   EN_REVISION → PENDIENTE  (supervisor valida el reporte dudoso)
-//   EN_REVISION → RECHAZADA  (supervisor rechaza el reporte dudoso)
+// Transiciones disponibles (migración 055):
+//   PENDIENTE   → VALIDO | EN_ATENCION | RECHAZADO
+//   VALIDO      → EN_ATENCION | RECHAZADO
 //   DESCARTADO  → PENDIENTE  (supervisor anula rechazo automático)
 
 const MOTIVOS_RECHAZO_VALIDOS = ["NO_ES_BASURA", "MUY_LEJOS_PEQUENO", "IMAGEN_BORROSA", "DUPLICADO", "OTRO"]
@@ -257,7 +256,7 @@ const MOTIVOS_RECHAZO_VALIDOS = ["NO_ES_BASURA", "MUY_LEJOS_PEQUENO", "IMAGEN_BO
 // Valida el body de cambiarEstado. Devuelve un mensaje de error (400) o null si es válido.
 function validarCambioEstado({ estado, motivo_rechazo }) {
   if (!estado) return "El campo 'estado' es requerido."
-  if (estado === "RECHAZADA" && !motivo_rechazo)
+  if (estado === "RECHAZADO" && !motivo_rechazo)
     return "El campo 'motivo_rechazo' es requerido al rechazar."
   if (motivo_rechazo && !MOTIVOS_RECHAZO_VALIDOS.includes(motivo_rechazo))
     return `motivo_rechazo inválido. Valores aceptados: ${MOTIVOS_RECHAZO_VALIDOS.join(", ")}.`
@@ -589,9 +588,9 @@ export const estadisticasZonas = async (req, res) => {
          COUNT(*) FILTER (WHERE i.estado = 'PENDIENTE')          AS pendientes,
          COUNT(*) FILTER (WHERE i.estado = 'EN_ATENCION')        AS en_atencion,
          COUNT(*) FILTER (WHERE i.estado = 'RESUELTA')           AS resueltas,
-         COUNT(*) FILTER (WHERE i.estado = 'RECHAZADA')          AS rechazadas,
+         COUNT(*) FILTER (WHERE i.estado = 'RECHAZADO')          AS rechazadas,
          COUNT(*) FILTER (WHERE i.estado = 'FALLIDO')            AS fallidas,
-         COUNT(*) FILTER (WHERE i.estado = 'EN_REVISION')        AS en_revision,
+         COUNT(*) FILTER (WHERE i.estado = 'VALIDO')             AS validos,
          COUNT(*) FILTER (WHERE i.estado = 'DESCARTADO')         AS descartadas,
          COUNT(*) FILTER (WHERE i.prioridad = 'CRITICA')         AS criticas,
          ROUND(AVG(ar.volumen_estimado_m3)::numeric, 2)          AS volumen_promedio_m3,
@@ -647,8 +646,8 @@ export const listOperarios = async (req, res) => {
 //     Si se proporcionan los 4 valores se filtra con ST_MakeEnvelope y solo se
 //     devuelven incidentes dentro del viewport, reduciendo el payload al mínimo útil.
 //
-// Estados "activos" en el mapa: PENDIENTE, EN_ATENCION, EN_REVISION.
-// FALLIDO, DESCARTADO, RESUELTA, RECHAZADA no aparecen como markers activos
+// Estados "activos" en el mapa: PENDIENTE, VALIDO, EN_ATENCION.
+// FALLIDO, DESCARTADO, RESUELTA, RECHAZADO no aparecen como markers activos
 // (no requieren atención operativa inmediata).
 
 export const mapaZonas = async (req, res) => {
@@ -676,7 +675,7 @@ export const mapaZonas = async (req, res) => {
             ST_SimplifyPreserveTopology(z.geom, 0.001)
           )::json AS geometry,
           COUNT(i.id) FILTER (
-            WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
+            WHERE i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
           ) AS incidentes_activos,
           COUNT(i.id) FILTER (
             WHERE i.estado = 'PENDIENTE'
@@ -685,11 +684,11 @@ export const mapaZonas = async (req, res) => {
             WHERE i.estado = 'EN_ATENCION'
           ) AS en_atencion,
           COUNT(i.id) FILTER (
-            WHERE i.estado = 'EN_REVISION'
-          ) AS en_revision,
+            WHERE i.estado = 'VALIDO'
+          ) AS validos,
           COUNT(i.id) FILTER (
             WHERE i.prioridad = 'CRITICA'
-              AND i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
+              AND i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
           ) AS criticas,
           COUNT(i.id) FILTER (
             WHERE i.created_at >= NOW() - INTERVAL '24 hours'
@@ -702,7 +701,6 @@ export const mapaZonas = async (req, res) => {
       `)
 
       // B. Incidentes activos para markers (excluye terminales y en-proceso-interno)
-      //    EN_REVISION se incluye porque requiere atención del supervisor.
       let incidentesQuery
       let incidentesParams
 
@@ -722,7 +720,7 @@ export const mapaZonas = async (req, res) => {
             COUNT(*) OVER() AS total_count
           FROM incidents.incidents i
           LEFT JOIN operations.zones z ON z.id = i.zona_id
-          WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
+          WHERE i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
             AND ST_Within(
               i.ubicacion::geometry,
               ST_MakeEnvelope($1::float, $2::float, $3::float, $4::float, 4326)
@@ -746,7 +744,7 @@ export const mapaZonas = async (req, res) => {
             COUNT(*) OVER() AS total_count
           FROM incidents.incidents i
           LEFT JOIN operations.zones z ON z.id = i.zona_id
-          WHERE i.estado IN ('PENDIENTE', 'EN_ATENCION', 'EN_REVISION')
+          WHERE i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
           ORDER BY i.created_at DESC
           LIMIT $1 OFFSET $2`
         incidentesParams = [pageSize, offset]

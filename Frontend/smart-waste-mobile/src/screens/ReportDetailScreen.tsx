@@ -143,7 +143,7 @@ function AiReceiptCard({ incident }: Readonly<{ incident: Incident }>) {
       ) : null}
 
       {/* Motivo de rechazo — visible al ciudadano cuando el supervisor rechaza */}
-      {incident.estado === "RECHAZADA" && incident.motivo_rechazo ? (
+      {incident.estado === "RECHAZADO" && incident.motivo_rechazo ? (
         <>
           <View style={styles.divider} />
           <View style={styles.rechazoCard}>

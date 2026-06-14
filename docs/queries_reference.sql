@@ -4,7 +4,8 @@
 -- Consultas optimizadas para las operaciones mas frecuentes del sistema.
 -- Requiere que 01_init_schema.sql y 02_seed_data.sql hayan sido ejecutados.
 --
--- IMPORTANTE: auth.users es solo tabla de credenciales.
+-- IMPORTANTE: app_auth.users es la tabla de credenciales del sistema.
+--   (NO usar auth.users — ese es el schema nativo de Supabase, no compatible)
 --   - Nombre/apellido de ciudadanos → public.ciudadanos (JOIN por user_id)
 --   - Nombre/apellido de personal   → operations.operarios (JOIN por user_id)
 -- ============================================================================
@@ -148,7 +149,7 @@ SELECT
     op.nombre || ' ' || op.apellido        AS cambiado_por,
     u.rol
 FROM incidents.status_history sh
-JOIN auth.users u ON u.id = sh.cambiado_por
+JOIN app_auth.users u ON u.id = sh.cambiado_por
 JOIN operations.operarios op ON op.user_id = sh.cambiado_por
 WHERE sh.incident_id = '{{incident_uuid}}'
 ORDER BY sh.created_at ASC;
@@ -245,7 +246,7 @@ SELECT
     c.cedula,
     c.telefono,
     c.avatar_url
-FROM auth.users u
+FROM app_auth.users u
 JOIN public.ciudadanos c ON c.user_id = u.id
 WHERE u.id = '{{usuario_uuid}}';
 
@@ -269,7 +270,7 @@ SELECT
     op.cargo,
     z.codigo  AS zona_codigo,
     z.nombre  AS zona_nombre
-FROM auth.users u
+FROM app_auth.users u
 JOIN operations.operarios op ON op.user_id = u.id
 LEFT JOIN operations.zones z ON z.id = op.zona_id
 WHERE u.id = '{{usuario_uuid}}';

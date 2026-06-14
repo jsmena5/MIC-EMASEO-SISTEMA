@@ -5,7 +5,7 @@ import { getIncidents } from "../../services/incident.service"
 
 const pageTitle: Record<string, string> = {
   "/dashboard/home":           "Inicio",
-  "/dashboard/incidencias":    "Bandeja de incidencias",
+  "/dashboard/incidentes":     "Incidentes",
   "/dashboard/mapa":           "Mapa operativo",
   "/dashboard/configuracion":  "Configuración",
 }
@@ -63,7 +63,7 @@ export default function Topbar() {
       <div className="flex items-center gap-3">
         {pendientes !== null && pendientes > 0 && (
           <Link
-            to="/dashboard/incidencias?estado=PENDIENTE"
+            to="/dashboard/incidentes?estado=PENDIENTE"
             className="flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100"
           >
             <span className="h-2 w-2 rounded-full bg-amber-500" />

@@ -119,7 +119,7 @@ export const iaEstadisticas = async (_req, res) => {
         COUNT(*) FILTER (WHERE supervisado_por IS NULL
                            AND incident_id IN (
                              SELECT id FROM incidents.incidents
-                             WHERE estado IN ('PENDIENTE','EN_ATENCION','EN_REVISION')
+                             WHERE estado IN ('PENDIENTE','VALIDO','EN_ATENCION')
                            ))                                        AS pendientes_revision,
         ROUND(
           100.0 * COUNT(*) FILTER (WHERE ia_fue_correcta = TRUE)
@@ -261,7 +261,7 @@ export const hardExamples = async (req, res) => {
          -- Señal de prioridad para anotación: cuánto se aleja el nivel supervisado del IA
          CASE
            WHEN ar.ia_fue_correcta = FALSE THEN 'IA_INCORRECTA'
-           WHEN i.estado = 'EN_REVISION' AND ar.ia_fue_correcta IS NULL THEN 'AMBIGUO'
+           WHEN i.estado = 'PENDIENTE' AND ar.ia_fue_correcta IS NULL THEN 'AMBIGUO'
            WHEN sh.motivo_rechazo = 'NO_ES_BASURA' THEN 'FALSO_POSITIVO'
            WHEN sh.motivo_rechazo = 'MUY_LEJOS_PEQUENO' THEN 'COBERTURA_BAJA'
            ELSE 'BAJA_CONFIANZA'
@@ -271,7 +271,7 @@ export const hardExamples = async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT motivo_rechazo, observaciones
          FROM incidents.status_history
-         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADO'
          ORDER BY created_at DESC LIMIT 1
        ) sh ON TRUE
        WHERE i.imagen_auditoria_url IS NOT NULL
@@ -279,7 +279,7 @@ export const hardExamples = async (req, res) => {
          AND (
            $2 = FALSE
            OR ar.ia_fue_correcta = FALSE
-           OR (i.estado = 'EN_REVISION' AND ar.ia_fue_correcta IS NULL)
+           OR (i.estado = 'PENDIENTE' AND ar.ia_fue_correcta IS NULL)
            OR sh.motivo_rechazo IN ('NO_ES_BASURA', 'MUY_LEJOS_PEQUENO')
          )
        ORDER BY

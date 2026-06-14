@@ -248,7 +248,7 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
 async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
   const confianza   = mlResult.confianza ?? null
   const isAmbiguous = confianza === null || confianza < AUTO_REJECT_CONFIDENCE
-  const nuevoEstado = isAmbiguous ? "EN_REVISION" : "DESCARTADO"
+  const nuevoEstado = isAmbiguous ? "PENDIENTE" : "DESCARTADO"
   const decision    = isAmbiguous ? "REVISION_REQUERIDA" : "RECHAZO_CONFIABLE"
   const imageUrl    = `${S3_PUBLIC_URL}/${s3Key}`
   // Construir nota de auditoría con toda la info disponible de los gates
@@ -269,7 +269,7 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
       try {
         await client.query("BEGIN")
 
-        // Transición PROCESANDO → EN_REVISION | DESCARTADO
+        // Transición PROCESANDO → PENDIENTE | DESCARTADO
         const { rowCount } = await client.query(
           `UPDATE incidents.incidents
            SET estado                = $2,
@@ -767,12 +767,12 @@ export async function getTaskStatus(taskId, userId) {
     }
   }
 
-  // ── Estado: en revisión por supervisor ────────────────────────────────────
-  if (row.estado === "EN_REVISION") {
+  // ── Estado: pendiente de validación por supervisor ────────────────────────
+  if (row.estado === "PENDIENTE") {
     return {
       httpStatus:           200,
       task_id:              row.id,
-      estado:               "EN_REVISION",
+      estado:               "PENDIENTE",
       decision_automatica:  row.decision_automatica  ?? null,
       confianza_decision:   row.confianza_decision   ?? null,
       imagen_auditoria_url: row.imagen_auditoria_url ?? null,
@@ -798,7 +798,7 @@ export async function getTaskStatus(taskId, userId) {
     }
   }
 
-  // ── Estado: incidente válido (PENDIENTE / EN_ATENCION / RESUELTA / RECHAZADA)
+  // ── Estado: incidente válido (VALIDO / EN_ATENCION / RESUELTA / RECHAZADO)
   return {
     httpStatus:          200,
     task_id:             row.id,
@@ -971,7 +971,7 @@ export const getMyIncidentById = async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT motivo_rechazo, observaciones
          FROM incidents.status_history
-         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+         WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADO'
          ORDER BY created_at DESC LIMIT 1
        ) sh ON TRUE
        WHERE i.id = $1 AND i.reportado_por = $2`,
@@ -1027,7 +1027,7 @@ export const getMyIncidents = async (req, res) => {
          LEFT JOIN LATERAL (
            SELECT motivo_rechazo, observaciones
            FROM incidents.status_history
-           WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADA'
+           WHERE incident_id = i.id AND estado_nuevo = 'RECHAZADO'
            ORDER BY created_at DESC LIMIT 1
          ) sh ON TRUE
          WHERE i.reportado_por = $1

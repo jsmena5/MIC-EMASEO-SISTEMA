@@ -55,7 +55,7 @@ export default function ReviewModal({
     try {
       await revisionIA(detail.id, form)
       if (markRevisado && detail.estado === "PENDIENTE") {
-        await cambiarEstado(detail.id, "REVISADO")
+        await cambiarEstado(detail.id, "VALIDO")
       }
       onDone()
     } catch (err) {
@@ -69,7 +69,7 @@ export default function ReviewModal({
     if (!motivoRechazo) { setError("Selecciona un motivo."); return }
     setSaving(true); setError(null)
     try {
-      await cambiarEstado(detail.id, "RECHAZADA", { motivo_rechazo: motivoRechazo, observaciones: observaciones.trim() || undefined })
+      await cambiarEstado(detail.id, "RECHAZADO", { motivo_rechazo: motivoRechazo, observaciones: observaciones.trim() || undefined })
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo rechazar.")

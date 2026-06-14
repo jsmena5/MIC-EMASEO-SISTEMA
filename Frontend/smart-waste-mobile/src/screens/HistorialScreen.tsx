@@ -44,24 +44,24 @@ function sanitizeText(raw: string | null | undefined): string {
 
 // ─── Filtros ─────────────────────────────────────────────────────────────────
 
-type HistorialFilter = "todos" | "cola" | "procesando" | "revision" | "resueltos" | "fallidos"
+type HistorialFilter = "todos" | "cola" | "procesando" | "validos" | "resueltos" | "fallidos"
 
 const FILTERS: { key: HistorialFilter; label: string }[] = [
-  { key: "todos",      label: "Todos" },
-  { key: "cola",       label: "En cola" },
-  { key: "procesando", label: "Procesando" },
-  { key: "revision",   label: "En revisión" },
+  { key: "todos",      label: "Todos"     },
+  { key: "cola",       label: "En cola"   },
+  { key: "procesando", label: "Entrantes" },
+  { key: "validos",    label: "Válidos"   },
   { key: "resueltos",  label: "Resueltos" },
-  { key: "fallidos",   label: "Fallidos" },
+  { key: "fallidos",   label: "Fallidos"  },
 ]
 
 function applyFilter(data: ListItem[], filter: HistorialFilter): ListItem[] {
   switch (filter) {
     case "cola":       return data.filter((i) => i.kind === "pending")
     case "procesando": return data.filter((i) => i.kind === "online" && (i.data.estado === "PROCESANDO" || i.data.estado === "PENDIENTE"))
-    case "revision":   return data.filter((i) => i.kind === "online" && i.data.estado === "EN_REVISION")
-    case "resueltos":  return data.filter((i) => i.kind === "online" && (i.data.estado === "RESUELTA" || i.data.estado === "EN_ATENCION"))
-    case "fallidos":   return data.filter((i) => i.kind === "online" && (i.data.estado === "FALLIDO" || i.data.estado === "RECHAZADA" || i.data.estado === "DESCARTADO"))
+    case "validos":    return data.filter((i) => i.kind === "online" && (i.data.estado === "VALIDO" || i.data.estado === "EN_ATENCION"))
+    case "resueltos":  return data.filter((i) => i.kind === "online" && i.data.estado === "RESUELTA")
+    case "fallidos":   return data.filter((i) => i.kind === "online" && (i.data.estado === "FALLIDO" || i.data.estado === "RECHAZADO" || i.data.estado === "DESCARTADO"))
     default:           return data
   }
 }
@@ -72,14 +72,14 @@ export const ESTADO_CONFIG: Record<
   Incident["estado"],
   { label: string; color: string; bg: string; icon: React.ComponentProps<typeof Ionicons>["name"] }
 > = {
-  PENDIENTE:   { label: "Pendiente",   color: "#D97706", bg: "#FEF3C7", icon: "time-outline" },
-  EN_ATENCION: { label: "En proceso",  color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline" },
+  PROCESANDO:  { label: "Procesando",  color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline"        },
+  PENDIENTE:   { label: "Pendiente",   color: "#D97706", bg: "#FEF3C7", icon: "time-outline"             },
+  VALIDO:      { label: "Válido",      color: "#0369A1", bg: "#E0F2FE", icon: "checkmark-outline"        },
+  EN_ATENCION: { label: "En proceso",  color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline"        },
   RESUELTA:    { label: "Atendido",    color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
-  RECHAZADA:   { label: "Rechazado",   color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
-  PROCESANDO:  { label: "Procesando",  color: "#2563EB", bg: "#DBEAFE", icon: "hourglass-outline" },
-  FALLIDO:     { label: "Fallido",     color: "#DC2626", bg: "#FEE2E2", icon: "alert-circle-outline" },
-  EN_REVISION: { label: "En revisión", color: "#C2410C", bg: "#FFF7ED", icon: "eye-outline" },
-  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F1F5F9", icon: "trash-outline" },
+  RECHAZADO:   { label: "Rechazado",   color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline"     },
+  FALLIDO:     { label: "Error envío", color: "#9D174D", bg: "#FCE7F3", icon: "alert-circle-outline"     },
+  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F1F5F9", icon: "trash-outline"            },
 }
 
 export const NIVEL_COLOR: Record<string, string> = {

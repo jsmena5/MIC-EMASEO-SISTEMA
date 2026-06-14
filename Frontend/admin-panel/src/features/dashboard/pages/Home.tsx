@@ -19,8 +19,14 @@ const PRIORITY_COLOR: Record<string, string> = {
 }
 
 const ESTADO_COLOR: Record<string, string> = {
-  PENDIENTE: "#2563EB", EN_ATENCION: "#D97706", RESUELTA: "#16A34A",
-  RECHAZADA: "#DC2626", EN_REVISION: "#7C3AED", DESCARTADO: "#9CA3AF", PROCESANDO: "#6B7280",
+  PROCESANDO:  "#6B7280",
+  PENDIENTE:   "#2563EB",
+  VALIDO:      "#0369A1",
+  EN_ATENCION: "#D97706",
+  RESUELTA:    "#16A34A",
+  RECHAZADO:   "#DC2626",
+  DESCARTADO:  "#9CA3AF",
+  FALLIDO:     "#BE185D",
 }
 
 interface KpiState {
@@ -59,10 +65,9 @@ export default function Home() {
     const load = async () => {
       try {
         const today = todayIso()
-        const [pend, revisado, rev, asig, res, crit] = await Promise.all([
+        const [pend, validos, asig, res, crit] = await Promise.all([
           getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
-          getIncidents({ estado: "REVISADO",    limit: 1, page: 1 }),
-          getIncidents({ estado: "EN_REVISION", limit: 1, page: 1 }),
+          getIncidents({ estado: "VALIDO",      limit: 1, page: 1 }),
           getIncidents({ estado: "EN_ATENCION", limit: 1, page: 1, fecha_desde: today }),
           getIncidents({ estado: "RESUELTA",    limit: 1, page: 1, fecha_desde: today }),
           getIncidents({ prioridad: "CRITICA",  limit: 5, page: 1, sort: "priority" }),
@@ -71,8 +76,8 @@ export default function Home() {
         setKpi({
           loading: false,
           pendientes:   pend.pagination.total,
-          revisados:    revisado.pagination.total,
-          enRevision:   rev.pagination.total,
+          revisados:    validos.pagination.total,
+          enRevision:   0,
           asignadosHoy: asig.pagination.total,
           resueltosHoy: res.pagination.total,
           criticos:     crit.incidents,

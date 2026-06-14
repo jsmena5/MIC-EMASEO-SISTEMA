@@ -2,9 +2,9 @@ import { NavLink } from "react-router-dom"
 import { useEffect, useState, type ReactNode } from "react"
 
 const navigation = [
-  { to: "/dashboard/home",        label: "Inicio",      iconKind: "home" as const },
-  { to: "/dashboard/incidencias", label: "Incidencias", iconKind: "incidencias" as const },
-  { to: "/dashboard/mapa",        label: "Mapa",        iconKind: "mapa" as const },
+  { to: "/dashboard/home",       label: "Inicio",     iconKind: "home"        as const },
+  { to: "/dashboard/incidentes", label: "Incidentes", iconKind: "incidencias" as const },
+  { to: "/dashboard/mapa",       label: "Mapa",       iconKind: "mapa"        as const },
 ]
 
 type IconKind = "home" | "incidencias" | "mapa"

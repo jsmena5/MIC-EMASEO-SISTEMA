@@ -36,7 +36,7 @@ export default function Step2Classify({
     try {
       await revisionIA(detail.id, form)
       if (markRevisado && detail.estado === "PENDIENTE") {
-        await cambiarEstado(detail.id, "REVISADO")
+        await cambiarEstado(detail.id, "VALIDO")
       }
       onRefresh()
     } catch (err) {
@@ -171,7 +171,7 @@ export default function Step2Classify({
       <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="mr-auto text-xs text-slate-500">
           <strong>Guardar borrador</strong>: guarda sin cambiar estado.<br />
-          <strong>Confirmar revisión</strong>: guarda y marca el caso como <em>REVISADO</em>.
+          <strong>Confirmar revisión</strong>: guarda y marca el caso como <em>VÁLIDO</em>.
         </div>
         <button
           disabled={saving}

@@ -22,16 +22,15 @@ export const palette = {
   dangerSoft:    "#FEF2F2",
 }
 
-export const ESTADO_STYLE: Record<string, { bg: string; text: string }> = {
-  PROCESANDO:  { bg: "#DBEAFE", text: "#1D4ED8" },
-  PENDIENTE:   { bg: "#FEF3C7", text: "#B45309" },
-  REVISADO:    { bg: "#E0F2FE", text: "#0369A1" },
-  EN_ATENCION: { bg: "#EDE9FE", text: "#6D28D9" },
-  RESUELTA:    { bg: "#DCFCE7", text: "#166534" },
-  RECHAZADA:   { bg: "#FEE2E2", text: "#991B1B" },
-  FALLIDO:     { bg: "#FCE7F3", text: "#BE185D" },
-  EN_REVISION: { bg: "#FFF7ED", text: "#C2410C" },
-  DESCARTADO:  { bg: "#F1F5F9", text: "#475569" },
+export const ESTADO_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  PROCESANDO:  { bg: "#DBEAFE", text: "#1D4ED8", label: "Procesando"  },
+  PENDIENTE:   { bg: "#FEF3C7", text: "#B45309", label: "Pendiente"   },
+  VALIDO:      { bg: "#E0F2FE", text: "#0369A1", label: "Válido"      },
+  EN_ATENCION: { bg: "#EDE9FE", text: "#6D28D9", label: "En atención" },
+  RESUELTA:    { bg: "#DCFCE7", text: "#166534", label: "Resuelta"    },
+  RECHAZADO:   { bg: "#FEE2E2", text: "#991B1B", label: "Rechazado"   },
+  FALLIDO:     { bg: "#FCE7F3", text: "#BE185D", label: "Fallido"     },
+  DESCARTADO:  { bg: "#F1F5F9", text: "#475569", label: "Descartado"  },
 }
 
 export const DECISION_STYLE: Record<string, { bg: string; text: string; label: string }> = {

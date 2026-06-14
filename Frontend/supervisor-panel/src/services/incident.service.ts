@@ -7,9 +7,8 @@
  * Todos los valores vacíos/nulos se normalizan con ?? para evitar que el
  * consumidor tenga que manejar undefined.
  *
- * v2 (migración 032): agrega estados EN_REVISION y DESCARTADO, y los campos
- * decision_automatica, confianza_decision e imagen_auditoria_url para soportar
- * el nuevo flujo de revisión humana.
+ * v2 (migración 032): agrega estados DESCARTADO y los campos decision_automatica,
+ * confianza_decision e imagen_auditoria_url para soportar el flujo de revisión humana.
  *
  * v3 (migración 033): agrega revisión supervisada de decisiones IA:
  * ia_fue_correcta, nivel_acumulacion_supervisor, tipo_residuo_supervisor,
@@ -49,7 +48,7 @@ export interface IncidentListItem {
   decision_automatica: DecisionAutomatica | null
   /** Confianza del ML al tomar la decisión (0-1, null si no aplica) */
   confianza_decision: number | null
-  /** URL S3 de la imagen preservada para auditoría en casos FALLIDO/EN_REVISION/DESCARTADO */
+  /** URL S3 de la imagen preservada para auditoría en casos FALLIDO/DESCARTADO */
   imagen_auditoria_url: string | null
   descripcion: string | null
   direccion: string | null

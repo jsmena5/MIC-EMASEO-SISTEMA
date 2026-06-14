@@ -929,10 +929,10 @@ export default function ScanScreen() {
           return
         }
 
-        // EN_REVISION: el supervisor debe validar manualmente la decisión IA.
+        // PENDIENTE con REVISION_REQUERIDA: supervisor debe validar la decisión IA.
         // No navegar a ScanResultScreen — ese componente requiere incident_id y
-        // datos de detección completos que EN_REVISION no incluye, y crashea.
-        if (status.estado === "EN_REVISION") {
+        // datos de detección completos que este estado no incluye, y crashea.
+        if (status.estado === "PENDIENTE" && status.decision_automatica === "REVISION_REQUERIDA") {
           setPollProgress(0)
           setPhase("idle")
           Alert.alert(

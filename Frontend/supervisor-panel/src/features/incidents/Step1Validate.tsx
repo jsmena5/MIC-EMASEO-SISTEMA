@@ -40,7 +40,7 @@ export default function Step1Validate({
     setSaving(true)
     setError(null)
     try {
-      await cambiarEstado(detail.id, "RECHAZADA", {
+      await cambiarEstado(detail.id, "RECHAZADO", {
         motivo_rechazo: motivoRechazo,
         observaciones: observaciones.trim() || undefined,
       })

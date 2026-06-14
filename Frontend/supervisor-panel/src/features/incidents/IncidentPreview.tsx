@@ -23,9 +23,8 @@ export default function IncidentPreview({
   const status   = ESTADO_STYLE[detail.estado] ?? { bg: "#E2E8F0", text: "#475569" }
   const priority = detail.prioridad ? PRIORIDAD_STYLE[detail.prioridad] : null
 
-  const isTerminal = ["RESUELTA", "RECHAZADA", "DESCARTADO", "FALLIDO"].includes(detail.estado)
-  const isRevisado = detail.estado === "REVISADO"
-  const canReview  = !isTerminal && !isRevisado
+  const isTerminal = ["RESUELTA", "RECHAZADO", "DESCARTADO", "FALLIDO"].includes(detail.estado)
+  const canReview  = !isTerminal
 
   return (
     <>
@@ -36,7 +35,7 @@ export default function IncidentPreview({
           <span className="text-[11px] font-mono font-semibold text-slate-400">#{detail.id.slice(0, 8)}</span>
           <span className="rounded-full px-2 py-0.5 text-[10px] font-bold"
             style={{ background: status.bg, color: status.text }}>
-            {detail.estado.replaceAll("_", " ")}
+            {(ESTADO_STYLE[detail.estado]?.label ?? detail.estado.replaceAll("_", " "))}
           </span>
           {priority && (
             <span className="flex items-center gap-1 text-[11px] text-slate-500">

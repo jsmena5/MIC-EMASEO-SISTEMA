@@ -13,30 +13,29 @@ export type DistanceHint = 'TOO_CLOSE' | 'OPTIMAL' | 'TOO_FAR'
 export type LightingHint = 'TOO_DARK' | 'OK' | 'TOO_BRIGHT'
 
 /**
- * Estados del ciclo de vida de una incidencia.
- *   PROCESANDO → PENDIENTE   (ML detectó residuos)
- *   PROCESANDO → EN_REVISION (ML dudoso → supervisor decide)
+ * Estados del ciclo de vida de una incidencia (migración 055).
+ *   PROCESANDO → PENDIENTE   (ML detectó residuos o ML dudoso)
  *   PROCESANDO → DESCARTADO  (ML descartó con confianza)
- *   PROCESANDO → FALLIDO     (error técnico)
- *   EN_REVISION → PENDIENTE | RECHAZADA
- *   DESCARTADO  → PENDIENTE
- *   PENDIENTE   → EN_ATENCION | RECHAZADA
- *   EN_ATENCION → RESUELTA | RECHAZADA | PENDIENTE
+ *   PROCESANDO → FALLIDO     (error técnico de transmisión)
+ *   DESCARTADO  → PENDIENTE  (supervisor anula rechazo automático)
+ *   PENDIENTE   → VALIDO | EN_ATENCION | RECHAZADO
+ *   VALIDO      → EN_ATENCION | RECHAZADO
+ *   EN_ATENCION → RESUELTA | RECHAZADO | PENDIENTE
  */
 export type IncidentEstado =
   | 'PROCESANDO'
   | 'PENDIENTE'
+  | 'VALIDO'
   | 'EN_ATENCION'
   | 'RESUELTA'
-  | 'RECHAZADA'
+  | 'RECHAZADO'
   | 'FALLIDO'
-  | 'EN_REVISION'
   | 'DESCARTADO'
 
 /** Subset usable como respuesta del análisis ML (excluye estados de error). */
 export type AnalysisIncidentEstado = Extract<
   IncidentEstado,
-  'PENDIENTE' | 'EN_ATENCION' | 'RESUELTA' | 'RECHAZADA'
+  'PENDIENTE' | 'EN_ATENCION' | 'RESUELTA' | 'RECHAZADO'
 >
 
 /** Decisión estructurada del pipeline ML. */
@@ -84,7 +83,7 @@ export interface IncidentBase {
   descripcion: string | null
   created_at: string
   image_url: string | null
-  /** URL de imagen preservada por el ML para incidentes EN_REVISION/DESCARTADO/FALLIDO */
+  /** URL de imagen preservada por el ML para incidentes DESCARTADO/FALLIDO */
   imagen_auditoria_url?: string | null
   nivel_acumulacion: NivelAcum | null
   tipo_residuo: TipoResiduo | null

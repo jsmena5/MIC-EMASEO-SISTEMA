@@ -51,12 +51,12 @@ export default function FiltersBar({
            El gradiente derecho indica visualmente que hay más chips al deslizar ── */}
       <div className="relative">
       <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <Chip label="Sin revisar"     active={Boolean(filters.sin_supervisar)}  onClick={() => set({ sin_supervisar: !filters.sin_supervisar, estado: "" })}             color={palette.primary} />
-        <Chip label="Por validar"     active={filters.estado === "PENDIENTE"}   onClick={() => set({ estado: filters.estado === "PENDIENTE"   ? "" : "PENDIENTE",   sin_supervisar: false })}   color={palette.warning} />
-        <Chip label="Revisado"        active={filters.estado === "REVISADO"}    onClick={() => set({ estado: filters.estado === "REVISADO"    ? "" : "REVISADO",    sin_supervisar: false })}   color="#0369A1" />
-        <Chip label="En revisión IA"  active={filters.estado === "EN_REVISION"} onClick={() => set({ estado: filters.estado === "EN_REVISION" ? "" : "EN_REVISION", sin_supervisar: false })} color="#C2410C" />
-        <Chip label="Descartados"     active={filters.estado === "DESCARTADO"}  onClick={() => set({ estado: filters.estado === "DESCARTADO"  ? "" : "DESCARTADO",  sin_supervisar: false })}  color={palette.muted} />
-        <Chip label="IA incorrecta"   active={Boolean(filters.ia_incorrecta)}   onClick={() => set({ ia_incorrecta: !filters.ia_incorrecta })}                          color={palette.danger} />
+        <Chip label="Entrantes"   active={Boolean(filters.sin_supervisar)}  onClick={() => set({ sin_supervisar: !filters.sin_supervisar, estado: "" })}              color={palette.primary} />
+        <Chip label="Pendientes"  active={filters.estado === "PENDIENTE"}   onClick={() => set({ estado: filters.estado === "PENDIENTE"  ? "" : "PENDIENTE",  sin_supervisar: false })} color={palette.warning} />
+        <Chip label="Válidos"     active={filters.estado === "VALIDO"}      onClick={() => set({ estado: filters.estado === "VALIDO"     ? "" : "VALIDO",     sin_supervisar: false })} color="#0369A1" />
+        <Chip label="En atención" active={filters.estado === "EN_ATENCION"} onClick={() => set({ estado: filters.estado === "EN_ATENCION"? "" : "EN_ATENCION",sin_supervisar: false })} color="#6D28D9" />
+        <Chip label="Descartados" active={filters.estado === "DESCARTADO"}  onClick={() => set({ estado: filters.estado === "DESCARTADO" ? "" : "DESCARTADO", sin_supervisar: false })} color={palette.muted} />
+        <Chip label="IA incorrecta" active={Boolean(filters.ia_incorrecta)} onClick={() => set({ ia_incorrecta: !filters.ia_incorrecta })}                               color={palette.danger} />
 
         {/* Separador y acciones — shrink-0 para que no se compriman */}
         <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -84,12 +84,12 @@ export default function FiltersBar({
         <div className="mt-3 pt-3 border-t border-slate-100 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
           <select value={filters.estado ?? ""} onChange={(e) => set({ estado: (e.target.value as IncidentEstado) || "" })} style={fieldStyle}>
             <option value="">Todos los estados</option>
+            <option value="PROCESANDO">Procesando</option>
             <option value="PENDIENTE">Pendiente</option>
-            <option value="REVISADO">Revisado</option>
+            <option value="VALIDO">Válido</option>
             <option value="EN_ATENCION">En atención</option>
-            <option value="EN_REVISION">En revisión</option>
             <option value="RESUELTA">Resuelta</option>
-            <option value="RECHAZADA">Rechazada</option>
+            <option value="RECHAZADO">Rechazado</option>
             <option value="DESCARTADO">Descartado</option>
             <option value="FALLIDO">Fallido</option>
           </select>

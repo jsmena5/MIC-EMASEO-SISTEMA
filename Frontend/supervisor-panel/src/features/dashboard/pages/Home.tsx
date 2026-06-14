@@ -118,21 +118,20 @@ export default function Home() {
     const load = async () => {
       try {
         const today = todayIso()
-        const [pend, rev, enRev, res, rec, crit] = await Promise.all([
-          getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
-          getIncidents({ estado: "REVISADO",    limit: 1, page: 1 }),
-          getIncidents({ estado: "EN_REVISION", limit: 1, page: 1 }),
-          getIncidents({ estado: "RESUELTA",    limit: 1, page: 1, fecha_desde: today }),
+        const [pend, validos, resueltosHoy, rec, crit] = await Promise.all([
+          getIncidents({ estado: "PENDIENTE",  limit: 1, page: 1 }),
+          getIncidents({ estado: "VALIDO",     limit: 1, page: 1 }),
+          getIncidents({ estado: "RESUELTA",   limit: 1, page: 1, fecha_desde: today }),
           getIncidents({ limit: 6, page: 1, sort: "newest", fecha_desde: today }),
-          getIncidents({ prioridad: "CRITICA",  limit: 5, page: 1, sort: "priority" }),
+          getIncidents({ prioridad: "CRITICA", limit: 5, page: 1, sort: "priority" }),
         ])
         if (!alive) return
         setState({
           loading: false,
           pendientes:   pend.pagination.total,
-          revisados:    rev.pagination.total,
-          enRevision:   enRev.pagination.total,
-          resueltosHoy: res.pagination.total,
+          revisados:    validos.pagination.total,
+          enRevision:   0,
+          resueltosHoy: resueltosHoy.pagination.total,
           recientes:    rec.incidents,
           criticos:     crit.incidents,
           error: null,
@@ -156,12 +155,12 @@ export default function Home() {
         <p className="mt-0.5 text-sm capitalize text-slate-500">{dateLabel}</p>
       </div>
 
-      {/* KPIs — 5 tarjetas: las más importantes para el supervisor */}
+      {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard label="Por validar"   value={state.pendientes}   hint="Casos sin revisar"         href="/dashboard/incidencias?estado=PENDIENTE&sin_supervisar=false"   accent="#F59E0B" loading={state.loading} />
-        <KpiCard label="Revisados"     value={state.revisados}    hint="Clasificados por supervisor" href="/dashboard/incidencias?estado=REVISADO&sin_supervisar=false"    accent="#0EA5E9" loading={state.loading} />
-        <KpiCard label="En revisión IA" value={state.enRevision} hint="Esperan tu validación"      href="/dashboard/incidencias?estado=EN_REVISION&sin_supervisar=false" accent="#F97316" loading={state.loading} />
-        <KpiCard label="Resueltos hoy" value={state.resueltosHoy} hint="Cerrados en este turno"    href="/dashboard/incidencias?estado=RESUELTA&sin_supervisar=false"    accent="#22C55E" loading={state.loading} />
+        <KpiCard label="Entrantes"     value={state.pendientes}   hint="Esperan validación"          href="/dashboard/incidentes?estado=PENDIENTE&sin_supervisar=false"  accent="#F59E0B" loading={state.loading} />
+        <KpiCard label="Válidos"       value={state.revisados}    hint="Confirmados por supervisor"  href="/dashboard/incidentes?estado=VALIDO&sin_supervisar=false"      accent="#0EA5E9" loading={state.loading} />
+        <KpiCard label="Resueltos hoy" value={state.resueltosHoy} hint="Cerrados en este turno"     href="/dashboard/incidentes?estado=RESUELTA&sin_supervisar=false"   accent="#22C55E" loading={state.loading} />
+        <KpiCard label="Ver todos"     value={0}                  hint="Bandeja completa"            href="/dashboard/incidentes"                                         accent="#6366F1" loading={false} />
       </div>
 
       {/* Barra de distribución */}
@@ -169,7 +168,7 @@ export default function Home() {
         <StatusBar
           pendientes={state.pendientes}
           revisados={state.revisados}
-          enRevision={state.enRevision}
+          enRevision={0}
           resueltosHoy={state.resueltosHoy}
         />
       )}
@@ -181,7 +180,7 @@ export default function Home() {
             <div className="text-sm font-extrabold text-slate-900">Llegadas hoy</div>
             <div className="text-xs text-slate-500">Incidencias reportadas en las últimas 24 h</div>
           </div>
-          <Link to="/dashboard/incidencias" className="text-xs font-bold text-[#005BAC] hover:underline">
+          <Link to="/dashboard/incidentes" className="text-xs font-bold text-[#005BAC] hover:underline">
             Ver todas →
           </Link>
         </div>
@@ -194,7 +193,7 @@ export default function Home() {
           )}
           {state.recientes.map((c) => (
             <li key={c.id}>
-              <Link to={`/dashboard/incidencias?id=${c.id}&sin_supervisar=false`}
+              <Link to={`/dashboard/incidentes?id=${c.id}&sin_supervisar=false`}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition">
                 <span className="h-2 w-2 shrink-0 rounded-full"
                   style={{ background: PRIORITY_DOT[c.prioridad ?? "BAJA"] }} />
@@ -223,7 +222,7 @@ export default function Home() {
             <div className="text-sm font-extrabold text-slate-900">Casos críticos</div>
             <div className="text-xs text-slate-500">Top 5 por prioridad — requieren atención inmediata</div>
           </div>
-          <Link to="/dashboard/incidencias?prioridad=CRITICA&sin_supervisar=false"
+          <Link to="/dashboard/incidentes?prioridad=CRITICA&sin_supervisar=false"
             className="text-xs font-bold text-[#005BAC] hover:underline">
             Ver todos →
           </Link>
@@ -235,7 +234,7 @@ export default function Home() {
           )}
           {state.criticos.map((c) => (
             <li key={c.id}>
-              <Link to={`/dashboard/incidencias?id=${c.id}&sin_supervisar=false`}
+              <Link to={`/dashboard/incidentes?id=${c.id}&sin_supervisar=false`}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50 transition">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full"
                   style={{ background: PRIORITY_DOT[c.prioridad ?? "BAJA"] }} />
@@ -258,7 +257,7 @@ export default function Home() {
 
       {/* Accesos rápidos */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Link to="/dashboard/incidencias"
+        <Link to="/dashboard/incidentes"
           className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4 hover:border-slate-300 transition">
           <div>
             <div className="text-sm font-bold text-slate-900">Bandeja completa</div>

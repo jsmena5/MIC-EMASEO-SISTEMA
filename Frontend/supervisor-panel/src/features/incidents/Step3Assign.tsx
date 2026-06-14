@@ -4,16 +4,17 @@ import { asignarIncidente, cambiarEstado } from "../../services/incident.service
 import { fieldStyle, labelStyle } from "./styles"
 
 const TRANSICIONES: Record<string, IncidentEstado[]> = {
-  PENDIENTE:   ["EN_ATENCION", "RECHAZADA"],
-  EN_ATENCION: ["RESUELTA", "RECHAZADA", "PENDIENTE"],
-  EN_REVISION: ["PENDIENTE", "RECHAZADA"],
+  PENDIENTE:   ["VALIDO", "EN_ATENCION", "RECHAZADO"],
+  VALIDO:      ["EN_ATENCION", "RECHAZADO"],
+  EN_ATENCION: ["RESUELTA", "RECHAZADO", "PENDIENTE"],
   DESCARTADO:  ["PENDIENTE"],
 }
 
 const LABEL: Partial<Record<IncidentEstado, string>> = {
   PENDIENTE:   "Volver a pendiente",
+  VALIDO:      "Marcar como válido",
   EN_ATENCION: "Enviar a operario",
-  RECHAZADA:   "Rechazar",
+  RECHAZADO:   "Rechazar",
   RESUELTA:    "Marcar resuelta",
 }
 
@@ -87,7 +88,7 @@ export default function Step3Assign({
     }
   }
 
-  // Transición simple (sin GPS): PENDIENTE / EN_ATENCION / RECHAZADA.
+  // Transición simple (sin GPS): PENDIENTE / EN_ATENCION / RECHAZADO.
   const cambiarEstadoSimple = async (estado: IncidentEstado) => {
     setSaving(true)
     try {
@@ -198,7 +199,7 @@ export default function Step3Assign({
                 onClick={() => void handleEstado(e)}
                 className={(() => {
                   let variant: string
-                  if (e === "RECHAZADA") variant = "bg-red-50 text-red-700 hover:bg-red-100"
+                  if (e === "RECHAZADO") variant = "bg-red-50 text-red-700 hover:bg-red-100"
                   else if (e === "RESUELTA") variant = "bg-green-50 text-green-700 hover:bg-green-100"
                   else variant = "bg-blue-50 text-blue-700 hover:bg-blue-100"
                   return `rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-50 ${variant}`

@@ -19,8 +19,8 @@ const navItems = [
     ),
   },
   {
-    to: "/dashboard/incidencias",
-    label: "Bandeja",
+    to: "/dashboard/incidentes",
+    label: "Incidentes",
     icon: (active: boolean): ReactNode => (
       <svg className={active ? "text-[#005BAC]" : "text-slate-500"} width="22" height="22"
         viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
