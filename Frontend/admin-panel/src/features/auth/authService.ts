@@ -33,6 +33,18 @@ export const logoutRequest = async (refreshToken: string) => {
   })
 }
 
+export const forgotPasswordRequest = async (email: string): Promise<void> => {
+  const res = await fetch(`${API_URL}/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.message ?? "Error al enviar el correo")
+  }
+}
+
 export const changePasswordRequest = async (
   currentPassword: string,
   newPassword: string,
