@@ -2,32 +2,26 @@
 -- MIC-EMASEO SISTEMA — Migración 055
 -- Estandarización del ciclo de vida de incidencias
 --
--- Cambios:
---   EN_REVISION → datos migran a PENDIENTE (valor queda en el enum sin uso)
---   REVISADO    → renombrado a VALIDO      (ALTER TYPE RENAME VALUE)
---   RECHAZADA   → renombrado a RECHAZADO   (ALTER TYPE RENAME VALUE)
+-- Estado actual del ENUM en producción (tras intentos previos parciales):
+--   PENDIENTE, EN_ATENCION, RESUELTA, RECHAZADA, PROCESANDO, FALLIDO,
+--   EN_REVISION, DESCARTADO, REVISADO, VALIDO, RECHAZADO
 --
--- ALTER TYPE ... RENAME VALUE (PostgreSQL 10+) opera solo sobre el catálogo,
--- no toca datos ni triggers. Mucho más seguro que DROP TYPE + recrear.
+-- VALIDO y RECHAZADO ya existen (fueron añadidos por ADD VALUE en intentos
+-- anteriores que no completaron). Solo necesitamos migrar los datos y
+-- actualizar la función de notificación.
 --
--- Resultado funcional: 7 estados activos
---   PROCESANDO, PENDIENTE, VALIDO, EN_ATENCION, RESUELTA, RECHAZADO,
---   DESCARTADO, FALLIDO
--- (EN_REVISION permanece como valor legacy inactivo en el catálogo)
+-- Los valores legacy (REVISADO, RECHAZADA, EN_REVISION) quedan en el catálogo
+-- como inactivos. No causan problemas en runtime.
 -- ============================================================================
 
 BEGIN;
 
--- ── 1. Migrar datos EN_REVISION → PENDIENTE ──────────────────────────────────
-UPDATE incidents.incidents
-SET estado = 'PENDIENTE'
-WHERE estado = 'EN_REVISION';
+-- ── 1. Migrar datos a los nuevos valores ─────────────────────────────────────
+UPDATE incidents.incidents SET estado = 'PENDIENTE'  WHERE estado = 'EN_REVISION';
+UPDATE incidents.incidents SET estado = 'VALIDO'     WHERE estado = 'REVISADO';
+UPDATE incidents.incidents SET estado = 'RECHAZADO'  WHERE estado = 'RECHAZADA';
 
--- ── 2. Renombrar valores del ENUM (operación sobre catálogo, no sobre datos) ──
-ALTER TYPE incidents.incident_status RENAME VALUE 'REVISADO'  TO 'VALIDO';
-ALTER TYPE incidents.incident_status RENAME VALUE 'RECHAZADA' TO 'RECHAZADO';
-
--- ── 3. Actualizar fn_notify_citizen con los nuevos nombres de estado ──────────
+-- ── 2. Actualizar fn_notify_citizen ──────────────────────────────────────────
 CREATE OR REPLACE FUNCTION incidents.fn_notify_citizen()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -54,7 +48,7 @@ BEGIN
             v_titulo  := 'Reporte descartado';
             v_mensaje := 'La imagen enviada no mostró acumulación de residuos detectable.';
         ELSE
-            -- PROCESANDO, VALIDO, FALLIDO, EN_REVISION (legacy): sin notificación
+            -- PROCESANDO, VALIDO, FALLIDO y valores legacy: sin notificación
             RETURN NEW;
     END CASE;
 
