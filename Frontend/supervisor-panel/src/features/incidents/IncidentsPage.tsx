@@ -71,10 +71,14 @@ function StatCard({ label, value, color, dot, active, onClick, loading }: Readon
 export default function IncidentsPage() {
   const [params, setParams] = useSearchParams()
 
+  // solo_detalle=true → viene del mapa, mostrar solo el detalle del caso
+  const soloDetalle = params.get("solo_detalle") === "true"
+
   const filtersFromUrl: IncidentFilters = useMemo(() => ({
-    estado:        (params.get("estado") as IncidentEstado | null) || "",
+    estado:        (params.get("estado") as IncidentEstado | null) || "PENDIENTE",
     prioridad:     (params.get("prioridad") as Prioridad | null)   || "",
-    sin_supervisar: params.has("sin_supervisar") ? params.get("sin_supervisar") === "true" : true,
+    // Por defecto: solo casos PENDIENTE (sin_supervisar no aplica al filtrar por estado)
+    sin_supervisar: params.has("sin_supervisar") ? params.get("sin_supervisar") === "true" : false,
     page:  1,
     limit: 20,
     sort:  "priority",
@@ -306,30 +310,66 @@ export default function IncidentsPage() {
       {/* ── Estado vacío ───────────────────────────────────────── */}
       {isEmpty && (
         <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-slate-200 bg-white py-20 px-6">
-          <svg className="h-14 w-14 text-slate-200" fill="none" stroke="currentColor" strokeWidth={1.2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-          </svg>
-          <div className="text-center">
-            <p className="text-xl font-extrabold text-slate-400">Nada por aquí…</p>
-            <p className="mt-1 text-sm text-slate-400">No hay casos con los filtros actuales.</p>
-          </div>
-          <button
-            onClick={() => handleFiltersChange({ page: 1, limit: 20, sin_supervisar: true })}
-            className="rounded-xl bg-[#005BAC] px-4 py-2 text-xs font-bold text-white hover:bg-[#004B8E] transition"
-          >
-            Ver entrantes
-          </button>
+          {filters.estado === "PENDIENTE" || (!filters.estado && !filters.sin_supervisar) ? (
+            // Inbox vacío: buenas noticias
+            <>
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50">
+                <svg className="h-8 w-8 text-emerald-400" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-extrabold text-slate-700">¡Todo al día!</p>
+                <p className="mt-1 text-sm text-slate-400">No hay casos pendientes de clasificación.</p>
+                <p className="mt-0.5 text-xs text-slate-300">Los nuevos reportes aparecerán aquí automáticamente.</p>
+              </div>
+            </>
+          ) : (
+            // Filtro activo sin resultados
+            <>
+              <svg className="h-14 w-14 text-slate-200" fill="none" stroke="currentColor" strokeWidth={1.2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              <div className="text-center">
+                <p className="text-xl font-extrabold text-slate-400">Nada por aquí…</p>
+                <p className="mt-1 text-sm text-slate-400">No hay casos con los filtros actuales.</p>
+              </div>
+              <button
+                onClick={() => handleFiltersChange({ page: 1, limit: 20, estado: "PENDIENTE", sin_supervisar: false })}
+                className="rounded-xl bg-[#005BAC] px-4 py-2 text-xs font-bold text-white hover:bg-[#004B8E] transition"
+              >
+                Ver entrantes
+              </button>
+            </>
+          )}
         </div>
+      )}
+
+      {/* ── Modo solo detalle (desde el mapa) ─────────────────── */}
+      {soloDetalle && (
+        <button
+          onClick={() => {
+            const next = new URLSearchParams()
+            next.set("estado", "PENDIENTE")
+            setParams(next, { replace: true })
+          }}
+          className="flex items-center gap-2 text-sm font-bold text-[#005BAC] hover:underline w-fit"
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Volver a la bandeja
+        </button>
       )}
 
       {/* ── Grid principal ─────────────────────────────────────── */}
       {!isEmpty && (
-        <div className="grid gap-3 items-start sm:grid-cols-[300px_minmax(0,1fr)]">
+        <div className={["grid gap-3 items-start", soloDetalle ? "" : "sm:grid-cols-[300px_minmax(0,1fr)]"].join(" ")}>
 
-          {/* Lista */}
+          {/* Lista — oculta en modo solo detalle (desde el mapa) */}
           <div className={[
             "sm:sticky sm:top-4",
-            mobileView === "list" ? "block" : "hidden sm:block",
+            soloDetalle ? "hidden" : mobileView === "list" ? "block" : "hidden sm:block",
           ].join(" ")}>
             <IncidentRail
               incidents={incidents}

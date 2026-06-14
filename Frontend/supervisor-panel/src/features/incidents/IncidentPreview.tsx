@@ -23,9 +23,12 @@ export default function IncidentPreview({
   const status   = ESTADO_STYLE[detail.estado] ?? { bg: "#E2E8F0", text: "#475569" }
   const priority = detail.prioridad ? PRIORIDAD_STYLE[detail.prioridad] : null
 
-  // PROCESANDO: el ML aún está analizando, el supervisor no puede actuar todavía
-  const isTerminal   = ["RESUELTA", "RECHAZADO", "DESCARTADO", "FALLIDO", "PROCESANDO"].includes(detail.estado)
-  const canReview    = !isTerminal
+  // Estados en los que el supervisor puede clasificar (validar/rechazar)
+  const canClassify = detail.estado === "PENDIENTE"
+  // Estados ya clasificados que solo admiten edición
+  const isEditable  = ["VALIDO", "EN_ATENCION"].includes(detail.estado)
+  // Terminales: sin acciones disponibles
+  // (PROCESANDO = ML aún analizando; RESUELTA/RECHAZADO/DESCARTADO/FALLIDO = finales)
 
   return (
     <>
@@ -54,7 +57,8 @@ export default function IncidentPreview({
           <span className="text-xs text-slate-500">
             {detail.ciudadano_nombre ?? "Ciudadano"} · {fmtDate(detail.created_at)}
           </span>
-          {canReview && (
+          {/* PENDIENTE: puede clasificar */}
+          {canClassify && (
             <div className="flex items-center gap-2">
               <button onClick={onReject}
                 className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 transition">
@@ -66,9 +70,12 @@ export default function IncidentPreview({
               </button>
             </div>
           )}
-          {detail.estado === "VALIDO" && (
+          {/* VALIDO / EN_ATENCION: ya clasificado, solo editar */}
+          {isEditable && (
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700">✓ Válido</span>
+              <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-bold text-sky-700">
+                {detail.estado === "VALIDO" ? "✓ Válido" : "✓ En atención"}
+              </span>
               <button onClick={onReview}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition">
                 Editar

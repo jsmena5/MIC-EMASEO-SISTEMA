@@ -101,9 +101,8 @@ function IncidentePopup({ inc }: Readonly<{ inc: IncidenteMapa }>) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 
-  const gMapsUrl  = `https://www.google.com/maps/dir/?api=1&destination=${inc.latitud},${inc.longitud}`
-  const wazeUrl   = `https://waze.com/ul?ll=${inc.latitud},${inc.longitud}&navigate=yes`
-  const bandeja   = `/dashboard/incidentes?id=${inc.id}&sin_supervisar=false`
+  const gMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${inc.latitud},${inc.longitud}`
+  const bandeja  = `/dashboard/incidentes?id=${inc.id}&sin_supervisar=false&solo_detalle=true`
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', width: 260 }}>
@@ -170,32 +169,17 @@ function IncidentePopup({ inc }: Readonly<{ inc: IncidenteMapa }>) {
         Ver caso en bandeja →
       </a>
 
-      {/* Navegación */}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <a href={gMapsUrl} target="_blank" rel="noopener noreferrer" style={{
-          flex: 1, textAlign: 'center',
-          background: '#4285F4', color: 'white', borderRadius: 10,
-          padding: '7px 0', fontSize: 11, fontWeight: 700, textDecoration: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-        }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-          </svg>
-          Google Maps
-        </a>
-        <a href={wazeUrl} target="_blank" rel="noopener noreferrer" style={{
-          flex: 1, textAlign: 'center',
-          background: '#33CCFF', color: 'white', borderRadius: 10,
-          padding: '7px 0', fontSize: 11, fontWeight: 700, textDecoration: 'none',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-        }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="white">
-            <path d="M20.54 6.63c.06.29.1.59.1.9 0 1.3-.44 2.5-1.16 3.46l-1.7 2.14c-.3.38-.76.6-1.25.6-.87 0-1.57-.7-1.57-1.57 0-.36.13-.7.35-.97l1.87-2.35c.13-.17.21-.38.21-.6 0-.55-.45-1-1-1H6.61C5.72 7.24 5 6.52 5 5.63S5.72 4 6.61 4h11.91c.83 0 1.59.4 2.02 1.06.18.26.31.54.39.84z"/>
-            <path d="M4.44 16.62c.5.58 1.22.88 1.96.88.64 0 1.26-.24 1.73-.68l7.08-6.56c.47-.44.74-1.06.74-1.71 0-.28-.06-.56-.17-.82-.22-.52-.65-.93-1.18-1.12l-5.46 6.47L4.44 16.62z"/>
-          </svg>
-          Waze
-        </a>
-      </div>
+      {/* Navegación — abre el selector de app del dispositivo */}
+      <a href={gMapsUrl} target="_blank" rel="noopener noreferrer" style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+        background: '#16A34A', color: 'white', borderRadius: 10,
+        padding: '8px 0', fontSize: 12, fontWeight: 800, textDecoration: 'none',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+        </svg>
+        Navegar
+      </a>
     </div>
   )
 }
