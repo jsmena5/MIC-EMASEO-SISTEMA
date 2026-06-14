@@ -4,7 +4,7 @@ import { getStoredUser, logoutStoredSession } from "../auth/authSession"
 import { getIncidents } from "../../services/incident.service"
 import { Bell, Settings, LogOut } from "lucide-react"
 
-const pageTitle: Record<string, string> = {
+const PAGE_LABEL: Record<string, string> = {
   "/dashboard/home":           "Inicio",
   "/dashboard/incidentes":     "Incidentes",
   "/dashboard/mapa":           "Mapa operativo",
@@ -26,7 +26,13 @@ export default function Topbar() {
   const [pendientes, setPendientes] = useState<number | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
-  const title = pageTitle[location.pathname] ?? "Panel de supervisión"
+  const title = PAGE_LABEL[location.pathname] ?? "Panel de supervisión"
+
+  // Actualiza el título del tab del navegador al cambiar de página
+  useEffect(() => {
+    document.title = `${title} — EMASEO EP`
+    return () => { document.title = "EMASEO EP — Supervisión" }
+  }, [title])
 
   useEffect(() => {
     let alive = true
