@@ -17,9 +17,10 @@ import type { AnalysisResult, Incident } from "../services/image.service"
 //   • LoginScreen   — primera pantalla del grupo público
 //   • HomeScreen    — primera pantalla del grupo privado
 //
-import SplashScreen from "../screens/SplashScreen"
-import LoginScreen  from "../screens/LoginScreen"
-import HomeScreen   from "../screens/HomeScreen"
+import SplashScreen      from "../screens/SplashScreen"
+import LoginScreen       from "../screens/LoginScreen"
+import HomeScreen        from "../screens/HomeScreen"
+import OperarioNavigator from "./OperarioNavigator"
 
 // ─── Pantallas secundarias (React.lazy) ───────────────────────────────────────
 //
@@ -119,7 +120,7 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>()
 
 export default function AppNavigator() {
-  const { token, isLoading } = useAuth()
+  const { token, isLoading, user } = useAuth()
 
   return (
     <AnalysisProvider>
@@ -133,8 +134,14 @@ export default function AppNavigator() {
               <Stack.Screen name="Splash" component={SplashScreen} />
             </Stack.Group>
           )
+          if (token && user?.rol === "OPERARIO") return (
+            // ── Grupo operario (personal de campo) ────────────────────────
+            <Stack.Group navigationKey="operario">
+              <Stack.Screen name="Home" component={OperarioNavigator} />
+            </Stack.Group>
+          )
           if (token) return (
-            // ── Grupo privado (usuario autenticado) ────────────────────────
+            // ── Grupo privado (ciudadano autenticado) ──────────────────────
           <Stack.Group navigationKey="private">
             <Stack.Screen name="Home"               component={HomeScreen} />
             <Stack.Screen name="Scan"               component={ScanScreen} />

@@ -33,15 +33,17 @@ export interface DecodedToken {
   exp: number
 }
 
-// La app móvil es EXCLUSIVA para ciudadanos. Supervisores/admins/operarios
-// usan los paneles web; sus cuentas no deben iniciar sesión aquí.
-const ROL_APP = "CIUDADANO"
+// Roles permitidos en la app móvil.
+// CIUDADANO: reporta incidentes (flujo principal).
+// OPERARIO:  recibe asignaciones y las resuelve en campo.
+// Supervisores y admins usan los paneles web.
+const ROLES_APP: ReadonlySet<string> = new Set(["CIUDADANO", "OPERARIO"])
 
-/** Error lanzado cuando un usuario no-ciudadano intenta entrar a la app móvil. */
+/** Error lanzado cuando un usuario no autorizado intenta entrar a la app móvil. */
 export class RolNoPermitidoError extends Error {
   code = "ROL_NO_PERMITIDO"
   constructor() {
-    super("Esta aplicación es solo para ciudadanos. Si eres personal de EMASEO, ingresa desde el panel web.")
+    super("Esta aplicación es para ciudadanos y operarios. Si eres supervisor o administrador, ingresa desde el panel web.")
     this.name = "RolNoPermitidoError"
   }
 }
@@ -87,8 +89,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
         const stored = await getSecure("emaseo_access_token")
         if (stored) {
           const decoded = jwtDecode<DecodedToken>(stored)
-          if (decoded.rol !== ROL_APP) {
-            // Sesión de un no-ciudadano (p. ej. supervisor que entró antes del fix) → descartar
+          if (!ROLES_APP.has(decoded.rol)) {
+            // Sesión de un rol no permitido (supervisor/admin) → descartar
             await deleteSecure("emaseo_access_token")
             await deleteSecure("emaseo_refresh_token")
           } else if (decoded.exp * 1000 > Date.now()) {
@@ -142,7 +144,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
 
       try {
         const decoded = jwtDecode<DecodedToken>(sessionToken)
-        if (decoded.rol !== ROL_APP) {
+        if (!ROLES_APP.has(decoded.rol)) {
           setToken(null)
           setUser(null)
           return
@@ -158,7 +160,7 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
 
   const login = async (newToken: string) => {
     const decoded = jwtDecode<DecodedToken>(newToken)
-    if (decoded.rol !== ROL_APP) {
+    if (!ROLES_APP.has(decoded.rol)) {
       // loginUser ya guardó los tokens — limpiarlos para no dejar sesión a medias
       await deleteSecure("emaseo_access_token")
       await deleteSecure("emaseo_refresh_token")
