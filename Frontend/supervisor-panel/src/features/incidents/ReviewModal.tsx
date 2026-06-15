@@ -4,13 +4,14 @@
  * Mantiene su propia máquina de estados (step, reject mode) sin contaminar la bandeja.
  */
 import { useEffect, useRef, useState } from "react"
-import type { IncidentDetail, RevisionIAPayload, NivelAcum, TipoResiduo } from "../../services/incident.service"
-import { cambiarEstado, revisionIA } from "../../services/incident.service"
+import type { IncidentDetail, OperarioItem, RevisionIAPayload, NivelAcum, TipoResiduo } from "../../services/incident.service"
+import { asignarIncidente, cambiarEstado, getOperarios, revisionIA } from "../../services/incident.service"
 import { toPublicMediaUrl } from "../../shared/api/mediaUrl"
 import { NIVEL_LABEL, TIPO_LABEL, fieldStyle, labelStyle } from "./styles"
 import { MOTIVO_RECHAZO_LABEL, type MotivoRechazo as MR } from "../../types/incident"
+import { Send, UserCheck } from "lucide-react"
 
-type ModalStep = "validate" | "classify" | "reject"
+type ModalStep = "validate" | "classify" | "reject" | "dispatch"
 
 function getInitialClassify(d: IncidentDetail): RevisionIAPayload {
   return {
@@ -40,6 +41,12 @@ export default function ReviewModal({
   const [error, setError] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
 
+  // Despacho a operario
+  const [operarios,       setOperarios]       = useState<OperarioItem[]>([])
+  const [operarioSel,     setOperarioSel]     = useState("")
+  const [notasDespacho,   setNotasDespacho]   = useState("")
+  const [loadingOperarios, setLoadingOperarios] = useState(false)
+
   const imageUrl = toPublicMediaUrl(detail.image_url ?? detail.imagen_auditoria_url)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
@@ -56,10 +63,30 @@ export default function ReviewModal({
       await revisionIA(detail.id, form)
       if (markRevisado && detail.estado === "PENDIENTE") {
         await cambiarEstado(detail.id, "VALIDO")
+        // Tras confirmar como VÁLIDO, ofrecer despacho inmediato a operario
+        setLoadingOperarios(true)
+        const data = await getOperarios()
+        setOperarios(data.operarios)
+        setLoadingOperarios(false)
+        setStep("dispatch")
+        return
       }
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDispatch = async () => {
+    if (!operarioSel) { setError("Selecciona un operario."); return }
+    setSaving(true); setError(null)
+    try {
+      await asignarIncidente(detail.id, operarioSel, null, notasDespacho.trim() || null)
+      onDone()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo asignar.")
     } finally {
       setSaving(false)
     }
@@ -94,15 +121,18 @@ export default function ReviewModal({
               {step === "validate" && "Validar incidencia"}
               {step === "classify" && "Clasificar análisis IA"}
               {step === "reject"   && "Rechazar reporte"}
+              {step === "dispatch" && "Despachar a operario"}
             </h3>
           </div>
-          {/* Progress pills */}
+          {/* Progress pills — 3 pasos: validar → clasificar → despachar */}
           <div className="flex items-center gap-1.5 mr-8">
-            {(["validate", "classify"] as ModalStep[]).map((s, i) => (
+            {(["validate", "classify", "dispatch"] as ModalStep[]).map((s, i) => (
               <div key={s} className={(() => {
+                const done = (step === "classify" && i === 0) || (step === "dispatch" && i < 2)
+                const active = step === s
                 let variant: string
-                if (step === s) variant = "bg-[#005BAC]"
-                else if (step === "classify" && i === 0) variant = "bg-green-400"
+                if (active) variant = "bg-blue-700"
+                else if (done) variant = "bg-emerald-400"
                 else variant = "bg-slate-200"
                 return `h-1.5 w-8 rounded-full transition-colors ${variant}`
               })()} />
@@ -249,6 +279,53 @@ export default function ReviewModal({
             </div>
           )}
 
+          {/* ── STEP: Dispatch ────────────────────────────────── */}
+          {step === "dispatch" && (
+            <div className="grid gap-4">
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                <UserCheck size={18} className="shrink-0 text-emerald-600" strokeWidth={2} />
+                <div>
+                  <p className="text-sm font-bold text-emerald-800">Caso validado correctamente</p>
+                  <p className="text-xs text-emerald-600">Asigna un operario para despachar a campo, o cierra el modal y asigna más tarde.</p>
+                </div>
+              </div>
+
+              {loadingOperarios ? (
+                <p className="text-sm text-slate-400 text-center py-4">Cargando operarios…</p>
+              ) : (
+                <div className="grid gap-3">
+                  <div className="grid gap-1">
+                    <label style={labelStyle}>Operario <span className="text-red-500">*</span></label>
+                    <select
+                      value={operarioSel}
+                      onChange={e => setOperarioSel(e.target.value)}
+                      style={fieldStyle}
+                    >
+                      <option value="">— Selecciona un operario —</option>
+                      {operarios.map(o => (
+                        <option key={o.id} value={o.id}>
+                          {o.nombre_completo}
+                          {o.zona_nombre ? ` · ${o.zona_nombre}` : ""}
+                          {` (${o.asignaciones_activas} activas)`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid gap-1">
+                    <label style={labelStyle}>Notas para el operario <span className="text-slate-300">(opcional)</span></label>
+                    <textarea
+                      rows={2}
+                      value={notasDespacho}
+                      onChange={e => setNotasDespacho(e.target.value)}
+                      placeholder="Indicaciones específicas para llegar al punto o manejar el residuo."
+                      style={{ ...fieldStyle, resize: "vertical", fontFamily: "inherit" }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{error}</div>
           )}
@@ -257,10 +334,10 @@ export default function ReviewModal({
         {/* ── Footer con acciones ────────────────────────────────── */}
         <div className="shrink-0 border-t border-slate-100 px-6 py-4 flex items-center justify-between gap-3">
           <button
-            onClick={step === "validate" ? onClose : () => { setStep("validate"); setError(null) }}
+            onClick={step === "validate" || step === "dispatch" ? onClose : () => { setStep("validate"); setError(null) }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50"
           >
-            {step === "validate" ? "Cancelar" : "← Atrás"}
+            {step === "dispatch" ? "Asignar después" : step === "validate" ? "Cancelar" : "← Atrás"}
           </button>
 
           <div className="flex items-center gap-2">
@@ -277,7 +354,7 @@ export default function ReviewModal({
               <button
                 disabled={saving}
                 onClick={() => handleConfirmReview(true)}
-                className="rounded-xl bg-[#005BAC] px-5 py-2 text-sm font-bold text-white hover:bg-[#004B8E] disabled:opacity-50"
+                className="rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
               >
                 {saving ? "Guardando…" : "Confirmar revisión ✓"}
               </button>
@@ -286,9 +363,19 @@ export default function ReviewModal({
               <button
                 disabled={saving || !motivoRechazo}
                 onClick={handleReject}
-                className="rounded-xl bg-red-600 px-5 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                className="rounded-xl bg-red-700 px-5 py-2 text-sm font-bold text-white hover:bg-red-800 disabled:opacity-50"
               >
                 {saving ? "Rechazando…" : "Confirmar rechazo"}
+              </button>
+            )}
+            {step === "dispatch" && (
+              <button
+                disabled={saving || !operarioSel || loadingOperarios}
+                onClick={() => void handleDispatch()}
+                className="flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50"
+              >
+                <Send size={14} strokeWidth={2} />
+                {saving ? "Asignando…" : "Despachar a campo"}
               </button>
             )}
           </div>
