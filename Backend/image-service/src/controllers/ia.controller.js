@@ -16,9 +16,9 @@ export const listarImagenes = async (req, res) => {
   let   idx        = 1
 
   if (etiqueta === "PENDIENTE") {
-    conditions.push("(ia.etiqueta = 'PENDIENTE' OR ia.id IS NULL)")
+    conditions.push("(i.etiqueta_entrenamiento = 'PENDIENTE' OR i.etiqueta_entrenamiento IS NULL)")
   } else if (etiqueta) {
-    conditions.push(`ia.etiqueta = $${idx++}`)
+    conditions.push(`i.etiqueta_entrenamiento = $${idx++}`)
     params.push(etiqueta)
   }
 
@@ -32,7 +32,6 @@ export const listarImagenes = async (req, res) => {
       `SELECT COUNT(*) AS total
        FROM incidents.incidents i
        JOIN ai.analysis_results ar ON ar.incident_id = i.id
-       LEFT JOIN ai.image_audit  ia ON ia.incident_id = i.id
        ${WHERE}`,
       params,
     )
@@ -50,13 +49,12 @@ export const listarImagenes = async (req, res) => {
          ar.ia_fue_correcta,
          ar.nivel_acumulacion_supervisor,
          ar.tipo_residuo_supervisor,
-         COALESCE(ia.etiqueta, 'PENDIENTE') AS etiqueta,
-         ia.comentario,
-         ia.etiquetado_at,
-         ia.etiquetado_por AS etiquetado_por_id
+         COALESCE(i.etiqueta_entrenamiento, 'PENDIENTE') AS etiqueta,
+         i.comentario_etiquetado AS comentario,
+         i.etiquetado_en        AS etiquetado_at,
+         i.etiquetado_por       AS etiquetado_por_id
        FROM incidents.incidents i
        JOIN ai.analysis_results ar ON ar.incident_id = i.id
-       LEFT JOIN ai.image_audit  ia ON ia.incident_id = i.id
        ${WHERE}
        ORDER BY i.created_at DESC
        LIMIT $${idx++} OFFSET $${idx++}`,
@@ -87,16 +85,18 @@ export const etiquetarImagen = async (req, res) => {
   }
 
   try {
-    await pool.query(
-      `INSERT INTO ai.image_audit (incident_id, etiqueta, comentario, etiquetado_por, etiquetado_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (incident_id) DO UPDATE SET
-         etiqueta       = EXCLUDED.etiqueta,
-         comentario     = EXCLUDED.comentario,
-         etiquetado_por = EXCLUDED.etiquetado_por,
-         etiquetado_at  = NOW()`,
-      [incident_id, etiqueta, comentario ?? null, userId],
+    const { rowCount } = await pool.query(
+      `UPDATE incidents.incidents
+       SET etiqueta_entrenamiento = $1,
+           comentario_etiquetado  = $2,
+           etiquetado_por         = $3,
+           etiquetado_en          = NOW()
+       WHERE id = $4`,
+      [etiqueta, comentario ?? null, userId, incident_id],
     )
+    if (rowCount === 0) {
+      return res.status(404).json({ error: "Incidente no encontrado." })
+    }
     return res.json({ incident_id, etiqueta })
   } catch (err) {
     console.error("[ia] etiquetarImagen:", err.message)
@@ -171,6 +171,8 @@ export const iaEstadisticas = async (_req, res) => {
       LIMIT 25
     `)
 
+    // Estadísticas IA cambian pocas veces por hora — cache 10 minutos
+    res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=60')
     return res.json({
       totales,
       errores_por_tipo:  erroresTipo,

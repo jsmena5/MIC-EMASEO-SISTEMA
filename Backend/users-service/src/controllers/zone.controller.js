@@ -8,14 +8,15 @@ export const listZonas = async (_req, res) => {
       SELECT
         z.id, z.codigo, z.nombre, z.descripcion, z.activa, z.created_at,
         z.supervisor_id,
-        op.nombre || ' ' || op.apellido AS supervisor_nombre,
+        u.nombre || ' ' || u.apellido   AS supervisor_nombre,
         u.email                         AS supervisor_email,
         ST_AsGeoJSON(z.geom)::json      AS geom
       FROM operations.zones z
-      LEFT JOIN operations.operarios op ON op.user_id = z.supervisor_id
       LEFT JOIN app_auth.users u ON u.id = z.supervisor_id
       ORDER BY z.nombre
     `)
+    // Lista de zonas casi estática — cache 10 minutos
+    res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=60')
     return res.json({ zonas: rows })
   } catch (err) {
     console.error("[zone] listZonas:", err.message)

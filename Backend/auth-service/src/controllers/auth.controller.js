@@ -52,20 +52,15 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Email y contraseña son requeridos" })
     }
 
-    // JOIN con ambas tablas de perfil para recuperar nombre sin importar el rol.
-    // COALESCE toma el primer valor no-NULL: ciudadano o operario.
     const result = await pool.query(
       `SELECT
          u.id,
-         u.username,
          u.password_hash,
          u.rol,
          u.estado,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
+         u.nombre,
+         u.apellido
        FROM app_auth.users u
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE u.email = $1`,
       [email.toLowerCase().trim()]
     )
@@ -102,7 +97,7 @@ export const login = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
+      { id: user.id, rol: user.rol, nombre: user.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )
@@ -137,15 +132,12 @@ export const refresh = async (req, res) => {
       `SELECT
          rt.id,
          rt.user_id,
-         u.username,
          u.rol,
          u.estado,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
+         u.nombre,
+         u.apellido
        FROM app_auth.refresh_tokens rt
        JOIN app_auth.users u ON u.id = rt.user_id
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE rt.token_hash = $1
          AND rt.revoked    = FALSE
          AND rt.expires_at > NOW()`,
@@ -178,7 +170,7 @@ export const refresh = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: row.user_id, username: row.username, rol: row.rol, nombre: row.nombre, tipo_perfil },
+      { id: row.user_id, rol: row.rol, nombre: row.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )
@@ -314,13 +306,8 @@ export const resetPassword = async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT
-         u.id, u.username, u.rol,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
+      `SELECT u.id, u.rol, u.nombre, u.apellido
        FROM app_auth.users u
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
        WHERE u.email = $1 AND u.estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
@@ -354,7 +341,7 @@ export const resetPassword = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
+      { id: user.id, rol: user.rol, nombre: user.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )

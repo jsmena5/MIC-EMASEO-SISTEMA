@@ -32,7 +32,7 @@ export const getAsignaciones = async (req, res) => {
        LEFT JOIN operations.zones z      ON z.id = i.zona_id
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar  ON ar.incident_id = i.id
-       LEFT JOIN operations.operarios sup ON sup.user_id = a.asignado_por
+       LEFT JOIN app_auth.users sup ON sup.id = a.asignado_por
        WHERE a.operario_id = $1 AND a.completada = FALSE
        ORDER BY
          CASE i.prioridad

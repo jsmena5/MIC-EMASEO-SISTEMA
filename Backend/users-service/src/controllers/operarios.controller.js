@@ -10,22 +10,19 @@ export const getOperarios = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT
-        o.id,
-        o.user_id,
-        o.nombre,
-        o.apellido,
-        o.cedula,
-        o.telefono,
-        o.zona_id,
-        o.cargo,
+        u.id,
+        u.nombre,
+        u.apellido,
+        u.cedula,
+        u.telefono,
+        u.zona_id,
+        u.cargo,
         u.email,
-        u.username,
         u.rol,
         u.estado
-      FROM operations.operarios o
-      JOIN app_auth.users u ON u.id = o.user_id
-      WHERE u.estado = 'ACTIVO'
-      ORDER BY o.created_at DESC
+      FROM app_auth.users u
+      WHERE u.rol = 'OPERARIO' AND u.estado = 'ACTIVO'
+      ORDER BY u.created_at DESC
     `)
 
     res.json(result.rows)
@@ -43,10 +40,10 @@ export const getOperarioById = async (req, res) => {
 
   try {
     const result = await pool.query(`
-      SELECT o.*, u.email, u.username, u.rol, u.estado
-      FROM operations.operarios o
-      JOIN app_auth.users u ON u.id = o.user_id
-      WHERE o.id = $1
+      SELECT u.id, u.nombre, u.apellido, u.cedula, u.telefono,
+             u.zona_id, u.cargo, u.email, u.rol, u.estado
+      FROM app_auth.users u
+      WHERE u.id = $1 AND u.rol = 'OPERARIO'
     `, [id])
 
     if (result.rows.length === 0) {
@@ -75,21 +72,11 @@ export const createOperario = async (req, res) => {
       ? password
       : crypto.randomBytes(12).toString("base64url")
 
-    // 1. Crear user — rol forzado en backend; no se acepta del payload
-    const userResult = await client.query(`
-      INSERT INTO app_auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt($3, gen_salt('bf', $4)), 'OPERARIO')
-      RETURNING id
-    `, [cedula, email, initialPassword, BCRYPT_ROUNDS])
-
-    const userId = userResult.rows[0].id
-
-    // 2. Crear perfil
     await client.query(`
-      INSERT INTO operations.operarios 
-      (user_id, nombre, apellido, cedula, telefono, cargo)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [userId, nombre, apellido, cedula, telefono, cargo])
+      INSERT INTO app_auth.users
+        (email, password_hash, rol, nombre, apellido, cedula, telefono, cargo)
+      VALUES ($1, crypt($2, gen_salt('bf', $3)), 'OPERARIO', $4, $5, $6, $7, $8)
+    `, [email, initialPassword, BCRYPT_ROUNDS, nombre, apellido, cedula, telefono, cargo])
 
     await client.query("COMMIT")
 
@@ -101,6 +88,9 @@ export const createOperario = async (req, res) => {
   } catch (error) {
     await client.query("ROLLBACK")
     console.error(error)
+    if (error.code === "23505") {
+      return res.status(400).json({ message: "Email o cédula ya registrados" })
+    }
     res.status(500).json({ message: "Error creando operario" })
   } finally {
     client.release()
@@ -114,45 +104,22 @@ export const updateOperario = async (req, res) => {
   const { id } = req.params
   const { nombre, apellido, telefono, cargo, estado } = req.body
 
-  const client = await pool.connect()
-
   try {
-    await client.query("BEGIN")
+    const { rowCount } = await pool.query(`
+      UPDATE app_auth.users
+      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4, estado=$5, updated_at=NOW()
+      WHERE id=$6 AND rol = 'OPERARIO'
+    `, [nombre, apellido, telefono, cargo, estado, id])
 
-    const op = await client.query(
-      `SELECT user_id FROM operations.operarios WHERE id = $1`,
-      [id]
-    )
-
-    if (op.rows.length === 0) {
-      await client.query("ROLLBACK")
+    if (rowCount === 0) {
       return res.status(404).json({ message: "No encontrado" })
     }
-
-    const userId = op.rows[0].user_id
-
-    await client.query(`
-      UPDATE operations.operarios
-      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4
-      WHERE id=$5
-    `, [nombre, apellido, telefono, cargo, id])
-
-    await client.query(`
-      UPDATE app_auth.users
-      SET estado=$1
-      WHERE id=$2
-    `, [estado, userId])
-
-    await client.query("COMMIT")
 
     res.json({ message: "Actualizado" })
 
   } catch (error) {
     console.error(error)
-    await client.query("ROLLBACK")
     res.status(500).json({ message: "Error actualizando" })
-  } finally {
-    client.release()
   }
 }
 
@@ -160,33 +127,23 @@ export const updateOperario = async (req, res) => {
 // DELETE /api/users/operarios/:id
 // ===============================
 export const deleteOperario = async (req, res) => {
-  const { id } = req.params
-  const client = await pool.connect()
-
   try {
-    await client.query("BEGIN")
-
-    const { rowCount } = await client.query(
+    const { rowCount } = await pool.query(
       `UPDATE app_auth.users
        SET estado = 'INACTIVO', updated_at = NOW()
-       WHERE id = (SELECT user_id FROM operations.operarios WHERE id = $1)
+       WHERE id = $1 AND rol = 'OPERARIO'
        RETURNING id`,
-      [id]
+      [req.params.id]
     )
 
     if (rowCount === 0) {
-      await client.query("ROLLBACK")
       return res.status(404).json({ message: "No encontrado" })
     }
 
-    await client.query("COMMIT")
     res.json({ message: "Operario desactivado" })
 
   } catch (error) {
-    await client.query("ROLLBACK")
     console.error(error)
     res.status(500).json({ message: "Error eliminando operario" })
-  } finally {
-    client.release()
   }
 }

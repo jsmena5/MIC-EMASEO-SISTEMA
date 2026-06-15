@@ -122,11 +122,10 @@ export const registerUser = async (req, res) => {
     const nombre   = primer_nombre.trim()
     const apellido = primer_apellido.trim()
 
-    // Verificar que el email y la cédula no estén ya registrados en app_auth.users
+    // Verificar que el email y la cédula no estén ya registrados
     const existe = await client.query(
       `SELECT 1 FROM app_auth.users u
-       JOIN public.ciudadanos c ON c.user_id = u.id
-       WHERE u.email = $1 OR c.cedula = $2
+       WHERE u.email = $1 OR u.cedula = $2
        LIMIT 1`,
       [email, cedula]
     )
@@ -303,44 +302,28 @@ export const setPassword = async (req, res) => {
       cedula, telefono, fecha_nacimiento, sexo,
     } = result.rows[0]
 
-    const username = `usr_${crypto.randomBytes(8).toString("hex")}`
-
     await client.query("BEGIN")
 
-    // 1. Crear cuenta en app_auth.users
+    // 1. Crear cuenta con perfil completo en app_auth.users
     const userResult = await client.query(
       `INSERT INTO app_auth.users
-         (username, email, password_hash, estado, is_verified)
+         (email, password_hash, estado, is_verified,
+          nombre, apellido, segundo_nombre, segundo_apellido,
+          cedula, telefono, fecha_nacimiento, sexo)
        VALUES
-         ($1, $2, crypt($3, gen_salt('bf', $4)), 'ACTIVO', TRUE)
-       RETURNING id, username, email, rol`,
-      [username, email, password, BCRYPT_ROUNDS]
+         ($1, crypt($2, gen_salt('bf', $3)), 'ACTIVO', TRUE,
+          $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, email, rol`,
+      [
+        email, password, BCRYPT_ROUNDS,
+        nombre, apellido,
+        segundo_nombre ?? null, segundo_apellido ?? null,
+        cedula, telefono ?? null, fecha_nacimiento ?? null, sexo ?? null,
+      ]
     )
     const user = userResult.rows[0]
 
-    // 2. Crear perfil en public.ciudadanos (incluye datos demográficos del registro)
-    await client.query(
-      `INSERT INTO public.ciudadanos
-         (user_id, nombre, apellido, segundo_nombre, segundo_apellido, cedula, telefono, fecha_nacimiento, sexo)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        user.id, nombre, apellido,
-        segundo_nombre ?? null, segundo_apellido ?? null, cedula,
-        telefono ?? null, fecha_nacimiento ?? null, sexo ?? null,
-      ]
-    )
-
-    await client.query(
-      `UPDATE public.ciudadanos
-       SET telefono = $2,
-           fecha_nacimiento = $3::date,
-           sexo = $4,
-           updated_at = NOW()
-       WHERE user_id = $1`,
-      [user.id, telefono ?? null, fecha_nacimiento ?? null, sexo ?? null]
-    )
-
-    // 3. Registrar consentimiento LOPDP (art. 8 — consentimiento libre, específico e informado)
+    // 2. Registrar consentimiento LOPDP (art. 8 — consentimiento libre, específico e informado)
     const ipOrigen   = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null
     const userAgent  = req.headers['user-agent'] || null
     await client.query(
@@ -349,13 +332,13 @@ export const setPassword = async (req, res) => {
       [user.id, '1.0', ipOrigen, userAgent]
     )
 
-    // 4. Eliminar el registro temporal
+    // 3. Eliminar el registro temporal
     await client.query(
       `DELETE FROM app_auth.pending_registrations WHERE email = $1`,
       [email]
     )
 
-    // 5. Crear refresh token para sesión persistente tras el registro
+    // 4. Crear refresh token para sesión persistente tras el registro
     const rawRefreshToken = generateOpaqueToken()
     const refreshHash = hashToken(rawRefreshToken)
     const refreshExpires = new Date(Date.now() + 7 * 86_400_000)
@@ -367,11 +350,10 @@ export const setPassword = async (req, res) => {
 
     await client.query("COMMIT")
 
-    // 4. Emitir JWT (mismo payload que auth-service/login)
+    // 3b. Emitir JWT (mismo payload que auth-service/login)
     const token = jwt.sign(
       {
         id:          user.id,
-        username:    user.username,
         rol:         user.rol,
         nombre,
         tipo_perfil: "ciudadano"
@@ -402,24 +384,22 @@ export const setPassword = async (req, res) => {
 // ============================================================================
 const PROFILE_QUERY = `
   SELECT
-    c.nombre            AS primer_nombre,
-    c.segundo_nombre,
-    c.apellido          AS primer_apellido,
-    c.segundo_apellido,
-    c.telefono,
-    c.fecha_nacimiento,
-    c.sexo,
+    u.nombre            AS primer_nombre,
+    u.segundo_nombre,
+    u.apellido          AS primer_apellido,
+    u.segundo_apellido,
+    u.telefono,
+    u.fecha_nacimiento,
+    u.sexo,
     u.email,
-    u.username,
     u.created_at,
     CASE
-      WHEN length(c.cedula) = 10
-      THEN substring(c.cedula, 1, 3) || '****' || substring(c.cedula, 8)
+      WHEN length(u.cedula) = 10
+      THEN substring(u.cedula, 1, 3) || '****' || substring(u.cedula, 8)
       ELSE '**********'
     END AS cedula_masked
-  FROM public.ciudadanos c
-  JOIN app_auth.users u ON u.id = c.user_id
-  WHERE c.user_id = $1
+  FROM app_auth.users u
+  WHERE u.id = $1
 `
 
 export const getProfile = async (req, res) => {
@@ -473,12 +453,12 @@ export const updateProfile = async (req, res) => {
 
   try {
     await pool.query(
-      `UPDATE public.ciudadanos SET
+      `UPDATE app_auth.users SET
          telefono         = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE telefono END,
          fecha_nacimiento = CASE WHEN $3::date IS NOT NULL THEN $3::date ELSE fecha_nacimiento END,
          sexo             = CASE WHEN $4::text IS NOT NULL THEN $4 ELSE sexo END,
          updated_at       = NOW()
-       WHERE user_id = $1`,
+       WHERE id = $1`,
       [
         userId,
         telefono?.trim() ?? null,
@@ -513,13 +493,13 @@ export const listCiudadanos = async (req, res) => {
     params.push(`%${search.trim().toLowerCase()}%`)
     const p = params.length
     conditions.push(
-      `(LOWER(c.nombre) LIKE $${p}
-       OR LOWER(c.segundo_nombre) LIKE $${p}
-       OR LOWER(c.apellido) LIKE $${p}
-       OR LOWER(c.segundo_apellido) LIKE $${p}
+      `(LOWER(u.nombre) LIKE $${p}
+       OR LOWER(u.segundo_nombre) LIKE $${p}
+       OR LOWER(u.apellido) LIKE $${p}
+       OR LOWER(u.segundo_apellido) LIKE $${p}
        OR LOWER(u.email) LIKE $${p}
-       OR c.cedula LIKE $${p}
-       OR LOWER(c.nombre || ' ' || c.apellido) LIKE $${p})`
+       OR u.cedula LIKE $${p}
+       OR LOWER(u.nombre || ' ' || u.apellido) LIKE $${p})`
     )
   }
   if (estado) {
@@ -533,16 +513,16 @@ export const listCiudadanos = async (req, res) => {
     const baseSelect = `
       SELECT
         u.id,
-        c.nombre          AS primer_nombre,
-        c.segundo_nombre,
-        c.apellido        AS primer_apellido,
-        c.segundo_apellido,
+        u.nombre          AS primer_nombre,
+        u.segundo_nombre,
+        u.apellido        AS primer_apellido,
+        u.segundo_apellido,
         u.email,
         u.estado,
         u.ultimo_login,
         u.created_at,
-        CASE WHEN length(c.cedula) = 10
-          THEN substring(c.cedula,1,3)||'****'||substring(c.cedula,8)
+        CASE WHEN length(u.cedula) = 10
+          THEN substring(u.cedula,1,3)||'****'||substring(u.cedula,8)
           ELSE '**********' END AS cedula_masked
     `
 
@@ -550,7 +530,6 @@ export const listCiudadanos = async (req, res) => {
       ${baseSelect},
       (SELECT COUNT(*) FROM incidents.incidents i WHERE i.reportado_por = u.id) AS total_reportes
       FROM app_auth.users u
-      JOIN public.ciudadanos c ON c.user_id = u.id
       ${where}
       ORDER BY u.created_at DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -560,7 +539,6 @@ export const listCiudadanos = async (req, res) => {
       ${baseSelect},
       0 AS total_reportes
       FROM app_auth.users u
-      JOIN public.ciudadanos c ON c.user_id = u.id
       ${where}
       ORDER BY u.created_at DESC
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
@@ -569,7 +547,6 @@ export const listCiudadanos = async (req, res) => {
     const countQuery = `
       SELECT COUNT(*) AS total
       FROM app_auth.users u
-      JOIN public.ciudadanos c ON c.user_id = u.id
       ${where}
     `
 

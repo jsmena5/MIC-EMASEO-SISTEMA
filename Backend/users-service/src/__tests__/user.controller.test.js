@@ -142,24 +142,19 @@ describe('setPassword — username generation', () => {
     expect(res.status).toHaveBeenCalledWith(400);
   });
 
-  it('el username generado sigue el patrón usr_<16hex> y no contiene la cédula', async () => {
+  it('crea la cuenta con perfil completo en app_auth.users (sin tabla ciudadanos)', async () => {
     const client = makeClient();
     pool.connect.mockResolvedValue(client);
 
-    const newUser = { id: 'new-uid', username: undefined, email: 'ana@test.com', rol: 'CIUDADANO' };
+    const newUser = { id: 'new-uid', email: 'ana@test.com', rol: 'CIUDADANO' };
 
     client.query
       // SELECT pending_registrations (verified)
-      .mockResolvedValueOnce({ rows: [{ nombre: 'Ana', apellido: 'G', cedula: CEDULA }] })
+      .mockResolvedValueOnce({ rows: [{ nombre: 'Ana', apellido: 'G', cedula: CEDULA, segundo_nombre: null, segundo_apellido: null, telefono: null, fecha_nacimiento: null, sexo: null }] })
       // BEGIN
       .mockResolvedValueOnce(undefined)
-      // INSERT app_auth.users RETURNING id, username, email, rol
-      .mockImplementationOnce((_sql, params) => {
-        newUser.username = params[0]; // capturar el username generado
-        return Promise.resolve({ rows: [{ ...newUser, username: params[0] }] });
-      })
-      // INSERT ciudadanos
-      .mockResolvedValueOnce(undefined)
+      // INSERT app_auth.users RETURNING id, email, rol
+      .mockResolvedValueOnce({ rows: [newUser] })
       // INSERT user_consents
       .mockResolvedValueOnce(undefined)
       // DELETE pending_registrations
@@ -169,15 +164,17 @@ describe('setPassword — username generation', () => {
       // COMMIT
       .mockResolvedValueOnce(undefined);
 
+    const res = mockRes();
     const req = {
       body: { email: 'ana@test.com', password: 'ValidPass1!' },
       headers: { 'x-forwarded-for': '127.0.0.1', 'user-agent': 'vitest' },
       ip: '127.0.0.1',
     };
-    await setPassword(req, mockRes());
+    await setPassword(req, res);
 
-    expect(newUser.username).toMatch(/^usr_[0-9a-f]{16}$/);
-    expect(newUser.username).not.toContain(CEDULA);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ token: expect.any(String), refreshToken: expect.any(String) })
+    );
   });
 });
 

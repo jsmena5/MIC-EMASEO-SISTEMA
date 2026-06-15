@@ -106,7 +106,7 @@ export const listIncidents = async (req, res) => {
          COUNT(*) OVER() AS total_count
        FROM incidents.incidents i
        LEFT JOIN operations.zones z      ON z.id = i.zona_id
-       LEFT JOIN public.ciudadanos c     ON c.user_id = i.reportado_por
+       LEFT JOIN app_auth.users c        ON c.id = i.reportado_por
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar  ON ar.incident_id = i.id
        ${where}
@@ -158,7 +158,7 @@ export const getIncidentDetail = async (req, res) => {
          z.id AS zona_id, z.nombre AS zona_nombre, z.codigo AS zona_codigo,
          c.nombre || ' ' || c.apellido AS ciudadano_nombre,
          c.cedula AS ciudadano_cedula,
-         u.email AS ciudadano_email,
+         c.email AS ciudadano_email,
          ii.image_url,
          ar.modelo_nombre, ar.tipo_residuo, ar.nivel_acumulacion,
          ar.volumen_estimado_m3, ar.confianza, ar.detecciones,
@@ -166,12 +166,10 @@ export const getIncidentDetail = async (req, res) => {
          ar.nivel_acumulacion_supervisor, ar.tipo_residuo_supervisor,
          ar.ia_fue_correcta, ar.nota_supervision,
          ar.supervisado_por, ar.supervisado_at,
-         NULL::TEXT AS supervisado_por_username,
          jsonb_array_length(ar.detecciones) AS num_detecciones
        FROM incidents.incidents i
        LEFT JOIN operations.zones z       ON z.id = i.zona_id
-       LEFT JOIN public.ciudadanos c      ON c.user_id = i.reportado_por
-       LEFT JOIN app_auth.users u         ON u.id = i.reportado_por
+       LEFT JOIN app_auth.users c         ON c.id = i.reportado_por
        LEFT JOIN incidents.incident_images ii ON ii.incident_id = i.id AND ii.es_principal = TRUE
        LEFT JOIN ai.analysis_results ar   ON ar.incident_id = i.id
        WHERE i.id = $1`,
@@ -187,7 +185,7 @@ export const getIncidentDetail = async (req, res) => {
          COALESCE(op.nombre || ' ' || op.apellido, sh.cambiado_por::TEXT) AS actor,
          NULL::TEXT AS actor_rol
        FROM incidents.status_history sh
-       LEFT JOIN operations.operarios op ON op.user_id = sh.cambiado_por
+       LEFT JOIN app_auth.users op ON op.id = sh.cambiado_por
        WHERE sh.incident_id = $1
        ORDER BY sh.created_at ASC`,
       [id],
@@ -200,7 +198,7 @@ export const getIncidentDetail = async (req, res) => {
          op.nombre || ' ' || op.apellido AS operario_nombre,
          op.cedula AS operario_cedula
        FROM incidents.assignments a
-       JOIN operations.operarios op ON op.user_id = a.operario_id
+       JOIN app_auth.users op ON op.id = a.operario_id
        WHERE a.incident_id = $1
        ORDER BY a.created_at DESC`,
       [id],
@@ -409,9 +407,10 @@ export const asignarIncidente = async (req, res) => {
       })
     }
 
-    // Verificar que el operario exista
+    // Verificar que el operario exista y esté activo
     const { rows: op } = await pool.query(
-      `SELECT o.user_id FROM operations.operarios o WHERE o.user_id = $1`,
+      `SELECT u.id FROM app_auth.users u
+       WHERE u.id = $1 AND u.rol IN ('OPERARIO', 'SUPERVISOR', 'ADMIN') AND u.estado = 'ACTIVO'`,
       [operario_id],
     )
     if (!op.length) return res.status(404).json({ error: "Operario no encontrado." })
@@ -581,30 +580,49 @@ export const revisionIA = async (req, res) => {
 
 export const estadisticasZonas = async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT
-         z.id, z.codigo, z.nombre,
-         COUNT(i.id)                                              AS total,
-         COUNT(*) FILTER (WHERE i.estado = 'PENDIENTE')          AS pendientes,
-         COUNT(*) FILTER (WHERE i.estado = 'EN_ATENCION')        AS en_atencion,
-         COUNT(*) FILTER (WHERE i.estado = 'RESUELTA')           AS resueltas,
-         COUNT(*) FILTER (WHERE i.estado = 'RECHAZADO')          AS rechazadas,
-         COUNT(*) FILTER (WHERE i.estado = 'FALLIDO')            AS fallidas,
-         COUNT(*) FILTER (WHERE i.estado = 'VALIDO')             AS validos,
-         COUNT(*) FILTER (WHERE i.estado = 'DESCARTADO')         AS descartadas,
-         COUNT(*) FILTER (WHERE i.prioridad = 'CRITICA')         AS criticas,
-         ROUND(AVG(ar.volumen_estimado_m3)::numeric, 2)          AS volumen_promedio_m3,
-         ROUND(AVG(ar.confianza)::numeric, 3)                    AS confianza_promedio,
-         op.nombre || ' ' || op.apellido                         AS supervisor_nombre
-       FROM operations.zones z
-       LEFT JOIN incidents.incidents i
-         ON i.zona_id = z.id AND i.created_at >= NOW() - INTERVAL '30 days'
-       LEFT JOIN ai.analysis_results ar ON ar.incident_id = i.id
-       LEFT JOIN operations.operarios op ON op.user_id = z.supervisor_id
-       WHERE z.activa = TRUE
-       GROUP BY z.id, z.codigo, z.nombre, op.nombre, op.apellido
-       ORDER BY total DESC`,
-    )
+    // Vista materializada (migración 057) — refresco automático cada 5 min via pg_cron.
+    // Fallback a query en vivo si la vista aún no existe (entorno dev sin migración 057).
+    let rows
+    try {
+      ;({ rows } = await pool.query(`
+        SELECT zona_id AS id, codigo, zona_nombre AS nombre,
+               total, pendientes, en_atencion, resueltas, rechazadas,
+               fallidas, validos, descartadas, criticas,
+               volumen_promedio_m3, confianza_promedio, supervisor_nombre,
+               calculado_en
+        FROM stats.zona_resumen
+        ORDER BY total DESC
+      `))
+    } catch {
+      // Fallback: query en vivo (más lento pero siempre funciona)
+      ;({ rows } = await pool.query(`
+        SELECT
+          z.id, z.codigo, z.nombre,
+          COUNT(i.id)                                              AS total,
+          COUNT(*) FILTER (WHERE i.estado = 'PENDIENTE')          AS pendientes,
+          COUNT(*) FILTER (WHERE i.estado = 'EN_ATENCION')        AS en_atencion,
+          COUNT(*) FILTER (WHERE i.estado = 'RESUELTA')           AS resueltas,
+          COUNT(*) FILTER (WHERE i.estado = 'RECHAZADO')          AS rechazadas,
+          COUNT(*) FILTER (WHERE i.estado = 'FALLIDO')            AS fallidas,
+          COUNT(*) FILTER (WHERE i.estado = 'VALIDO')             AS validos,
+          COUNT(*) FILTER (WHERE i.estado = 'DESCARTADO')         AS descartadas,
+          COUNT(*) FILTER (WHERE i.prioridad = 'CRITICA')         AS criticas,
+          ROUND(AVG(ar.volumen_estimado_m3)::numeric, 2)          AS volumen_promedio_m3,
+          ROUND(AVG(ar.confianza)::numeric, 3)                    AS confianza_promedio,
+          op.nombre || ' ' || op.apellido                         AS supervisor_nombre
+        FROM operations.zones z
+        LEFT JOIN incidents.incidents i
+          ON i.zona_id = z.id AND i.created_at >= NOW() - INTERVAL '30 days'
+        LEFT JOIN ai.analysis_results ar ON ar.incident_id = i.id
+        LEFT JOIN app_auth.users op ON op.id = z.supervisor_id
+        WHERE z.activa = TRUE
+        GROUP BY z.id, z.codigo, z.nombre, op.nombre, op.apellido
+        ORDER BY total DESC
+      `))
+    }
+
+    // Estadísticas de zona cambian cada pocos minutos — cache público 5 min
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60')
     return res.json({ zonas: rows })
   } catch (err) {
     console.error("[supervisor] estadisticasZonas:", err.message)
@@ -619,17 +637,20 @@ export const listOperarios = async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         o.user_id AS id,
-         o.nombre || ' ' || o.apellido AS nombre_completo,
-         o.cedula, o.cargo, o.telefono,
+         u.id,
+         u.nombre || ' ' || u.apellido AS nombre_completo,
+         u.cedula, u.cargo, u.telefono,
          z.nombre AS zona_nombre,
          COUNT(a.id) FILTER (WHERE a.completada = FALSE) AS asignaciones_activas
-       FROM operations.operarios o
-       LEFT JOIN operations.zones z ON z.id = o.zona_id
-       LEFT JOIN incidents.assignments a ON a.operario_id = o.user_id
-       GROUP BY o.user_id, o.nombre, o.apellido, o.cedula, o.cargo, o.telefono, z.nombre
-       ORDER BY o.nombre`,
+       FROM app_auth.users u
+       LEFT JOIN operations.zones z ON z.id = u.zona_id
+       LEFT JOIN incidents.assignments a ON a.operario_id = u.id
+       WHERE u.rol = 'OPERARIO' AND u.estado = 'ACTIVO'
+       GROUP BY u.id, u.nombre, u.apellido, u.cedula, u.cargo, u.telefono, z.nombre
+       ORDER BY u.nombre`,
     )
+    // Lista de operarios cambia poco — cache 2 minutos
+    res.set('Cache-Control', 'public, max-age=120, stale-while-revalidate=30')
     return res.json({ operarios: rows })
   } catch (err) {
     console.error("[supervisor] listOperarios:", err.message)

@@ -87,8 +87,8 @@ export const getFeedback = async (req, res) => {
          af.comentario,
          af.created_at,
          af.updated_at,
-         u.username      AS reportado_por_username,
-         u.rol           AS reportado_por_rol
+         u.nombre || ' ' || u.apellido AS reportado_por_nombre,
+         u.rol                         AS reportado_por_rol
        FROM ai.analysis_feedback af
        JOIN ai.analysis_results ar ON ar.id = af.analysis_result_id
        JOIN app_auth.users u           ON u.id  = af.reportado_por
