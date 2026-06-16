@@ -74,8 +74,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
  */
 async function registerFcmToken(): Promise<void> {
   try {
-    // Importación dinámica para que el build no falle si expo-notifications
-    // aún no está instalado en el entorno actual.
     const Notifications = await import("expo-notifications").catch(() => null)
     if (!Notifications) return
 
@@ -89,8 +87,12 @@ async function registerFcmToken(): Promise<void> {
 
     if (finalStatus !== "granted") return
 
-    const tokenData = await Notifications.getDevicePushTokenAsync()
-    const platform  = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web"
+    // getExpoPushTokenAsync devuelve un ExponentPushToken[...] que el backend
+    // envía directamente a la Expo Push API (sin credenciales Firebase propias).
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: "c259a64b-d63f-4a3d-bc7f-a9afcded7a48",
+    })
+    const platform = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web"
 
     await registerDeviceToken(tokenData.data, platform)
   } catch {
