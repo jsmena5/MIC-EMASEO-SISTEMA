@@ -40,8 +40,9 @@ export default function Step3Assign({
   operarios: OperarioItem[]
   onRefresh: () => void
 }>) {
-  const [selected,     setSelected]     = useState("")
-  const [notas,        setNotas]        = useState("")
+  const [selected,      setSelected]      = useState("")
+  const [notas,         setNotas]         = useState("")
+  const [fechaEsperada, setFechaEsperada] = useState("")
   const [observaciones, setObservaciones] = useState("")
   const [saving,       setSaving]       = useState(false)
   const [capturandoGps, setCapturandoGps] = useState(false)
@@ -52,7 +53,7 @@ export default function Step3Assign({
     if (!selected) { setError("Selecciona un operario."); return }
     setSaving(true); setError(null); setFeedback(null)
     try {
-      await asignarIncidente(detail.id, selected, null, notas)
+      await asignarIncidente(detail.id, selected, fechaEsperada || null, notas)
       setFeedback("Incidente asignado correctamente.")
       onRefresh()
     } catch (err) {
@@ -171,6 +172,18 @@ export default function Step3Assign({
                 onChange={(e) => setNotas(e.target.value)}
                 placeholder="Indicaciones específicas para el operario."
                 style={{ ...fieldStyle, resize: "vertical", minHeight: 70, fontFamily: "inherit" }}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label htmlFor="s3-deadline" style={labelStyle}>Fecha límite (opcional)</label>
+              <input
+                type="datetime-local"
+                id="s3-deadline"
+                value={fechaEsperada}
+                onChange={(e) => setFechaEsperada(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+                style={fieldStyle}
               />
             </div>
 

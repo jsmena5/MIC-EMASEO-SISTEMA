@@ -62,8 +62,8 @@ export default function ResolverScreen({ route, navigation }: Props) {
   }
 
   const distColor = gps
-    ? gps.dist <= 50  ? "#166534"
-    : gps.dist <= 150 ? "#92400E"
+    ? gps.dist <= 15  ? "#166534"
+    : gps.dist <= 100 ? "#92400E"
     : "#991B1B"
     : "#94A3B8"
 
@@ -112,19 +112,19 @@ export default function ResolverScreen({ route, navigation }: Props) {
                 {gps.lat.toFixed(6)}, {gps.lon.toFixed(6)}
               </Text>
 
-              {gps.dist > 150 && (
+              {gps.dist > 100 && (
                 <View style={styles.warnBox}>
                   <AlertTriangle size={14} color="#92400E" strokeWidth={2} />
                   <Text style={styles.warnText}>
-                    Estás lejos del punto. El servidor puede rechazar el cierre si superas el límite configurado. Acércate más.
+                    Estás a más de 100 m del punto. Acércate al sitio antes de registrar la resolución.
                   </Text>
                 </View>
               )}
 
-              {gps.dist <= 50 && (
+              {gps.dist <= 15 && (
                 <View style={styles.okBox}>
                   <CheckCircle size={14} color="#166534" strokeWidth={2} />
-                  <Text style={styles.okText}>Estás dentro del rango — puedes resolver.</Text>
+                  <Text style={styles.okText}>Estás a menos de 15 m del punto — puedes resolver.</Text>
                 </View>
               )}
 

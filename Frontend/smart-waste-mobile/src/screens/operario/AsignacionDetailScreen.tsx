@@ -4,7 +4,7 @@ import {
   ActivityIndicator, Linking, Alert, TextInput, Image,
 } from "react-native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import { MapPin, Navigation, CheckCircle, XCircle, ArrowLeft } from "lucide-react-native"
+import { MapPin, Navigation, CheckCircle, XCircle, ArrowLeft, Clock, AlertCircle } from "lucide-react-native"
 import { getAsignacionDetalle, noAtendible, type Asignacion } from "../../services/operario.service"
 import { toPublicMediaUrl } from "../../utils/mediaUrl"
 import type { OperarioStackParamList } from "../../navigation/OperarioNavigator"
@@ -17,6 +17,14 @@ const NIVEL_COLOR: Record<string, string> = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleString("es-EC", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+}
+
+function deadlineStyle(fecha_esperada: string): { color: string; label: string; Icon: typeof Clock } {
+  const hrs = (new Date(fecha_esperada).getTime() - Date.now()) / 3_600_000
+  if (hrs < 0)    return { color: "#991B1B", label: `Vencido · ${fmtDate(fecha_esperada)}`, Icon: AlertCircle }
+  if (hrs <= 2)   return { color: "#C2410C", label: `Urgente · ${fmtDate(fecha_esperada)} (${Math.ceil(hrs * 60)} min)`, Icon: Clock }
+  if (hrs <= 8)   return { color: "#92400E", label: `Hoy · ${fmtDate(fecha_esperada)}`, Icon: Clock }
+  return           { color: "#166534", label: `Límite: ${fmtDate(fecha_esperada)}`, Icon: Clock }
 }
 
 export default function AsignacionDetailScreen({ route, navigation }: Props) {
@@ -139,6 +147,15 @@ export default function AsignacionDetailScreen({ route, navigation }: Props) {
           <Text style={styles.asigMeta}>
             Asignado por {asig.asignado_por_nombre ?? "supervisor"} · {fmtDate(asig.asignado_el)}
           </Text>
+          {asig.fecha_esperada ? (() => {
+            const { color, label, Icon } = deadlineStyle(asig.fecha_esperada)
+            return (
+              <View style={styles.deadlineRow}>
+                <Icon size={12} color={color} strokeWidth={2.2} />
+                <Text style={[styles.deadlineMeta, { color }]}>{label}</Text>
+              </View>
+            )
+          })() : null}
         </View>
 
         {/* Acciones */}
@@ -240,6 +257,8 @@ const styles = StyleSheet.create({
   notasLabel: { fontSize: 10, fontWeight: "700", color: "#92400E", textTransform: "uppercase", marginBottom: 3 },
   notasText:  { fontSize: 13, color: "#78350F", lineHeight: 18 },
   asigMeta:   { fontSize: 11, color: "#94A3B8" },
+  deadlineRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
+  deadlineMeta: { fontSize: 11, fontWeight: "700" },
   actions:    { gap: 10, marginTop: 4 },
   btnNavegar: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#1D4ED8", borderRadius: 14, paddingVertical: 14 },
   btnResolver: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#166534", borderRadius: 14, paddingVertical: 14 },

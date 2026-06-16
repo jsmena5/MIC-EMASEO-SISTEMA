@@ -5,7 +5,7 @@ import {
 } from "react-native"
 import { useFocusEffect } from "@react-navigation/native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
-import { ClipboardList, MapPin, Calendar, AlertCircle } from "lucide-react-native"
+import { ClipboardList, MapPin, Calendar, AlertCircle, Clock } from "lucide-react-native"
 import { getAsignaciones, type Asignacion } from "../../services/operario.service"
 import { useAuth } from "../../contexts/AuthContext"
 import type { OperarioStackParamList } from "../../navigation/OperarioNavigator"
@@ -23,16 +23,36 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
+function DeadlineBadge({ fecha_esperada }: Readonly<{ fecha_esperada: string | null }>) {
+  if (!fecha_esperada) return null
+  const hrs = (new Date(fecha_esperada).getTime() - Date.now()) / 3_600_000
+  let bg: string, fg: string, label: string
+  if (hrs < 0)   { bg = "#FFF1F2"; fg = "#991B1B"; label = "Vencido" }
+  else if (hrs <= 2)  { bg = "#FFF7ED"; fg = "#C2410C"; label = `${Math.ceil(hrs * 60)} min restantes` }
+  else if (hrs <= 8)  { bg = "#FEFCE8"; fg = "#92400E"; label = `${Math.round(hrs)} h restantes` }
+  else                { bg = "#F0FDF4"; fg = "#166534"; label = fmtDate(fecha_esperada) }
+  const Icon = hrs < 0 ? AlertCircle : Clock
+  return (
+    <View style={[styles.deadlineBadge, { backgroundColor: bg }]}>
+      <Icon size={11} color={fg} strokeWidth={2.2} />
+      <Text style={[styles.deadlineText, { color: fg }]}>{label}</Text>
+    </View>
+  )
+}
+
 function AsignacionCard({ item, onPress }: Readonly<{ item: Asignacion; onPress: () => void }>) {
   const prioColor = PRIORIDAD_COLOR[item.prioridad ?? ""] ?? "#475569"
   const prioBg    = PRIORIDAD_BG[item.prioridad ?? ""]   ?? "#F8FAFC"
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.82} style={styles.card}>
-      {/* Prioridad badge */}
-      <View style={[styles.prioBadge, { backgroundColor: prioBg }]}>
-        <Text style={[styles.prioText, { color: prioColor }]}>
-          {item.prioridad ?? "Sin prioridad"}
-        </Text>
+      {/* Prioridad badge + deadline */}
+      <View style={styles.badgeRow}>
+        <View style={[styles.prioBadge, { backgroundColor: prioBg }]}>
+          <Text style={[styles.prioText, { color: prioColor }]}>
+            {item.prioridad ?? "Sin prioridad"}
+          </Text>
+        </View>
+        <DeadlineBadge fecha_esperada={item.fecha_esperada} />
       </View>
 
       {/* Zona */}
@@ -142,7 +162,7 @@ const styles = StyleSheet.create({
   subtitle:   { fontSize: 13, color: "#64748B", marginTop: 2 },
   list:       { padding: 16, gap: 12 },
   card:       { backgroundColor: "#fff", borderRadius: 16, padding: 16, borderWidth: 1, borderColor: "#E2E8F0", shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-  prioBadge:  { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
+  prioBadge:  { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
   prioText:   { fontSize: 11, fontWeight: "700" },
   zona:       { fontSize: 16, fontWeight: "700", color: "#0F172A", marginBottom: 4 },
   desc:       { fontSize: 13, color: "#475569", marginBottom: 10, lineHeight: 19 },
@@ -150,6 +170,9 @@ const styles = StyleSheet.create({
   metaRow:    { flexDirection: "row", alignItems: "center", gap: 5 },
   metaText:   { fontSize: 11, color: "#64748B" },
   cta:        { fontSize: 12, fontWeight: "700", color: "#1D4ED8", textAlign: "right" },
+  badgeRow:   { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 },
+  deadlineBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  deadlineText:  { fontSize: 11, fontWeight: "700" },
   errorBox:   { flexDirection: "row", alignItems: "center", gap: 8, margin: 16, padding: 12, backgroundColor: "#FFF1F2", borderRadius: 12, borderWidth: 1, borderColor: "#FECACA" },
   errorText:  { fontSize: 13, color: "#991B1B", flex: 1 },
   empty:      { flex: 1, justifyContent: "center", alignItems: "center", padding: 40, gap: 12 },
