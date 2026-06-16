@@ -21,7 +21,7 @@ export const getOperarios = async (req, res) => {
         u.rol,
         u.estado
       FROM app_auth.users u
-      WHERE u.rol = 'OPERARIO' AND u.estado = 'ACTIVO'
+      WHERE u.rol = 'OPERARIO'
       ORDER BY u.created_at DESC
     `)
 
@@ -102,14 +102,14 @@ export const createOperario = async (req, res) => {
 // ===============================
 export const updateOperario = async (req, res) => {
   const { id } = req.params
-  const { nombre, apellido, telefono, cargo, estado } = req.body
+  const { nombre, apellido, telefono, cargo, estado, zona_id } = req.body
 
   try {
     const { rowCount } = await pool.query(`
       UPDATE app_auth.users
-      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4, estado=$5, updated_at=NOW()
-      WHERE id=$6 AND rol = 'OPERARIO'
-    `, [nombre, apellido, telefono, cargo, estado, id])
+      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4, estado=$5, zona_id=$6, updated_at=NOW()
+      WHERE id=$7 AND rol = 'OPERARIO'
+    `, [nombre, apellido, telefono, cargo, estado, zona_id ?? null, id])
 
     if (rowCount === 0) {
       return res.status(404).json({ message: "No encontrado" })

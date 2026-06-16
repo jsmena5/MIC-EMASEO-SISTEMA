@@ -32,6 +32,7 @@ export interface UpdateOperarioPayload {
   telefono?: string
   cargo?: string
   estado?: "ACTIVO" | "INACTIVO" | "SUSPENDIDO"
+  zona_id?: string | null
 }
 
 export const getOperarios = async (): Promise<Operario[]> => {

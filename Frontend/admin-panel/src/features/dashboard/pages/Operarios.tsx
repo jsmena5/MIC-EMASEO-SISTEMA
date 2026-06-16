@@ -129,7 +129,7 @@ function EditModal({ op, zonas, onClose, onSaved }: Readonly<{
 }>) {
   const [form, setForm]     = useState<UpdateOperarioPayload>({
     nombre: op.nombre, apellido: op.apellido, telefono: op.telefono,
-    cargo: op.cargo ?? "", estado: op.estado,
+    cargo: op.cargo ?? "", estado: op.estado, zona_id: op.zona_id,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState("")
@@ -147,17 +147,10 @@ function EditModal({ op, zonas, onClose, onSaved }: Readonly<{
     } finally { setSaving(false) }
   }
 
-  const zonaAsignada = zonas.find(z => z.id === op.zona_id)
-
   return (
     <Modal title={`Editar — ${op.nombre} ${op.apellido}`} onClose={onClose}>
       <div className="space-y-3">
         {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
-        {zonaAsignada && (
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            Zona asignada: <strong>{zonaAsignada.nombre}</strong> — la asignación de zona se cambia desde la sección Zonas.
-          </div>
-        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Nombre"   name="nombre"   value={form.nombre ?? ""}   onChange={set("nombre")}   required />
           <Field label="Apellido" name="apellido" value={form.apellido ?? ""} onChange={set("apellido")} required />
@@ -171,6 +164,19 @@ function EditModal({ op, zonas, onClose, onSaved }: Readonly<{
             <option value="ACTIVO">ACTIVO</option>
             <option value="INACTIVO">INACTIVO</option>
             <option value="SUSPENDIDO">SUSPENDIDO</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-600">Zona asignada</label>
+          <select
+            value={form.zona_id ?? ""}
+            onChange={e => setForm(f => ({ ...f, zona_id: e.target.value || null }))}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none transition"
+          >
+            <option value="">Sin zona</option>
+            {zonas.map(z => (
+              <option key={z.id} value={z.id}>{z.nombre}</option>
+            ))}
           </select>
         </div>
         <div className="flex justify-end gap-3 pt-2">
