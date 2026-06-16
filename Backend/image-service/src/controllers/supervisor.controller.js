@@ -39,6 +39,12 @@ const TRANSICIONES_VALIDAS = {
 //   ia_incorrecta=true                     — solo incidentes donde supervisor marcó IA incorrecta
 //   sin_supervisar=true                    — solo incidentes con análisis ML no revisados aún
 //   page (default 1), limit (default 20)
+//
+// Restricción de zona por rol:
+//   SUPERVISOR — ve SOLO los incidentes de su zona (app_auth.users.zona_id). El parámetro
+//                ?zona_id= se ignora; la zona se fuerza desde la BD para evitar escalada de
+//                privilegios donde un supervisor consultaría incidentes de otra zona.
+//   ADMIN      — ve todos los incidentes; puede filtrar opcionalmente con ?zona_id=.
 
 export const listIncidents = async (req, res) => {
   const {
@@ -50,16 +56,50 @@ export const listIncidents = async (req, res) => {
     page = 1, limit = 20,
   } = req.query
 
+  const userRol = req.headers["x-user-rol"]
+  const userId  = req.headers["x-user-id"]
+
   const pageNum  = Math.max(1, Number(page))
   const pageSize = Math.min(50, Math.max(1, Number(limit)))
   const offset   = (pageNum - 1) * pageSize
+
+  // ── Resolución de zona efectiva ──────────────────────────────────────────────
+  // Para SUPERVISOR: se obtiene la zona asignada en BD y se impone como filtro.
+  // Para ADMIN:      se usa ?zona_id= si se proveyó, o sin filtro si no.
+  let zonaEfectiva = null  // null = sin restricción (ADMIN sin ?zona_id)
+
+  if (userRol === "SUPERVISOR") {
+    try {
+      const { rows: userRows } = await pool.query(
+        `SELECT zona_id FROM app_auth.users WHERE id = $1`,
+        [userId],
+      )
+      const zonaDelSupervisor = userRows[0]?.zona_id ?? null
+      if (!zonaDelSupervisor) {
+        // Supervisor sin zona asignada: devolver lista vacía en lugar de exponer
+        // todos los incidentes o fallar con un 500 confuso.
+        return res.json({
+          incidents: [],
+          pagination: { total: 0, page: pageNum, limit: pageSize, pages: 0 },
+          _aviso: "Este supervisor no tiene zona asignada. Contacte al administrador.",
+        })
+      }
+      zonaEfectiva = zonaDelSupervisor
+    } catch (err) {
+      console.error("[supervisor] listIncidents — resolución zona supervisor:", err.message)
+      return res.status(500).json({ error: "Error al determinar la zona del supervisor." })
+    }
+  } else {
+    // ADMIN: respetar ?zona_id= opcional
+    zonaEfectiva = zona_id ?? null
+  }
 
   const conditions = []
   const params     = []
 
   if (estado)              { params.push(estado);              conditions.push(`i.estado = $${params.length}`) }
   if (prioridad)           { params.push(prioridad);           conditions.push(`i.prioridad = $${params.length}`) }
-  if (zona_id)             { params.push(zona_id);             conditions.push(`i.zona_id = $${params.length}`) }
+  if (zonaEfectiva)        { params.push(zonaEfectiva);        conditions.push(`i.zona_id = $${params.length}`) }
   if (decision_automatica) { params.push(decision_automatica); conditions.push(`i.decision_automatica = $${params.length}`) }
 
   if (fecha_desde) {
