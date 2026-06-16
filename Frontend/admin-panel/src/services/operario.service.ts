@@ -24,6 +24,7 @@ export interface CreateOperarioPayload {
   email: string
   cargo?: string
   password?: string
+  zona_id?: string | null
 }
 
 export interface UpdateOperarioPayload {

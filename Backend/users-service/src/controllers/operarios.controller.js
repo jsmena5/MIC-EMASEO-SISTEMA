@@ -64,7 +64,7 @@ export const createOperario = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { nombre, apellido, cedula, telefono, email, cargo, password } = req.body
+    const { nombre, apellido, cedula, telefono, email, cargo, password, zona_id } = req.body
 
     await client.query("BEGIN")
     const isProvidedPassword = password && password.length >= 8
@@ -74,9 +74,9 @@ export const createOperario = async (req, res) => {
 
     await client.query(`
       INSERT INTO app_auth.users
-        (email, password_hash, rol, nombre, apellido, cedula, telefono, cargo)
-      VALUES ($1, crypt($2, gen_salt('bf', $3)), 'OPERARIO', $4, $5, $6, $7, $8)
-    `, [email, initialPassword, BCRYPT_ROUNDS, nombre, apellido, cedula, telefono, cargo])
+        (email, password_hash, rol, nombre, apellido, cedula, telefono, cargo, zona_id)
+      VALUES ($1, crypt($2, gen_salt('bf', $3)), 'OPERARIO', $4, $5, $6, $7, $8, $9)
+    `, [email, initialPassword, BCRYPT_ROUNDS, nombre, apellido, cedula, telefono, cargo, zona_id ?? null])
 
     await client.query("COMMIT")
 

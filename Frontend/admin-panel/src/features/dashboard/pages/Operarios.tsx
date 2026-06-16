@@ -50,9 +50,9 @@ function Field({ label, name, type = "text", value, onChange, required, placehol
 
 // ─── Crear operario ───────────────────────────────────────────────────────────
 
-const EMPTY: CreateOperarioPayload = { nombre: "", apellido: "", cedula: "", telefono: "", email: "", cargo: "", password: "" }
+const EMPTY: CreateOperarioPayload = { nombre: "", apellido: "", cedula: "", telefono: "", email: "", cargo: "", password: "", zona_id: null }
 
-function CreateModal({ onClose, onCreated }: Readonly<{ onClose: () => void; onCreated: () => void }>) {
+function CreateModal({ zonas, onClose, onCreated }: Readonly<{ zonas: Zona[]; onClose: () => void; onCreated: () => void }>) {
   const [form, setForm]     = useState<CreateOperarioPayload>(EMPTY)
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState("")
@@ -108,6 +108,19 @@ function CreateModal({ onClose, onCreated }: Readonly<{ onClose: () => void; onC
         <Field label="Teléfono"             name="telefono" value={form.telefono} onChange={set("telefono")} required placeholder="+593 99 000 0000" />
         <Field label="Correo electrónico"   name="email"    value={form.email}    onChange={set("email")}    required type="email" placeholder="operario@emaseo.gob.ec" />
         <Field label="Cargo (opcional)"     name="cargo"    value={form.cargo ?? ""} onChange={set("cargo")} placeholder="Operario de campo" />
+        <div>
+          <label className="mb-1 block text-xs font-semibold text-slate-600">Zona asignada (opcional)</label>
+          <select
+            value={form.zona_id ?? ""}
+            onChange={e => setForm(f => ({ ...f, zona_id: e.target.value || null }))}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 focus:border-slate-400 focus:outline-none transition"
+          >
+            <option value="">Sin zona</option>
+            {zonas.map(z => (
+              <option key={z.id} value={z.id}>{z.nombre}</option>
+            ))}
+          </select>
+        </div>
         <Field label="Contraseña (opcional — se genera si se omite)" name="password" type="password"
           value={form.password ?? ""} onChange={set("password")} placeholder="••••••••" />
         <div className="flex justify-end gap-3 pt-2">
@@ -342,7 +355,7 @@ export default function Operarios() {
       </div>
 
       {/* Modals */}
-      {showCreate    && <CreateModal onClose={() => setShowCreate(false)} onCreated={load} />}
+      {showCreate    && <CreateModal zonas={zonas} onClose={() => setShowCreate(false)} onCreated={load} />}
       {editTarget    && <EditModal op={editTarget} zonas={zonas} onClose={() => setEditTarget(null)} onSaved={load} />}
       {deleteTarget  && <DeleteConfirm op={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={load} />}
     </div>
