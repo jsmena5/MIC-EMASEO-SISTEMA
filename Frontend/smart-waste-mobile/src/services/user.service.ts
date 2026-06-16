@@ -32,3 +32,21 @@ export const updateProfile = async (data: UpdateProfileData): Promise<CitizenPro
   const res = await api.put<CitizenProfile>("/users/profile", data)
   return res.data
 }
+
+/**
+ * Registra o actualiza el token FCM del dispositivo actual.
+ *
+ * Llama a POST /api/users/push-token que ya existe en users-service.
+ * Falla silenciosamente para no interrumpir el flujo de autenticación.
+ */
+export const registerDeviceToken = async (
+  token: string,
+  platform: "ios" | "android" | "web",
+  appVersion?: string,
+): Promise<void> => {
+  try {
+    await api.post("/users/push-token", { token, platform, app_version: appVersion })
+  } catch {
+    // No propagamos — un fallo en el registro de push no debe bloquear la sesión
+  }
+}

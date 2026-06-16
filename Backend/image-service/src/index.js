@@ -5,6 +5,7 @@ import incidentRoutes from "./routes/incident.routes.js"
 import supervisorRoutes from "./routes/supervisor.routes.js"
 import operarioRoutes from "./routes/operario.routes.js"
 import { recoverStaleIncidents, recoverCeleryTasks } from "./services/image.service.js"
+import { startNotificationWorker } from "./workers/notificationWorker.js"
 import { internalAuth } from "./middleware/internalAuth.middleware.js"
 import { requestId } from "./middleware/requestId.middleware.js"
 import { logger } from "./utils/logger.js"
@@ -54,6 +55,11 @@ app.listen(5000, () => {
   // Ejecución inmediata al arrancar
   recoverStaleIncidents()
   recoverCeleryTasks()
+
+  // Worker de push notifications (polling con reintentos + backoff)
+  startNotificationWorker().catch((err) =>
+    logger.error({ err: err.message }, "[notifWorker] Error al iniciar el worker de notificaciones"),
+  )
 
   // Guarda de concurrencia: evita solapamiento si un ciclo tarda más que el intervalo
   let staleRecovering  = false

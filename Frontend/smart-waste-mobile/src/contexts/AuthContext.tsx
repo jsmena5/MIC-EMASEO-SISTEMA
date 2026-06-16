@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react"
 import AsyncStorage from "@react-native-async-storage/async-storage"
+import { Platform } from "react-native"
 import { jwtDecode } from "jwt-decode"
 import { logoutUser } from "../services/auth.service"
+import { registerDeviceToken } from "../services/user.service"
 import axios from "axios"
 import { API_URL } from "../config/env"
 import { subscribeAuthSession } from "../utils/authSessionEvents"
@@ -58,6 +60,44 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+/**
+ * Obtiene el FCM push token del dispositivo y lo registra en el backend.
+ *
+ * Requiere expo-notifications instalado y permiso de notificaciones.
+ * Si el permiso es denegado o la librería no está disponible, falla
+ * silenciosamente sin interrumpir la sesión.
+ *
+ * PREREQUISITO: añadir expo-notifications al proyecto antes de activar esto
+ * en producción:
+ *   npx expo install expo-notifications
+ *   (y configurar google-services.json / GoogleService-Info.plist)
+ */
+async function registerFcmToken(): Promise<void> {
+  try {
+    // Importación dinámica para que el build no falle si expo-notifications
+    // aún no está instalado en el entorno actual.
+    const Notifications = await import("expo-notifications").catch(() => null)
+    if (!Notifications) return
+
+    const { status: existing } = await Notifications.getPermissionsAsync()
+    let finalStatus = existing
+
+    if (existing !== "granted") {
+      const { status } = await Notifications.requestPermissionsAsync()
+      finalStatus = status
+    }
+
+    if (finalStatus !== "granted") return
+
+    const tokenData = await Notifications.getDevicePushTokenAsync()
+    const platform  = Platform.OS === "ios" ? "ios" : Platform.OS === "android" ? "android" : "web"
+
+    await registerDeviceToken(tokenData.data, platform)
+  } catch {
+    // Falla silenciosa — el push no es bloqueante
+  }
+}
+
 // One-time migration: move tokens from plain AsyncStorage to SecureStore.
 // Runs before any token read so no session is lost on first upgrade.
 async function migrateTokensToSecureStore(): Promise<void> {
@@ -96,6 +136,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
           } else if (decoded.exp * 1000 > Date.now()) {
             setToken(stored)
             setUser(decoded)
+            // Registrar FCM token tras restaurar sesión válida (fire-and-forget)
+            void registerFcmToken()
           } else {
             // Access token expirado — intentar refresh silencioso antes de pedir login
             const refreshToken = await getSecure("emaseo_refresh_token")
@@ -107,6 +149,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
                 const newDecoded = jwtDecode<DecodedToken>(data.token)
                 setToken(data.token)
                 setUser(newDecoded)
+                // Registrar FCM token tras refresh exitoso (fire-and-forget)
+                void registerFcmToken()
               } catch {
                 await deleteSecure("emaseo_access_token")
                 await deleteSecure("emaseo_refresh_token")
@@ -169,6 +213,8 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
     await saveSecure("emaseo_access_token", newToken)
     setToken(newToken)
     setUser(decoded)
+    // Registrar FCM token tras login exitoso (fire-and-forget)
+    void registerFcmToken()
   }
 
   const logout = async () => {
