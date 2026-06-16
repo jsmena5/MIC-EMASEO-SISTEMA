@@ -395,47 +395,73 @@ export const asignarIncidente = async (req, res) => {
 
   if (!operario_id) return res.status(400).json({ error: "El campo 'operario_id' es requerido." })
 
+  const client = await pool.connect()
   try {
+    await client.query("BEGIN")
+
     // Verificar que el incidente exista y esté en un estado asignable
-    const { rows: inc } = await pool.query(
-      `SELECT estado, created_at FROM incidents.incidents WHERE id = $1`, [id],
+    const { rows: inc } = await client.query(
+      `SELECT estado, created_at FROM incidents.incidents WHERE id = $1 FOR UPDATE`, [id],
     )
-    if (!inc.length) return res.status(404).json({ error: "Incidente no encontrado." })
-    if (!["PENDIENTE", "EN_ATENCION"].includes(inc[0].estado)) {
+    if (!inc.length) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Incidente no encontrado." })
+    }
+    const ASIGNABLES = ["PENDIENTE", "VALIDO", "EN_ATENCION"]
+    if (!ASIGNABLES.includes(inc[0].estado)) {
+      await client.query("ROLLBACK")
       return res.status(422).json({
-        error: `Solo se pueden asignar incidentes en estado PENDIENTE o EN_ATENCION. Estado actual: ${inc[0].estado}.`,
+        error: `Solo se pueden asignar incidentes en estado PENDIENTE, VALIDO o EN_ATENCION. Estado actual: ${inc[0].estado}.`,
       })
     }
 
     // Verificar que el operario exista y esté activo
-    const { rows: op } = await pool.query(
+    const { rows: op } = await client.query(
       `SELECT u.id FROM app_auth.users u
        WHERE u.id = $1 AND u.rol IN ('OPERARIO', 'SUPERVISOR', 'ADMIN') AND u.estado = 'ACTIVO'`,
       [operario_id],
     )
-    if (!op.length) return res.status(404).json({ error: "Operario no encontrado." })
+    if (!op.length) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Operario no encontrado." })
+    }
 
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `INSERT INTO incidents.assignments
          (incident_id, incident_created_at, operario_id, asignado_por, fecha_esperada, notas)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT ON CONSTRAINT uq_assignment_activa DO UPDATE
-         SET notas = EXCLUDED.notas, fecha_esperada = EXCLUDED.fecha_esperada,
+         SET operario_id = EXCLUDED.operario_id,
+             notas = EXCLUDED.notas, fecha_esperada = EXCLUDED.fecha_esperada,
              updated_at = NOW()
        RETURNING id, created_at`,
       [id, inc[0].created_at, operario_id, supervisorId, fecha_esperada || null, notas || null],
     )
 
+    // Si el incidente no está todavía EN_ATENCION, promoverlo automáticamente
+    if (inc[0].estado !== "EN_ATENCION") {
+      await client.query("SELECT set_config($1, $2, true)", ["app.current_user_id", supervisorId])
+      await client.query(
+        `UPDATE incidents.incidents SET estado = 'EN_ATENCION', updated_at = NOW() WHERE id = $1`,
+        [id],
+      )
+    }
+
+    await client.query("COMMIT")
+
     return res.status(201).json({
-      message:      "Incidente asignado correctamente.",
+      message:      "Incidente asignado y enviado a campo.",
       assignment_id: rows[0].id,
       incident_id:   id,
       operario_id,
       created_at:    rows[0].created_at,
     })
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
     console.error("[supervisor] asignarIncidente:", err.message)
     return res.status(500).json({ error: "Error al asignar el incidente." })
+  } finally {
+    client.release()
   }
 }
 

@@ -113,7 +113,7 @@ export default function Step3Assign({
   }
 
   const transiciones = TRANSICIONES[detail.estado] ?? []
-  const canAssign    = ["PENDIENTE", "EN_ATENCION"].includes(detail.estado)
+  const canAssign    = ["PENDIENTE", "VALIDO", "EN_ATENCION"].includes(detail.estado)
   const isBusy       = saving || capturandoGps
 
   return (
@@ -158,7 +158,7 @@ export default function Step3Assign({
               <button
                 disabled={isBusy || !selected}
                 onClick={() => void handleAssign()}
-                className="rounded-xl bg-[#005BAC] px-4 py-2 text-sm font-bold text-white hover:bg-[#004B8E] disabled:opacity-50"
+                className="rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-50"
               >
                 {saving ? "Asignando…" : "Asignar y enviar a campo"}
               </button>
