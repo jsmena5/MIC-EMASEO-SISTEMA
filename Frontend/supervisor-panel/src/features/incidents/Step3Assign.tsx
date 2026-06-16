@@ -112,18 +112,38 @@ export default function Step3Assign({
     }
   }
 
-  const transiciones = TRANSICIONES[detail.estado] ?? []
-  const canAssign    = ["PENDIENTE", "VALIDO", "EN_ATENCION"].includes(detail.estado)
-  const isBusy       = saving || capturandoGps
+  const transiciones     = TRANSICIONES[detail.estado] ?? []
+  const canAssign        = ["PENDIENTE", "VALIDO", "EN_ATENCION"].includes(detail.estado)
+  const isBusy           = saving || capturandoGps
+  const asignacionActiva = detail.asignaciones?.find(a => !a.completada) ?? null
 
   return (
     <div className="grid gap-5">
       <div>
         <h3 className="text-base font-extrabold text-slate-900">Asignar al equipo de campo</h3>
         <p className="mt-1 text-xs text-slate-500">
-          El caso ya fue validado y clasificado. Elige un operario para despacharlo.
+          {asignacionActiva
+            ? "El caso ya tiene un operario asignado. Puedes reasignarlo si es necesario."
+            : "El caso fue validado. Elige un operario para despacharlo a campo."}
         </p>
       </div>
+
+      {/* Asignación activa actual */}
+      {asignacionActiva && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 grid gap-1">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Operario asignado</div>
+          <div className="text-sm font-bold text-slate-900">{asignacionActiva.operario_nombre}</div>
+          {asignacionActiva.operario_cedula && (
+            <div className="text-xs text-slate-500 font-mono">{asignacionActiva.operario_cedula}</div>
+          )}
+          <div className="text-[11px] text-emerald-600">
+            Desde {new Date(asignacionActiva.created_at).toLocaleString("es-EC", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </div>
+          {asignacionActiva.notas && (
+            <div className="mt-1 text-xs text-slate-600 italic">"{asignacionActiva.notas}"</div>
+          )}
+        </div>
+      )}
 
       {canAssign && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
