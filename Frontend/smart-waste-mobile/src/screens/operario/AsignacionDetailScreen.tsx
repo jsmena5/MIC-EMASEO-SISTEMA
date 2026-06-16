@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react"
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Linking, Alert, TextInput,
+  ActivityIndicator, Linking, Alert, TextInput, Image,
 } from "react-native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { MapPin, Navigation, CheckCircle, XCircle, ArrowLeft } from "lucide-react-native"
@@ -29,6 +29,7 @@ export default function AsignacionDetailScreen({ route, navigation }: Props) {
   const [showNoAtenModal, setShowNoAtenModal] = useState(false)
   const [motivo, setMotivo]                   = useState("")
   const [sending, setSending]                 = useState(false)
+  const [photoError, setPhotoError]           = useState(false)
 
   useEffect(() => {
     getAsignacionDetalle(asignacion_id)
@@ -97,6 +98,19 @@ export default function AsignacionDetailScreen({ route, navigation }: Props) {
         {/* Zona */}
         <Text style={styles.zone}>{asig.zona_nombre ?? "Sin zona"}</Text>
         {asig.descripcion ? <Text style={styles.desc}>{asig.descripcion}</Text> : null}
+
+        {/* Foto del incidente */}
+        {toPublicMediaUrl(asig.image_url) && !photoError && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Foto del reporte</Text>
+            <Image
+              source={{ uri: toPublicMediaUrl(asig.image_url)! }}
+              style={styles.incidentPhoto}
+              resizeMode="cover"
+              onError={() => setPhotoError(true)}
+            />
+          </View>
+        )}
 
         {/* Datos IA */}
         <View style={styles.section}>
@@ -219,6 +233,7 @@ const styles = StyleSheet.create({
   infoCell:   { flex: 1, backgroundColor: "#F8FAFC", borderRadius: 10, padding: 10 },
   infoCellLabel: { fontSize: 10, fontWeight: "600", color: "#94A3B8", textTransform: "uppercase", marginBottom: 3 },
   infoCellValue: { fontSize: 13, fontWeight: "700", color: "#0F172A" },
+  incidentPhoto: { width: "100%", height: 200, borderRadius: 10, backgroundColor: "#F1F5F9" },
   coordBox:   { backgroundColor: "#EFF6FF", borderRadius: 10, padding: 10 },
   coordText:  { fontSize: 13, color: "#1D4ED8", fontFamily: "monospace", flex: 1 },
   notasBox:   { backgroundColor: "#FFFBEB", borderRadius: 10, padding: 10 },
