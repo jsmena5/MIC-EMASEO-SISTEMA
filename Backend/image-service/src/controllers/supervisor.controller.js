@@ -426,14 +426,20 @@ export const asignarIncidente = async (req, res) => {
       return res.status(404).json({ error: "Operario no encontrado." })
     }
 
+    // Cancelar cualquier asignación activa previa (sea del mismo u otro operario)
+    // antes de crear la nueva. Evita que el incidente quede con 2 asignados activos.
+    await client.query(
+      `UPDATE incidents.assignments
+       SET completada = TRUE, completada_at = NOW(), updated_at = NOW(),
+           notas = COALESCE(notas || E'\n', '') || '[REASIGNADO por supervisor]'
+       WHERE incident_id = $1 AND completada = FALSE`,
+      [id],
+    )
+
     const { rows } = await client.query(
       `INSERT INTO incidents.assignments
          (incident_id, incident_created_at, operario_id, asignado_por, fecha_esperada, notas)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT ON CONSTRAINT uq_assignment_activa DO UPDATE
-         SET operario_id = EXCLUDED.operario_id,
-             notas = EXCLUDED.notas, fecha_esperada = EXCLUDED.fecha_esperada,
-             updated_at = NOW()
        RETURNING id, created_at`,
       [id, inc[0].created_at, operario_id, supervisorId, fecha_esperada || null, notas || null],
     )

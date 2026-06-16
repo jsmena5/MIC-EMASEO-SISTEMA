@@ -1,4 +1,14 @@
+import axios from "axios"
 import api from "../utils/api"
+
+function apiError(err: unknown, fallback: string): Error {
+  if (axios.isAxiosError(err)) {
+    const body = err.response?.data as Record<string, unknown> | undefined
+    const msg = body?.error ?? body?.message
+    if (typeof msg === "string") return new Error(msg)
+  }
+  return new Error(fallback)
+}
 
 export interface Asignacion {
   asignacion_id: string
@@ -22,23 +32,39 @@ export interface Asignacion {
 }
 
 export const getAsignaciones = async (): Promise<Asignacion[]> => {
-  const { data } = await api.get("/operario/asignaciones")
-  return data.asignaciones
+  try {
+    const { data } = await api.get("/operario/asignaciones")
+    return data.asignaciones
+  } catch (err) {
+    throw apiError(err, "No se pudieron cargar las asignaciones.")
+  }
 }
 
 export const getAsignacionDetalle = async (id: string): Promise<Asignacion> => {
-  const { data } = await api.get(`/operario/asignaciones/${id}`)
-  return data
+  try {
+    const { data } = await api.get(`/operario/asignaciones/${id}`)
+    return data
+  } catch (err) {
+    throw apiError(err, "No se pudo cargar el detalle de la asignación.")
+  }
 }
 
 export const completarAsignacion = async (
   id: string,
   payload: { cierre_lat: number; cierre_lon: number; foto_cierre_url?: string },
 ): Promise<{ message: string; distancia_cierre_m: number }> => {
-  const { data } = await api.put(`/operario/asignaciones/${id}/completar`, payload)
-  return data
+  try {
+    const { data } = await api.put(`/operario/asignaciones/${id}/completar`, payload)
+    return data
+  } catch (err) {
+    throw apiError(err, "No se pudo completar la asignación.")
+  }
 }
 
 export const noAtendible = async (id: string, motivo: string): Promise<void> => {
-  await api.put(`/operario/asignaciones/${id}/no-atendible`, { motivo })
+  try {
+    await api.put(`/operario/asignaciones/${id}/no-atendible`, { motivo })
+  } catch (err) {
+    throw apiError(err, "No se pudo marcar como no atendible.")
+  }
 }
