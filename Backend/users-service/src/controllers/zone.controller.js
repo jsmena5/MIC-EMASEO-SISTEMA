@@ -25,21 +25,23 @@ export const listZonas = async (_req, res) => {
 }
 
 // ─── PUT /api/users/zonas/:id ─────────────────────────────────────────────────
+// Mantiene sincronizadas operations.zones.supervisor_id y app_auth.users.zona_id
+// en una sola transacción para que el mapa del supervisor filtre correctamente.
 
 export const updateZona = async (req, res) => {
   const { id } = req.params
   const body = req.body
 
-  // Build SET clauses dynamically to avoid overwriting fields not sent
   const sets = []
   const values = []
   let idx = 1
 
-  // supervisor_id: explicit null means "deassign"; absent key means "don't touch"
-  if ("supervisor_id" in body) {
-    const supId = body.supervisor_id === "" ? null : (body.supervisor_id ?? null)
+  const supervisorCambia = "supervisor_id" in body
+  let newSupId = null
+  if (supervisorCambia) {
+    newSupId = body.supervisor_id === "" ? null : (body.supervisor_id ?? null)
     sets.push(`supervisor_id = $${idx++}`)
-    values.push(supId)
+    values.push(newSupId)
   }
   if ("nombre" in body)       { sets.push(`nombre = $${idx++}`);       values.push(body.nombre) }
   if ("descripcion" in body)  { sets.push(`descripcion = $${idx++}`);  values.push(body.descripcion ?? null) }
@@ -50,16 +52,52 @@ export const updateZona = async (req, res) => {
   sets.push(`updated_at = NOW()`)
   values.push(id)
 
+  const client = await pool.connect()
   try {
-    const { rows, rowCount } = await pool.query(
+    await client.query("BEGIN")
+
+    // Leer supervisor anterior de esta zona (para limpiar su zona_id si cambia)
+    const { rows: prev } = await client.query(
+      "SELECT supervisor_id FROM operations.zones WHERE id = $1",
+      [id]
+    )
+    const oldSupId = prev[0]?.supervisor_id ?? null
+
+    // Actualizar la zona
+    const { rows, rowCount } = await client.query(
       `UPDATE operations.zones SET ${sets.join(", ")} WHERE id = $${idx} RETURNING id, codigo, nombre, supervisor_id, activa, descripcion`,
       values
     )
-    if (rowCount === 0) return res.status(404).json({ error: "Zona no encontrada" })
+    if (rowCount === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Zona no encontrada" })
+    }
+
+    if (supervisorCambia) {
+      // Quitar zona al supervisor anterior si era distinto
+      if (oldSupId && oldSupId !== newSupId) {
+        await client.query(
+          "UPDATE app_auth.users SET zona_id = NULL WHERE id = $1 AND zona_id = $2",
+          [oldSupId, id]
+        )
+      }
+      // Asignar zona al nuevo supervisor (también limpia si antes tenía otra zona)
+      if (newSupId) {
+        await client.query(
+          "UPDATE app_auth.users SET zona_id = $1 WHERE id = $2",
+          [id, newSupId]
+        )
+      }
+    }
+
+    await client.query("COMMIT")
     return res.json({ zona: rows[0] })
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
     console.error("[zone] updateZona:", err.message)
     return res.status(500).json({ error: "Error al actualizar zona" })
+  } finally {
+    client.release()
   }
 }
 
