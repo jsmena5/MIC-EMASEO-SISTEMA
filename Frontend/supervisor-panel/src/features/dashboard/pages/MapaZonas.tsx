@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, GeoJSON, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useState, useCallback, useMemo } from 'react'
@@ -66,6 +66,20 @@ function crearIcono(prioridad: string | null): L.DivIcon {
     </div>`,
     className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -16],
   })
+}
+
+// ── Auto-fit al polígono de la zona devuelta por el backend ──────────────────
+function MapFitter({ zonas }: Readonly<{ zonas: GeoJSON.FeatureCollection | null }>) {
+  const map = useMap()
+  useEffect(() => {
+    if (!zonas?.features?.length) return
+    try {
+      const layer = L.geoJSON(zonas)
+      const bounds = layer.getBounds()
+      if (bounds.isValid()) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 })
+    } catch { /* geometría inválida — ignorar */ }
+  }, [map, zonas])
+  return null
 }
 
 // ── Centroide aproximado para los labels de zona ─────────────────────────────
@@ -385,7 +399,8 @@ export default function MapaZonas() {
       </div>
 
       {/* Mapa — basemap conmutable claro/oscuro */}
-      <MapContainer center={[-0.22, -78.5]} zoom={11} style={{ height: '100%', width: '100%' }} zoomControl>
+      <MapContainer center={[-0.22, -78.5]} zoom={10} style={{ height: '100%', width: '100%' }} zoomControl>
+        <MapFitter zonas={zonas} />
         <TileLayer
           key={basemap}
           attribution={BASEMAPS[basemap].attribution}

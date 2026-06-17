@@ -110,3 +110,15 @@ export async function getMapaZonas(): Promise<MapaZonasResponse> {
   if (!res.ok) throw new Error('Error al obtener mapa de zonas')
   return res.json()
 }
+
+export interface MiZona {
+  id: string
+  codigo: string
+  nombre: string
+}
+
+export async function getMiZona(): Promise<{ zona: MiZona | null }> {
+  const res = await authenticatedFetch(`${API_URL}/supervisor/mi-zona`)
+  if (!res.ok) throw new Error('Error al obtener zona')
+  return res.json()
+}

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { getStoredUser, logoutStoredSession } from "../auth/authSession"
 import { getIncidents } from "../../services/incident.service"
-import { Bell, Settings, LogOut } from "lucide-react"
+import { Bell, Settings, LogOut, MapPin } from "lucide-react"
+import { getMiZona } from "../../services/supervisor.service"
 
 const PAGE_LABEL: Record<string, string> = {
   "/dashboard/home":           "Inicio",
@@ -22,8 +23,9 @@ export default function Topbar() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getStoredUser()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuOpen,   setMenuOpen]   = useState(false)
   const [pendientes, setPendientes] = useState<number | null>(null)
+  const [zonaNombre, setZonaNombre] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   const title = PAGE_LABEL[location.pathname] ?? "Panel de supervisión"
@@ -50,6 +52,12 @@ export default function Topbar() {
   }, [])
 
   useEffect(() => {
+    getMiZona()
+      .then(({ zona }) => { if (zona) setZonaNombre(zona.nombre) })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     if (!menuOpen) return
     const onClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
@@ -68,6 +76,13 @@ export default function Topbar() {
       <h1 className="min-w-0 flex-1 truncate text-base font-extrabold text-slate-900 sm:text-lg">{title}</h1>
 
       <div className="flex items-center gap-3">
+        {zonaNombre && (
+          <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+            <MapPin size={11} strokeWidth={2.5} className="text-slate-400" />
+            {zonaNombre}
+          </span>
+        )}
+
         {pendientes !== null && pendientes > 0 && (
           <Link
             to="/dashboard/incidentes?estado=PENDIENTE&sin_supervisar=false"

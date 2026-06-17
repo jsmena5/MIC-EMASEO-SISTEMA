@@ -777,7 +777,13 @@ export const mapaZonas = async (req, res) => {
         }
       }
 
-      // A. Zonas como GeoJSON con conteos y supervisor asignado
+      // A. Zonas como GeoJSON con conteos y supervisor asignado.
+      // SUPERVISOR: solo su zona. ADMIN: todas las zonas.
+      const zonasWhere = zonaFiltro
+        ? `WHERE z.activa = TRUE AND z.id = $1`
+        : `WHERE z.activa = TRUE`
+      const zonasParams = zonaFiltro ? [zonaFiltro] : []
+
       const { rows: zonas } = await client.query(`
         SELECT
           z.id,
@@ -810,10 +816,10 @@ export const mapaZonas = async (req, res) => {
         FROM operations.zones z
         LEFT JOIN app_auth.users sup ON sup.id = z.supervisor_id
         LEFT JOIN incidents.incidents i ON i.zona_id = z.id
-        WHERE z.activa = TRUE
+        ${zonasWhere}
         GROUP BY z.id, z.codigo, z.nombre, sup.nombre, sup.apellido, sup.email
         ORDER BY z.nombre
-      `)
+      `, zonasParams)
 
       // B. Incidentes activos para markers — filtrados por zona si es SUPERVISOR
       let incidentesQuery
@@ -923,5 +929,26 @@ export const mapaZonas = async (req, res) => {
   } catch (err) {
     console.error('[mapaZonas]', err)
     return res.status(500).json({ error: 'Error al obtener datos del mapa' })
+  }
+}
+
+// ─── GET /api/supervisor/mi-zona ─────────────────────────────────────────────
+// Devuelve la zona asignada al supervisor autenticado.
+// ADMIN no tiene zona propia → devuelve zona: null.
+
+export const getMiZona = async (req, res) => {
+  const userId = req.headers['x-user-id']
+  try {
+    const { rows } = await pool.query(
+      `SELECT z.id, z.codigo, z.nombre
+       FROM app_auth.users u
+       JOIN operations.zones z ON z.id = u.zona_id
+       WHERE u.id = $1`,
+      [userId]
+    )
+    return res.json({ zona: rows[0] ?? null })
+  } catch (err) {
+    console.error('[getMiZona]', err)
+    return res.status(500).json({ error: 'Error al obtener zona' })
   }
 }

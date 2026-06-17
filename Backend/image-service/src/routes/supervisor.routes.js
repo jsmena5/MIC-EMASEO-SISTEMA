@@ -8,6 +8,7 @@ import {
   estadisticasZonas,
   listOperarios,
   mapaZonas,
+  getMiZona,
 } from "../controllers/supervisor.controller.js"
 import { iaEstadisticas, iaDataset, listarImagenes, etiquetarImagen, hardExamples } from "../controllers/ia.controller.js"
 
@@ -19,6 +20,7 @@ router.put("/incidents/:id/estado",       cambiarEstado)
 router.post("/incidents/:id/asignar",     asignarIncidente)
 router.put("/incidents/:id/revision-ia",  revisionIA)
 router.get("/zonas/mapa",                 mapaZonas)
+router.get("/mi-zona",                    getMiZona)
 router.get("/zonas/estadisticas",         estadisticasZonas)
 router.get("/operarios",                  listOperarios)
 router.get("/ia/estadisticas",                          iaEstadisticas)
