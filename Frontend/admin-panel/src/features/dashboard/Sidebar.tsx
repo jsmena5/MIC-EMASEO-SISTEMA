@@ -1,12 +1,13 @@
 import { NavLink } from "react-router-dom"
 import { useEffect, useState } from "react"
-import { Home, Users, Map, Brain, Images, Settings, ChevronLeft, ChevronRight, Shield, HardHat } from "lucide-react"
+import { Home, Users, Map, Brain, Images, Settings, ChevronLeft, ChevronRight, Shield, HardHat, Globe } from "lucide-react"
 
 const navigation = [
   { to: "/dashboard/home",          label: "Inicio",        Icon: Home     },
   { to: "/dashboard/supervisores",  label: "Supervisores",  Icon: Users    },
   { to: "/dashboard/operarios",     label: "Operarios",     Icon: HardHat  },
   { to: "/dashboard/zonas",         label: "Zonas",         Icon: Map      },
+  { to: "/dashboard/mapa",          label: "Mapa",          Icon: Globe    },
   { to: "/dashboard/ia",            label: "Modelo IA",     Icon: Brain    },
   { to: "/dashboard/auditoria",     label: "Auditoría R2",  Icon: Images   },
   { to: "/dashboard/configuracion", label: "Configuración", Icon: Settings },

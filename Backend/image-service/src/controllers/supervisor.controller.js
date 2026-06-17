@@ -751,19 +751,40 @@ export const mapaZonas = async (req, res) => {
   const { sw_lat, sw_lon, ne_lat, ne_lon } = req.query
   const hasBounds = [sw_lat, sw_lon, ne_lat, ne_lon].every(v => v !== undefined && v !== "")
 
+  const userRol = req.headers['x-user-rol']
+  const userId  = req.headers['x-user-id']
+
   try {
     const client = await pool.connect()
     try {
 
-      // A. Zonas como GeoJSON con conteos en tiempo real
+      // Resolver zona efectiva: SUPERVISOR solo ve sus incidentes, ADMIN ve todo
+      let zonaFiltro = null
+      if (userRol === 'SUPERVISOR') {
+        const { rows: userRows } = await client.query(
+          'SELECT zona_id FROM app_auth.users WHERE id = $1',
+          [userId]
+        )
+        zonaFiltro = userRows[0]?.zona_id ?? null
+        if (!zonaFiltro) {
+          return res.status(200).json({
+            zonas: { type: 'FeatureCollection', features: [] },
+            incidentes: [],
+            pagination: { total: 0, page: pageNum, limit: pageSize, pages: 0 },
+            generado_at: new Date().toISOString(),
+            _aviso: 'Supervisor sin zona asignada. Contacte al administrador.',
+          })
+        }
+      }
+
+      // A. Zonas como GeoJSON con conteos y supervisor asignado
       const { rows: zonas } = await client.query(`
         SELECT
           z.id,
           z.codigo,
           z.nombre,
-          NULL::TEXT                 AS supervisor_nombre,
-          -- Simplificar geometría para el mapa: reduce vértices sin perder forma
-          -- 0.001° ≈ 100m — suficiente para visualización, elimina fragmentos diminutos
+          sup.nombre || ' ' || sup.apellido AS supervisor_nombre,
+          sup.email                          AS supervisor_email,
           ST_AsGeoJSON(
             ST_SimplifyPreserveTopology(z.geom, 0.001)
           )::json AS geometry,
@@ -787,26 +808,22 @@ export const mapaZonas = async (req, res) => {
             WHERE i.created_at >= NOW() - INTERVAL '24 hours'
           ) AS ultimas_24h
         FROM operations.zones z
+        LEFT JOIN app_auth.users sup ON sup.id = z.supervisor_id
         LEFT JOIN incidents.incidents i ON i.zona_id = z.id
         WHERE z.activa = TRUE
-        GROUP BY z.id, z.codigo, z.nombre
+        GROUP BY z.id, z.codigo, z.nombre, sup.nombre, sup.apellido, sup.email
         ORDER BY z.nombre
       `)
 
-      // B. Incidentes activos para markers (excluye terminales y en-proceso-interno)
+      // B. Incidentes activos para markers — filtrados por zona si es SUPERVISOR
       let incidentesQuery
       let incidentesParams
 
       if (hasBounds) {
-        // ST_MakeEnvelope(xmin, ymin, xmax, ymax, srid) — SW=(lon,lat), NE=(lon,lat)
+        const zoneClause = zonaFiltro ? `AND i.zona_id = $5::uuid` : ''
         incidentesQuery = `
           SELECT
-            i.id,
-            i.estado,
-            i.prioridad,
-            i.descripcion,
-            i.zona_id,
-            i.created_at,
+            i.id, i.estado, i.prioridad, i.descripcion, i.zona_id, i.created_at,
             ST_Y(i.ubicacion::geometry) AS latitud,
             ST_X(i.ubicacion::geometry) AS longitud,
             z.nombre AS zona_nombre,
@@ -818,19 +835,17 @@ export const mapaZonas = async (req, res) => {
               i.ubicacion::geometry,
               ST_MakeEnvelope($1::float, $2::float, $3::float, $4::float, 4326)
             )
+            ${zoneClause}
           ORDER BY i.created_at DESC
-          LIMIT $5 OFFSET $6`
-        // ST_MakeEnvelope(xmin=sw_lon, ymin=sw_lat, xmax=ne_lon, ymax=ne_lat)
-        incidentesParams = [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), pageSize, offset]
+          LIMIT $${zonaFiltro ? 6 : 5} OFFSET $${zonaFiltro ? 7 : 6}`
+        incidentesParams = zonaFiltro
+          ? [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), zonaFiltro, pageSize, offset]
+          : [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), pageSize, offset]
       } else {
+        const zoneClause = zonaFiltro ? `AND i.zona_id = $1::uuid` : ''
         incidentesQuery = `
           SELECT
-            i.id,
-            i.estado,
-            i.prioridad,
-            i.descripcion,
-            i.zona_id,
-            i.created_at,
+            i.id, i.estado, i.prioridad, i.descripcion, i.zona_id, i.created_at,
             ST_Y(i.ubicacion::geometry) AS latitud,
             ST_X(i.ubicacion::geometry) AS longitud,
             z.nombre AS zona_nombre,
@@ -838,9 +853,12 @@ export const mapaZonas = async (req, res) => {
           FROM incidents.incidents i
           LEFT JOIN operations.zones z ON z.id = i.zona_id
           WHERE i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
+            ${zoneClause}
           ORDER BY i.created_at DESC
-          LIMIT $1 OFFSET $2`
-        incidentesParams = [pageSize, offset]
+          LIMIT $${zonaFiltro ? 2 : 1} OFFSET $${zonaFiltro ? 3 : 2}`
+        incidentesParams = zonaFiltro
+          ? [zonaFiltro, pageSize, offset]
+          : [pageSize, offset]
       }
 
       const { rows: incidentesRaw } = await client.query(incidentesQuery, incidentesParams)
@@ -868,6 +886,7 @@ export const mapaZonas = async (req, res) => {
               codigo:             z.codigo,
               nombre:             z.nombre,
               supervisor:         z.supervisor_nombre,
+              supervisor_email:   z.supervisor_email,
               incidentes_activos: Number(z.incidentes_activos),
               pendientes:         Number(z.pendientes),
               en_atencion:        Number(z.en_atencion),

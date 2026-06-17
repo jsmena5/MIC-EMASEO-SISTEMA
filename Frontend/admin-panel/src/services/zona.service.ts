@@ -1,6 +1,6 @@
 import { API_URL } from "../config/env"
 import { authenticatedFetch } from "../shared/api/authenticatedFetch"
-import type { Feature, Polygon, MultiPolygon } from "geojson"
+import type { Feature, FeatureCollection, Polygon, MultiPolygon } from "geojson"
 
 export interface Zona {
   id: string
@@ -51,6 +51,46 @@ export const importZonas = async (
     const err = await res.json().catch(() => ({}))
     throw new Error(err.error ?? "Error al importar zonas")
   }
+  return res.json()
+}
+
+// ── Tipos para el mapa de incidentes ─────────────────────────────────────────
+
+export interface ZonaProperties {
+  id: string
+  codigo: string
+  nombre: string
+  supervisor: string | null
+  supervisor_email: string | null
+  incidentes_activos: number
+  pendientes: number
+  en_atencion: number
+  criticas: number
+  ultimas_24h: number
+  nivel: string
+}
+
+export interface IncidenteMapa {
+  id: string
+  estado: string
+  prioridad: string | null
+  descripcion: string | null
+  zona_id: string | null
+  zona_nombre: string | null
+  created_at: string
+  latitud: number
+  longitud: number
+}
+
+export interface MapaZonasResponse {
+  zonas: FeatureCollection
+  incidentes: IncidenteMapa[]
+  generado_at: string
+}
+
+export const getMapaZonas = async (): Promise<MapaZonasResponse> => {
+  const res = await authenticatedFetch(`${API_URL}/supervisor/zonas/mapa`)
+  if (!res.ok) throw new Error('Error al obtener mapa de zonas')
   return res.json()
 }
 
