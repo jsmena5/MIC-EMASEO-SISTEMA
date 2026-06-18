@@ -52,6 +52,7 @@ RURAL_TO_ZONE = {
     2673303: "Los Chillos",   # Guangopolo
     2673274: "Los Chillos",   # Alangasi
     8009658: "Los Chillos",   # Amaguana
+    2673245: "Los Chillos",   # La Merced (corredor El Tingo / entrada NO del valle)
     # Tumbaco — nucleo urbano del valle (Cumbaya/Tumbaco)
     2673304: "Tumbaco",       # Tumbaco
     2673307: "Tumbaco",       # Cumbaya
