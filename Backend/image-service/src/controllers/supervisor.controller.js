@@ -792,7 +792,7 @@ export const mapaZonas = async (req, res) => {
           sup.nombre || ' ' || sup.apellido AS supervisor_nombre,
           sup.email                          AS supervisor_email,
           ST_AsGeoJSON(
-            ST_SimplifyPreserveTopology(z.geom, 0.001)
+            ST_SimplifyPreserveTopology(ST_Multi(ST_CollectionExtract(z.geom, 3)), 0.001)
           )::json AS geometry,
           COUNT(i.id) FILTER (
             WHERE i.estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')
