@@ -17,16 +17,6 @@ from shapely.geometry import shape, Polygon, MultiPolygon, mapping, LineString
 from shapely.ops import unary_union, linemerge, polygonize
 from datetime import date
 
-# Parches manuales para rellenar brechas entre parroquias OSM que no se tocan.
-# La Merced y Guangopolo/Conocoto tienen un gap de ~526m en el noroeste del valle
-# (sector El Tingo, lon≈-78.50, lat≈-0.26) que el buffer mínimo no cierra.
-ZONE_PATCHES = {
-    "Los Chillos": Polygon([
-        (-78.515, -0.280), (-78.480, -0.280),
-        (-78.480, -0.228), (-78.515, -0.228),
-    ]),
-}
-
 OVERPASS_SERVERS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -194,13 +184,10 @@ def main():
 
     dissolved = {}
     for zone, geoms in zone_polys.items():
-        patch_geoms = list(geoms)
-        if zone in ZONE_PATCHES:
-            patch_geoms.append(ZONE_PATCHES[zone])
-        union = unary_union([g.buffer(0.00003) for g in patch_geoms]).buffer(-0.00003)
+        union = unary_union([g.buffer(0.00003) for g in geoms]).buffer(-0.00003)
         union = union.buffer(0)
         if union.is_empty:
-            union = unary_union(patch_geoms).buffer(0)
+            union = unary_union(geoms).buffer(0)
         union = union.buffer(0)
         if union.is_empty:
             union = unary_union(geoms).buffer(0)
