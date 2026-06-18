@@ -55,13 +55,40 @@ export const getSupervisorById = async (req, res) => {
 }
 
 // ===============================
+const ROL_LABEL = {
+  CIUDADANO: "ciudadana",
+  SUPERVISOR: "supervisor",
+  OPERARIO:   "operario",
+  ADMIN:      "administrador",
+}
+
 export const createSupervisor = async (req, res) => {
   const client = await pool.connect()
 
   try {
     const { nombre, apellido, cedula, telefono, email, password } = req.body
 
+    const conflicto = await client.query(
+      `SELECT
+         (email = $1)                             AS email_conflicto,
+         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto,
+         rol
+       FROM app_auth.users
+       WHERE email = $1 OR (cedula IS NOT NULL AND cedula = $2)
+       LIMIT 1`,
+      [email, cedula ?? null]
+    )
+    if (conflicto.rows.length > 0) {
+      const { email_conflicto, cedula_conflicto, rol } = conflicto.rows[0]
+      const campos = [...(email_conflicto ? ["correo"] : []), ...(cedula_conflicto ? ["cédula"] : [])].join(" y ")
+      const rolLabel = ROL_LABEL[rol] ?? rol
+      return res.status(409).json({
+        message: `El ${campos} ya está registrado en una cuenta ${rolLabel}. No se pueden tener cuentas duplicadas.`,
+      })
+    }
+
     await client.query("BEGIN")
+
     const isProvidedPassword = password && password.length >= 8
     const initialPassword = isProvidedPassword
       ? password
@@ -84,7 +111,7 @@ export const createSupervisor = async (req, res) => {
     console.error(error)
     await client.query("ROLLBACK")
     if (error.code === "23505") {
-      return res.status(400).json({ message: "Email o cédula ya registrados" })
+      return res.status(409).json({ message: "Email o cédula ya registrados" })
     }
     res.status(500).json({ message: "Error creando supervisor" })
   } finally {

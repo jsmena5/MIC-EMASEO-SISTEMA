@@ -124,13 +124,24 @@ export const registerUser = async (req, res) => {
 
     // Verificar que el email y la cédula no estén ya registrados
     const existe = await client.query(
-      `SELECT 1 FROM app_auth.users u
-       WHERE u.email = $1 OR u.cedula = $2
+      `SELECT
+         (email = $1)                             AS email_conflicto,
+         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto,
+         rol
+       FROM app_auth.users
+       WHERE email = $1 OR (cedula IS NOT NULL AND cedula = $2)
        LIMIT 1`,
       [email, cedula]
     )
     if (existe.rows.length > 0) {
-      return res.status(400).json({ message: "Email o cédula ya registrados" })
+      const { email_conflicto, cedula_conflicto, rol } = existe.rows[0]
+      const campos = [...(email_conflicto ? ["correo"] : []), ...(cedula_conflicto ? ["cédula"] : [])].join(" y ")
+      if (rol !== "CIUDADANO") {
+        return res.status(400).json({
+          message: `El ${campos} ya está registrado como personal de EMASEO. Si eres empleado de EMASEO, accede desde el panel web.`,
+        })
+      }
+      return res.status(400).json({ message: `El ${campos} ya está registrado.` })
     }
 
     const otp        = generateOtp()
