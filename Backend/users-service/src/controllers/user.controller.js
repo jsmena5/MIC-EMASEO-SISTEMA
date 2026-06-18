@@ -122,25 +122,20 @@ export const registerUser = async (req, res) => {
     const nombre   = primer_nombre.trim()
     const apellido = primer_apellido.trim()
 
-    // Verificar que el email y la cédula no estén ya registrados
+    // Verificar que el email y la cédula no estén ya registrados como CIUDADANO
     const existe = await client.query(
       `SELECT
          (email = $1)                             AS email_conflicto,
-         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto,
-         rol
+         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto
        FROM app_auth.users
-       WHERE email = $1 OR (cedula IS NOT NULL AND cedula = $2)
+       WHERE rol = 'CIUDADANO'
+         AND (email = $1 OR (cedula IS NOT NULL AND cedula = $2))
        LIMIT 1`,
       [email, cedula]
     )
     if (existe.rows.length > 0) {
-      const { email_conflicto, cedula_conflicto, rol } = existe.rows[0]
+      const { email_conflicto, cedula_conflicto } = existe.rows[0]
       const campos = [...(email_conflicto ? ["correo"] : []), ...(cedula_conflicto ? ["cédula"] : [])].join(" y ")
-      if (rol !== "CIUDADANO") {
-        return res.status(400).json({
-          message: `El ${campos} ya está registrado como personal de EMASEO. Si eres empleado de EMASEO, accede desde el panel web.`,
-        })
-      }
       return res.status(400).json({ message: `El ${campos} ya está registrado.` })
     }
 

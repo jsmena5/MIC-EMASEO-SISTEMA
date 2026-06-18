@@ -5,7 +5,7 @@ export const loginRequest = async (email: string, password: string): Promise<Aut
   const res = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify({ email, password, tipo: "staff" })
   });
 
   if (!res.ok) throw new Error("Login error");

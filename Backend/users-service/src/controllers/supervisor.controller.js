@@ -71,19 +71,18 @@ export const createSupervisor = async (req, res) => {
     const conflicto = await client.query(
       `SELECT
          (email = $1)                             AS email_conflicto,
-         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto,
-         rol
+         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto
        FROM app_auth.users
-       WHERE email = $1 OR (cedula IS NOT NULL AND cedula = $2)
+       WHERE rol = 'SUPERVISOR'
+         AND (email = $1 OR (cedula IS NOT NULL AND cedula = $2))
        LIMIT 1`,
       [email, cedula ?? null]
     )
     if (conflicto.rows.length > 0) {
-      const { email_conflicto, cedula_conflicto, rol } = conflicto.rows[0]
+      const { email_conflicto, cedula_conflicto } = conflicto.rows[0]
       const campos = [...(email_conflicto ? ["correo"] : []), ...(cedula_conflicto ? ["cédula"] : [])].join(" y ")
-      const rolLabel = ROL_LABEL[rol] ?? rol
       return res.status(409).json({
-        message: `El ${campos} ya está registrado en una cuenta ${rolLabel}. No se pueden tener cuentas duplicadas.`,
+        message: `El ${campos} ya está registrado en otra cuenta supervisor.`,
       })
     }
 

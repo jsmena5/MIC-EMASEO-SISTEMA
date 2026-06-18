@@ -46,11 +46,18 @@ async function issueRefreshToken(userId) {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body
+    const { email, password, tipo } = req.body
 
     if (!email || !password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" })
     }
+
+    // tipo="staff" → cuenta de personal EMASEO; cualquier otro valor → cuenta ciudadana.
+    // Necesario cuando el mismo email/cédula existe en varios roles.
+    const isStaff = tipo === "staff"
+    const rolFilter = isStaff
+      ? `AND u.rol IN ('SUPERVISOR', 'OPERARIO', 'ADMIN')`
+      : `AND u.rol = 'CIUDADANO'`
 
     const result = await pool.query(
       `SELECT
@@ -61,7 +68,7 @@ export const login = async (req, res) => {
          u.nombre,
          u.apellido
        FROM app_auth.users u
-       WHERE u.email = $1`,
+       WHERE u.email = $1 ${rolFilter}`,
       [email.toLowerCase().trim()]
     )
 
