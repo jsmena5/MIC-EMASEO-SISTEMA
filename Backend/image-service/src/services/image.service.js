@@ -773,12 +773,29 @@ export async function getTaskStatus(taskId, userId) {
       httpStatus:           200,
       task_id:              row.id,
       estado:               "PENDIENTE",
+      prioridad:            row.prioridad,
       decision_automatica:  row.decision_automatica  ?? null,
       confianza_decision:   row.confianza_decision   ?? null,
       imagen_auditoria_url: row.imagen_auditoria_url ?? null,
       created_at:           row.created_at,
       updated_at:           row.updated_at,
       message: "Tu reporte está siendo revisado por un supervisor. Recibirás una notificación cuando se tome una decisión.",
+    }
+  }
+
+  // ── Estado: requiere revisión manual por supervisor ────────────────────────
+  if (row.estado === "EN_REVISION") {
+    return {
+      httpStatus:           200,
+      task_id:              row.id,
+      estado:               "EN_REVISION",
+      decision_automatica:  row.decision_automatica  ?? null,
+      confianza_decision:   row.confianza_decision   ?? null,
+      nota_fallo:           row.nota_fallo           ?? null,
+      imagen_auditoria_url: row.imagen_auditoria_url ?? null,
+      created_at:           row.created_at,
+      updated_at:           row.updated_at,
+      message: "Tu reporte requiere revisión por un supervisor. Recibirás una notificación cuando se tome una decisión.",
     }
   }
 

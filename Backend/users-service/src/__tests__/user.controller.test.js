@@ -186,49 +186,31 @@ describe('deleteOperario — soft-delete', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('retorna 404 si el operario no existe', async () => {
-    const client = makeClient();
-    pool.connect.mockResolvedValue(client);
-    client.query
-      .mockResolvedValueOnce(undefined) // BEGIN
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 }) // UPDATE (no rows)
-      .mockResolvedValueOnce(undefined); // ROLLBACK
+    pool.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
 
     const res = mockRes();
     await deleteOperario({ params: { id: 'inexistente-uuid' } }, res);
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it("ejecuta UPDATE con estado = 'INACTIVO' y hace COMMIT", async () => {
-    const client = makeClient();
-    pool.connect.mockResolvedValue(client);
-    client.query
-      .mockResolvedValueOnce(undefined) // BEGIN
-      .mockResolvedValueOnce({ rows: [{ id: 'user-uuid' }], rowCount: 1 }) // UPDATE
-      .mockResolvedValueOnce(undefined); // COMMIT
+  it("ejecuta UPDATE con estado = 'INACTIVO' y retorna mensaje de éxito", async () => {
+    pool.query.mockResolvedValueOnce({ rows: [{ id: 'user-uuid' }], rowCount: 1 });
 
     const res = mockRes();
     await deleteOperario({ params: { id: 'operario-uuid' } }, res);
 
-    // La segunda llamada (índice 1) es el UPDATE de soft-delete
-    const updateCall = client.query.mock.calls[1];
+    const updateCall = pool.query.mock.calls[0];
     expect(updateCall[0]).toContain("'INACTIVO'");
     expect(updateCall[1]).toEqual(['operario-uuid']);
-
-    expect(client.query).toHaveBeenCalledWith('COMMIT');
     expect(res.json).toHaveBeenCalledWith({ message: 'Operario desactivado' });
   });
 
-  it('hace ROLLBACK y devuelve 500 si la BD falla', async () => {
-    const client = makeClient();
-    pool.connect.mockResolvedValue(client);
-    client.query
-      .mockResolvedValueOnce(undefined) // BEGIN
-      .mockRejectedValueOnce(new Error('DB error')); // UPDATE falla
+  it('devuelve 500 si la BD falla', async () => {
+    pool.query.mockRejectedValueOnce(new Error('DB error'));
 
     const res = mockRes();
     await deleteOperario({ params: { id: 'operario-uuid' } }, res);
 
-    expect(client.query).toHaveBeenCalledWith('ROLLBACK');
     expect(res.status).toHaveBeenCalledWith(500);
   });
 });

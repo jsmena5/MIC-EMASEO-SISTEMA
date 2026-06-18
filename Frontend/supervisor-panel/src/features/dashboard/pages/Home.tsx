@@ -44,14 +44,14 @@ function DonutChart({ segments, size = 110 }: Readonly<{
     )
   }
   const circumference = 2 * Math.PI * 15.9
-  let accumulated = 0
-  const arcs = segments.map(seg => {
-    const pct = seg.value / total
-    const offset = circumference * (1 - accumulated)
-    const dash = circumference * pct
-    accumulated += pct
-    return { ...seg, dash, offset }
-  })
+  type Arc = { value: number; color: string; label: string; dash: number; offset: number }
+  const arcs = segments.reduce(
+    ({ list, pctSum }: { list: Arc[]; pctSum: number }, seg) => {
+      const pct = seg.value / total
+      return { list: [...list, { ...seg, dash: circumference * pct, offset: circumference * (1 - pctSum) }], pctSum: pctSum + pct }
+    },
+    { list: [] as Arc[], pctSum: 0 },
+  ).list
   return (
     <svg width={size} height={size} viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
       {arcs.map((arc, i) => (
