@@ -400,12 +400,15 @@ async function prepareMlTask(incidentId, { buffer, image, client_coverage_ratio 
     return null
   }
 
-  // 3. Submit de la tarea al ML vía Circuit Breaker (solo el POST, ~1-5 s)
-  log("Enviando tarea al servicio ML...")
+  // 3. Submit de la tarea al ML vía Circuit Breaker (solo el envío, ~1-5 s)
+  log("Enviando tarea al servicio ML (gRPC)...")
   try {
     const dims = getImageDimensions(buffer)
+    // Enviamos la s3_key al ml-service en lugar del Base64 completo.
+    // El worker Celery descarga la imagen directamente desde S3/R2.
+    // Esto elimina el cuello de botella de transferir ~10 MB por la red interna.
     const mlPayload = {
-      image_base64: image,
+      s3_key:       pendingS3Key,
       image_width:  dims?.width  ?? 0,
       image_height: dims?.height ?? 0,
     }
@@ -420,13 +423,13 @@ async function prepareMlTask(incidentId, { buffer, image, client_coverage_ratio 
       `UPDATE incidents.incidents SET celery_task_id = $2 WHERE id = $1`,
       [incidentId, task_id]
     )
-    log(`✓ Tarea enviada — celery_task_id=${task_id}`)
+    log(`✓ Tarea enviada vía gRPC — celery_task_id=${task_id}`)
     return { pendingS3Key, celeryTaskId: task_id }
   } catch (err) {
     // Imagen ya en S3 → se conserva como auditoría (no se elimina)
     const reason = err.code === ML_DEGRADED_CODE
       ? `circuit breaker abierto: ${err.message}`
-      : `ML submit: ${err.message}`
+      : `ML submit (gRPC): ${err.message}`
     await markIncidentAsFailed(incidentId, reason, logError, { s3Key: pendingS3Key })
     logError(`✗ FALLIDO — ${reason}`)
     return null

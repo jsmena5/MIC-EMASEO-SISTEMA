@@ -5,6 +5,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
 from celery import signals
 from celery.exceptions import MaxRetriesExceededError, SoftTimeLimitExceeded
 from celery_app import celery
@@ -59,6 +62,32 @@ BLUR_VARIANCE_MIN = float(os.environ.get("BLUR_VARIANCE_MIN", "0"))
 MIN_COVERAGE_UNION = float(os.environ.get("MIN_COVERAGE_UNION", "0.03"))
 
 _model = None
+
+# ── Cliente S3 para descarga de imágenes desde Cloudflare R2 ─────────────────
+# Las credenciales se leen del entorno, las mismas que usa el image-service.
+_s3_client = None
+
+def _get_s3_client():
+    """Crea/reutiliza el cliente S3/R2 de boto3 (singleton por proceso)."""
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3",
+            endpoint_url=os.environ.get("S3_ENDPOINT"),
+            region_name=os.environ.get("S3_REGION", "us-east-1"),
+            aws_access_key_id=os.environ.get("S3_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("S3_SECRET_ACCESS_KEY"),
+        )
+    return _s3_client
+
+
+def _download_from_s3(s3_key: str, dest_path: Path) -> None:
+    """Descarga un objeto de S3/R2 y lo escribe en dest_path."""
+    bucket = os.environ.get("S3_BUCKET")
+    if not bucket:
+        raise ValueError("S3_BUCKET no configurado en el entorno")
+    client = _get_s3_client()
+    client.download_file(bucket, s3_key, str(dest_path))
 
 
 def _retry_or_dlq(task, exc: Exception, payload: dict) -> None:
@@ -611,3 +640,91 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
                 "image_height": image_height,
             },
         )
+
+
+# ── Tarea gRPC: descarga desde S3 antes de inferir ───────────────────────────
+# Esta es la tarea que usa el servidor gRPC (grpc_server.py).
+# En lugar de recibir la imagen en Base64 (como hacía el endpoint HTTP /predict),
+# recibe la s3_key donde la imagen ya fue subida por el image-service.
+# El worker la descarga directamente desde Cloudflare R2, lo que elimina el
+# cuello de botella de transferir ~10 MB de Base64 por la red interna.
+
+@celery.task(
+    bind=True,
+    name="ml_worker.run_inference_from_s3",
+    max_retries=3,
+    queue="ml_queue",
+    soft_time_limit=300,
+    time_limit=360,
+)
+def run_inference_from_s3(
+    self,
+    s3_key: str,
+    image_width: int = 1280,
+    image_height: int = 960,
+    client_coverage_ratio: float | None = None,
+):
+    """
+    Descarga la imagen desde S3/R2 y ejecuta la inferencia completa.
+
+    Es funcionalmente equivalente a run_inference() pero evita que el
+    image-service tenga que serializar y transmitir la imagen completa
+    en Base64 a través de la red interna — la imagen ya vive en S3 (paso 2
+    del pipeline del image-service) y el worker la descarga directamente.
+
+    Si en DUMMY_MODE la descarga de S3 no está disponible, simula la respuesta.
+    """
+    if DUMMY_MODE:
+        import time as _t
+        _t.sleep(2)
+        return {
+            "success": True,
+            "has_waste": True,
+            "nivel_acumulacion": "MEDIO",
+            "volumen_estimado_m3": 1.5,
+            "prioridad": "MEDIA",
+            "tipo_residuo": "MIXTO",
+            "confianza": 0.87,
+            "num_detecciones": 3,
+            "coverage_ratio": 0.23,
+            "detecciones": [
+                {"class": "garbage", "confidence": 0.91, "bbox": [120, 80, 450, 320]},
+                {"class": "garbage", "confidence": 0.85, "bbox": [500, 150, 780, 400]},
+                {"class": "garbage", "confidence": 0.84, "bbox": [200, 300, 600, 550]},
+            ],
+            "scale_penalty_applied": False,
+            "tiempo_inferencia_ms": 2000,
+            "modelo_nombre": "dummy_model_v0",
+        }
+
+    # Construir ruta local temporal para la imagen descargada
+    uploads_dir = Path(os.environ.get("UPLOADS_DIR", "/app/uploads"))
+    # Derivar nombre de archivo de la s3_key para evitar colisiones
+    local_filename = s3_key.replace("/", "_")
+    image_path = uploads_dir / local_filename
+
+    try:
+        logger.info(
+            "[run_inference_from_s3] Descargando s3_key=%s → %s",
+            s3_key, image_path,
+        )
+        _download_from_s3(s3_key, image_path)
+        logger.info("[run_inference_from_s3] Imagen descargada (%d bytes)", image_path.stat().st_size)
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        logger.error("[run_inference_from_s3] Error descargando de S3: %s", exc)
+        _retry_or_dlq(
+            self, exc,
+            payload={"s3_key": s3_key, "image_width": image_width, "image_height": image_height},
+        )
+        return
+
+    # Delegar en la lógica de inferencia existente, ya con la imagen en disco
+    # La tarea run_inference limpia el archivo local al finalizar (Path.unlink)
+    return run_inference(
+        self,
+        str(image_path),
+        image_width,
+        image_height,
+        client_coverage_ratio,
+    )
+

@@ -26,17 +26,20 @@ x-ml-env: &ml-env
   DUMMY_MODE: "${DUMMY_MODE:-false}"
   PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
-  # ── Gate semántico CLIP ──────────────────────────────────────────────────────
-  # SEMANTIC_REJECT_THRESHOLD: imagen claramente NO es basura → DESCARTADO automático
-  # SEMANTIC_REVIEW_THRESHOLD: imagen probablemente es basura → PENDIENTE con prioridad
-  # Zona [REJECT, REVIEW): ambiguo → EN_REVISION para supervisor
+  # ── Gate semántico CLIP ────────────────────────────────────────────
   SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
   SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
-  # ── Gate de calidad: blur y cobertura ────────────────────────────────────────
+  # ── Gate de calidad: blur y cobertura ────────────────────────────
   BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-0}"
   MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
-  # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────────────────
+  # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────
   HF_HOME: /app/hf_cache
+  # ── Cloudflare R2 (descarga directa de imágenes en el worker gRPC) ───────
+  S3_ENDPOINT: "${S3_ENDPOINT}"
+  S3_BUCKET: "${S3_BUCKET}"
+  S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID}"
+  S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY}"
+  S3_REGION: "${S3_REGION:-auto}"
 
 services:
 
@@ -153,6 +156,9 @@ services:
       S3_REGION: "${S3_REGION:-auto}"
       S3_PUBLIC_URL: "${S3_PUBLIC_URL}"
       ML_SERVICE_URL: "http://ml-api:8000/predict"
+      # ── gRPC ──────────────────────────────────────────────────
+      ML_GRPC_HOST: "ml-api"
+      ML_GRPC_PORT: "50051"
       INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
     depends_on:
@@ -228,7 +234,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: gunicorn main:app -c gunicorn.conf.py
+    command: bash -c "python grpc_server.py & gunicorn main:app -c gunicorn.conf.py"
     networks:
       - emaseo_network
     healthcheck:

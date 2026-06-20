@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --timeout=120 -r requirements.txt
 
-COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.py semantic_gate.py ./
+COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.py semantic_gate.py grpc_server.py ./
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 
@@ -36,8 +36,10 @@ RUN pip install --no-cache-dir "pytest>=8.0.0" \
 
 USER appuser
 
+EXPOSE 8000 50051
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:8000/health || exit 1
 
-# Default: API con Gunicorn+Uvicorn workers (el worker ML sobreescribe en docker-compose)
-CMD ["gunicorn", "main:app", "-c", "gunicorn.conf.py"]
+# Arranca FastAPI (Gunicorn) y el servidor gRPC en paralelo
+CMD ["bash", "-c", "python grpc_server.py & gunicorn main:app -c gunicorn.conf.py"]

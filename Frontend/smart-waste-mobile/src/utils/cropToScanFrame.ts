@@ -106,13 +106,18 @@ export async function cropToScanFrame(
   // Paso 6: recortar y comprimir
   const cropCtx = ImageManipulator.manipulate(uri)
   cropCtx.crop({ originX: cropX, originY: cropY, width: cropW, height: cropH })
+  
+  // Redimensionar para garantizar un tamaño máximo de 800x800 y reducir drásticamente el peso de envío
+  if (cropW > 800 || cropH > 800) {
+    cropCtx.resize({ width: 800 })
+  }
+  
   const cropRef = await cropCtx.renderAsync()
   const result = await cropRef.saveAsync({
-    compress: 0.85,
+    compress: 0.70, // Compresión agresiva para optimizar latencia
     format:   IMSaveFormat.JPEG,
     base64:   true,
-  }
-  )
+  })
 
   return { uri: result.uri, base64: result.base64! }
 }
