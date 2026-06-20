@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    Ícono maestro de EMASEO EP IA (1024×1024).
+    Paleta institucional sobria: azul #005BAC/#003F7A · verde #00A859 · blanco.
+    Exportar a PNG para app.json (ver README.md en esta carpeta).
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#005BAC"/>
+      <stop offset="1" stop-color="#003F7A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo institucional con esquinas redondeadas (estilo app icon) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- Hoja: medio ambiente / aseo urbano -->
+  <g transform="translate(0,-26)">
+    <path d="M512 300 C 360 360, 332 560, 512 690 C 692 560, 664 360, 512 300 Z" fill="#FFFFFF"/>
+    <!-- Nervadura central sutil -->
+    <path d="M512 330 L512 660" stroke="#003F7A" stroke-width="14" stroke-linecap="round" fill="none" opacity="0.18"/>
+    <!-- Tallo verde -->
+    <path d="M512 690 C 506 730, 508 760, 540 788" stroke="#00A859" stroke-width="22" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Chip "IA": distingue el análisis con inteligencia artificial -->
+  <circle cx="744" cy="752" r="150" fill="#FFFFFF" stroke="#00A859" stroke-width="14"/>
+  <text x="744" y="752" text-anchor="middle" dominant-baseline="central" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="120" fill="#003F7A">IA</text>
+</svg>

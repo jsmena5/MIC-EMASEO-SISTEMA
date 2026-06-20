@@ -1,9 +1,9 @@
-INSERT INTO auth.users (id, email, username, password_hash, rol, estado, is_verified)
+INSERT INTO app_auth.users (id, email, username, password_hash, rol, estado, is_verified)
 VALUES (
   'aaaaaaaa-0000-0000-0000-000000000099',
   'qa.test@emaseo.local',
   'qa.test',
-  crypt('QaTest2024', gen_salt('bf')),
+  crypt('QaTest2024', gen_salt('bf', 10)),
   'CIUDADANO',
   'ACTIVO',
   TRUE
@@ -18,4 +18,4 @@ VALUES (
   '0990000001'
 ) ON CONFLICT (user_id) DO NOTHING;
 
-SELECT username, email, rol, is_verified FROM auth.users WHERE username = 'qa.test';
+SELECT username, email, rol, is_verified FROM app_auth.users WHERE username = 'qa.test';

@@ -1,23 +1,32 @@
 import { pool } from "../db.js"
 import jwt from "jsonwebtoken"
-import crypto from "crypto"
 import { sendPasswordResetEmail } from "../utils/mailer.js"
+import { hashToken, generateOpaqueToken, generateOtp } from "../utils/crypto.js"
+import { validatePassword } from "../utils/passwordValidator.js"
 
 const PASSWORD_RESET_OTP_TTL_MIN = 15
 
+async function logAuthEvent(req, accion, userId, extra = {}) {
+  try {
+    const ip = req.headers["x-forwarded-for"] ?? req.ip ?? null
+    const ua = req.headers["x-user-agent"] ?? req.headers["user-agent"] ?? null
+    await pool.query(
+      `INSERT INTO audit.audit_log (actor_id, actor_ip, accion, schema_name, table_name, row_pk, diff)
+       VALUES ($1, $2::inet, $3, 'app_auth', 'users', $4, $5)`,
+      [userId ?? null, ip, accion, userId ?? null, JSON.stringify({ user_agent: ua, ...extra })]
+    )
+  } catch {
+    // No bloquear el flujo de auth si el audit falla
+  }
+}
+
 // Access token de vida corta: con refresh token podemos usar ventanas pequeñas
-const ACCESS_TOKEN_TTL       = "15m"
+const ACCESS_TOKEN_TTL       = process.env.JWT_EXPIRES_IN || "15m"
 const REFRESH_TOKEN_TTL_DAYS = 7
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function hashToken(token) {
-  return crypto.createHash("sha256").update(token).digest("hex")
-}
-
-function generateOpaqueToken() {
-  return crypto.randomBytes(64).toString("hex") // 128 chars, 512 bits de entropía
-}
+// Bcrypt cost: 12 es el mínimo recomendado en 2026.
+// Subir el valor encarece el cracking, pero también las verificaciones legítimas.
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
 async function issueRefreshToken(userId) {
   const raw       = generateOpaqueToken()
@@ -25,7 +34,7 @@ async function issueRefreshToken(userId) {
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
 
   await pool.query(
-    `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+    `INSERT INTO app_auth.refresh_tokens (user_id, token_hash, expires_at)
      VALUES ($1, $2, $3)`,
     [userId, hash, expiresAt]
   )
@@ -37,32 +46,38 @@ async function issueRefreshToken(userId) {
 
 export const login = async (req, res) => {
   try {
-    const { email, password } = req.body
+    const { email, password, tipo } = req.body
 
     if (!email || !password) {
       return res.status(400).json({ message: "Email y contraseña son requeridos" })
     }
 
-    // JOIN con ambas tablas de perfil para recuperar nombre sin importar el rol.
-    // COALESCE toma el primer valor no-NULL: ciudadano o operario.
+    // tipo="staff" → cuenta de personal EMASEO; cualquier otro valor → cuenta ciudadana.
+    // Necesario cuando el mismo email/cédula existe en varios roles.
+    const isStaff = tipo === "staff"
+    const rolFilter = isStaff
+      ? `AND u.rol IN ('SUPERVISOR', 'OPERARIO', 'ADMIN')`
+      : `AND u.rol = 'CIUDADANO'`
+
     const result = await pool.query(
       `SELECT
          u.id,
-         u.username,
          u.password_hash,
          u.rol,
          u.estado,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.users u
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
-       WHERE u.email = $1`,
+         u.nombre,
+         u.apellido
+       FROM app_auth.users u
+       WHERE u.email = $1 ${rolFilter}`,
       [email.toLowerCase().trim()]
     )
 
+    // Mismo mensaje para "usuario no existe" y "contraseña incorrecta"
+    // para evitar user enumeration (el atacante no puede saber cuál falló).
+    const INVALID_CREDS = "Correo o contraseña incorrectos"
+
     if (result.rows.length === 0) {
-      return res.status(401).json({ message: "Credenciales incorrectas" })
+      return res.status(401).json({ message: INVALID_CREDS })
     }
 
     const user = result.rows[0]
@@ -79,7 +94,7 @@ export const login = async (req, res) => {
     )
 
     if (!validPasswordResult.rows[0].valid) {
-      return res.status(401).json({ message: "Contraseña incorrecta" })
+      return res.status(401).json({ message: INVALID_CREDS })
     }
 
     // tipo_perfil permite al gateway y al frontend distinguir en qué tabla
@@ -89,12 +104,14 @@ export const login = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
+      { id: user.id, rol: user.rol, nombre: user.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )
 
     const refreshToken = await issueRefreshToken(user.id)
+
+    await logAuthEvent(req, "LOGIN", user.id, { email: user.email, rol: user.rol })
 
     res.json({ token, refreshToken })
 
@@ -122,15 +139,12 @@ export const refresh = async (req, res) => {
       `SELECT
          rt.id,
          rt.user_id,
-         u.username,
          u.rol,
          u.estado,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.refresh_tokens rt
-       JOIN auth.users u ON u.id = rt.user_id
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
+         u.nombre,
+         u.apellido
+       FROM app_auth.refresh_tokens rt
+       JOIN app_auth.users u ON u.id = rt.user_id
        WHERE rt.token_hash = $1
          AND rt.revoked    = FALSE
          AND rt.expires_at > NOW()`,
@@ -146,7 +160,7 @@ export const refresh = async (req, res) => {
     // Revocar si la cuenta fue suspendida tras emitir el token
     if (row.estado !== "ACTIVO") {
       await pool.query(
-        `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
         [hash]
       )
       return res.status(403).json({ message: "Cuenta suspendida o inactiva" })
@@ -154,7 +168,7 @@ export const refresh = async (req, res) => {
 
     // Rotación: revocar el token actual e emitir un par nuevo
     await pool.query(
-      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
       [hash]
     )
 
@@ -163,7 +177,7 @@ export const refresh = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: row.user_id, username: row.username, rol: row.rol, nombre: row.nombre, tipo_perfil },
+      { id: row.user_id, rol: row.rol, nombre: row.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )
@@ -180,7 +194,9 @@ export const refresh = async (req, res) => {
 
 // ─── Forgot Password ─────────────────────────────────────────────────────────
 // Genera un OTP de 6 dígitos, lo almacena hasheado y envía el email.
-// Responde siempre 200 para no revelar si el email existe (enumeración).
+// Siempre responde con el mismo mensaje genérico (sin emailSent) para evitar
+// enumeración de correos. El envío se despacha en background con setImmediate
+// para que el tiempo de respuesta no varíe según si el email existe.
 
 export const forgotPassword = async (req, res) => {
   const { email } = req.body
@@ -189,48 +205,46 @@ export const forgotPassword = async (req, res) => {
     return res.status(400).json({ message: "Email requerido" })
   }
 
+  const GENERIC_MSG = "Si el correo está registrado, recibirás un código de verificación."
+
   try {
     const userResult = await pool.query(
-      `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
+      `SELECT id FROM app_auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
-    // Respuesta genérica: no revelar si el email está registrado
     if (userResult.rows.length === 0) {
-      return res.json({ message: "Si el email está registrado recibirás un código en breve." })
+      return res.json({ message: GENERIC_MSG })
     }
 
-    const userId = userResult.rows[0].id
+    const userId        = userResult.rows[0].id
+    const normalizedEmail = email.toLowerCase().trim()
 
     // Eliminar tokens previos del mismo usuario para evitar acumulación
     await pool.query(
-      `DELETE FROM auth.password_reset_tokens WHERE user_id = $1`,
+      `DELETE FROM app_auth.password_reset_tokens WHERE user_id = $1`,
       [userId]
     )
 
-    // Generar OTP de 6 dígitos criptográficamente seguro (100000-999999, nunca ceros a la izquierda)
-    const otp      = String(crypto.randomInt(100_000, 1_000_000))
-    const otpHash  = crypto.createHash("sha256").update(otp).digest("hex")
+    const otp       = generateOtp()
+    const otpHash   = hashToken(otp)
     const expiresAt = new Date(Date.now() + PASSWORD_RESET_OTP_TTL_MIN * 60_000)
 
     await pool.query(
-      `INSERT INTO auth.password_reset_tokens (user_id, otp_hash, expires_at)
+      `INSERT INTO app_auth.password_reset_tokens (user_id, otp_hash, expires_at)
        VALUES ($1, $2, $3)`,
       [userId, otpHash, expiresAt]
     )
 
-    let emailSent = false
-    try {
-      await sendPasswordResetEmail(email, otp)
-      emailSent = true
-    } catch (emailError) {
-      console.error("[forgotPassword] Error enviando email:", emailError)
-    }
-
-    res.json({
-      message: "Si el email está registrado recibirás un código en breve.",
-      emailSent,
+    // Despachar el envío en background: la respuesta llega al cliente antes de
+    // que termine el envío, igualando el tiempo observable desde el exterior.
+    setImmediate(() => {
+      sendPasswordResetEmail(normalizedEmail, otp).catch((emailError) => {
+        console.error("[forgotPassword] Error enviando email:", emailError)
+      })
     })
+
+    res.json({ message: GENERIC_MSG })
   } catch (error) {
     console.error("[forgotPassword]", error)
     res.status(500).json({ message: "Error al procesar la solicitud" })
@@ -250,7 +264,7 @@ export const verifyResetOtp = async (req, res) => {
 
   try {
     const userResult = await pool.query(
-      `SELECT id FROM auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
+      `SELECT id FROM app_auth.users WHERE email = $1 AND estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
 
@@ -259,10 +273,10 @@ export const verifyResetOtp = async (req, res) => {
     }
 
     const userId  = userResult.rows[0].id
-    const otpHash = crypto.createHash("sha256").update(String(otp)).digest("hex")
+    const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
-      `SELECT id FROM auth.password_reset_tokens
+      `SELECT id FROM app_auth.password_reset_tokens
        WHERE user_id   = $1
          AND otp_hash  = $2
          AND expires_at > NOW()
@@ -283,7 +297,7 @@ export const verifyResetOtp = async (req, res) => {
 
 // ─── Reset Password ───────────────────────────────────────────────────────────
 // Valida OTP, actualiza password_hash y emite un JWT listo para usar.
-// Operación atómica: el token se marca como usado solo si todo sale bien.
+// Operación atómica: el token se marca como usado solo si el proceso finaliza sin errores.
 
 export const resetPassword = async (req, res) => {
   const { email, otp, newPassword } = req.body
@@ -292,19 +306,15 @@ export const resetPassword = async (req, res) => {
     return res.status(400).json({ message: "Email, código y nueva contraseña son requeridos" })
   }
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ message: "La contraseña debe tener al menos 6 caracteres" })
+  const pwCheck = validatePassword(newPassword)
+  if (!pwCheck.valid) {
+    return res.status(400).json({ message: pwCheck.message })
   }
 
   try {
     const userResult = await pool.query(
-      `SELECT
-         u.id, u.username, u.rol,
-         COALESCE(c.nombre,   o.nombre)   AS nombre,
-         COALESCE(c.apellido, o.apellido) AS apellido
-       FROM auth.users u
-       LEFT JOIN public.ciudadanos    c ON c.user_id = u.id
-       LEFT JOIN operations.operarios o ON o.user_id = u.id
+      `SELECT u.id, u.rol, u.nombre, u.apellido
+       FROM app_auth.users u
        WHERE u.email = $1 AND u.estado = 'ACTIVO'`,
       [email.toLowerCase().trim()]
     )
@@ -314,10 +324,10 @@ export const resetPassword = async (req, res) => {
     }
 
     const user    = userResult.rows[0]
-    const otpHash = crypto.createHash("sha256").update(String(otp)).digest("hex")
+    const otpHash = hashToken(otp)
 
     const tokenResult = await pool.query(
-      `SELECT id FROM auth.password_reset_tokens
+      `SELECT id FROM app_auth.password_reset_tokens
        WHERE user_id   = $1
          AND otp_hash  = $2
          AND expires_at > NOW()
@@ -338,13 +348,13 @@ export const resetPassword = async (req, res) => {
       : "ciudadano"
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, rol: user.rol, nombre: user.nombre, tipo_perfil },
+      { id: user.id, rol: user.rol, nombre: user.nombre, tipo_perfil },
       process.env.JWT_SECRET,
       { expiresIn: ACCESS_TOKEN_TTL }
     )
 
     // Transacción atómica: incluye la emisión del refresh token para que un
-    // fallo en cualquier paso revierta TODO y no deje estado inconsistente.
+    // fallo en cualquier paso revierta los cambios y no deje estado inconsistente.
     const rawRefreshToken = generateOpaqueToken()
     const refreshHash     = hashToken(rawRefreshToken)
     const refreshExpires  = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 86_400_000)
@@ -354,27 +364,27 @@ export const resetPassword = async (req, res) => {
       await client.query("BEGIN")
 
       await client.query(
-        `UPDATE auth.users
-         SET password_hash = crypt($1, gen_salt('bf')),
+        `UPDATE app_auth.users
+         SET password_hash = crypt($1, gen_salt('bf', $3)),
              updated_at    = NOW()
          WHERE id = $2`,
-        [newPassword, user.id]
+        [newPassword, user.id, BCRYPT_ROUNDS]
       )
 
       await client.query(
-        `UPDATE auth.password_reset_tokens SET used = TRUE WHERE id = $1`,
+        `UPDATE app_auth.password_reset_tokens SET used = TRUE WHERE id = $1`,
         [tokenId]
       )
 
       // Revocar todos los refresh tokens activos por seguridad
       await client.query(
-        `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
         [user.id]
       )
 
       // Insertar nuevo refresh token dentro de la misma transacción
       await client.query(
-        `INSERT INTO auth.refresh_tokens (user_id, token_hash, expires_at)
+        `INSERT INTO app_auth.refresh_tokens (user_id, token_hash, expires_at)
          VALUES ($1, $2, $3)`,
         [user.id, refreshHash, refreshExpires]
       )
@@ -387,10 +397,85 @@ export const resetPassword = async (req, res) => {
       client.release()
     }
 
+    await logAuthEvent(req, "RESET_PASSWORD", user.id, { email: email.toLowerCase().trim() })
+
     res.json({ message: "Contraseña actualizada correctamente", token, refreshToken: rawRefreshToken })
   } catch (error) {
     console.error("[resetPassword]", error)
     res.status(500).json({ message: "Error al restablecer la contraseña" })
+  }
+}
+
+// ─── Change Password (autenticado) ───────────────────────────────────────────
+// Requiere token válido. El gateway inyecta x-user-id tras verificar el JWT.
+// Verifica la contraseña actual antes de actualizar y revoca todos los refresh
+// tokens activos para invalidar sesiones abiertas en otros dispositivos.
+
+export const changePassword = async (req, res) => {
+  const userId = req.headers["x-user-id"]
+  const { currentPassword, newPassword } = req.body
+
+  if (!userId) {
+    return res.status(401).json({ message: "No autenticado" })
+  }
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: "Contraseña actual y nueva son requeridas" })
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: "La nueva contraseña debe ser diferente a la actual" })
+  }
+
+  const pwCheck = validatePassword(newPassword)
+  if (!pwCheck.valid) {
+    return res.status(400).json({ message: pwCheck.message })
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT password_hash FROM app_auth.users WHERE id = $1 AND estado = 'ACTIVO'`,
+      [userId]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Usuario no encontrado" })
+    }
+
+    const { password_hash } = result.rows[0]
+    const validResult = await pool.query(
+      `SELECT $1 = crypt($2, $1) AS valid`,
+      [password_hash, currentPassword]
+    )
+
+    if (!validResult.rows[0].valid) {
+      return res.status(400).json({ message: "La contraseña actual es incorrecta" })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      await client.query(
+        `UPDATE app_auth.users SET password_hash = crypt($1, gen_salt('bf', $3)), updated_at = NOW() WHERE id = $2`,
+        [newPassword, userId, BCRYPT_ROUNDS]
+      )
+      // Revocar todos los refresh tokens activos — el usuario deberá re-autenticarse
+      await client.query(
+        `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE user_id = $1`,
+        [userId]
+      )
+      await client.query("COMMIT")
+    } catch (txError) {
+      await client.query("ROLLBACK")
+      throw txError
+    } finally {
+      client.release()
+    }
+
+    await logAuthEvent(req, "CHANGE_PASSWORD", userId)
+
+    res.json({ message: "Contraseña actualizada correctamente" })
+  } catch (error) {
+    console.error("[changePassword]", error)
+    res.status(500).json({ message: "Error al cambiar la contraseña" })
   }
 }
 
@@ -407,7 +492,7 @@ export const logout = async (req, res) => {
   try {
     const hash = hashToken(refreshToken)
     await pool.query(
-      `UPDATE auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
+      `UPDATE app_auth.refresh_tokens SET revoked = TRUE WHERE token_hash = $1`,
       [hash]
     )
     res.status(204).send()

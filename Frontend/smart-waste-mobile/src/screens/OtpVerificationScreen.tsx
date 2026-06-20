@@ -10,6 +10,9 @@ import {
   TouchableOpacity,
   View
 } from "react-native"
+import BackButton from "../components/BackButton"
+import LinkButton from "../components/LinkButton"
+import ProgressBar from "../components/ProgressBar"
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { registerUser, verifyOtp } from "../services/user.service"
 import { colors } from "../theme/colors"
@@ -19,7 +22,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "OtpVerification">
 
 const RESEND_COOLDOWN = 60 // segundos
 
-export default function OtpVerificationScreen({ navigation, route }: Props) {
+export default function OtpVerificationScreen({ navigation, route }: Readonly<Props>) {
   const { email, registrationData } = route.params
 
   const [digits, setDigits]       = useState<string[]>(["", "", "", "", "", ""])
@@ -28,6 +31,10 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
   const [countdown, setCountdown] = useState(RESEND_COOLDOWN)
   const inputs = useRef<(TextInput | null)[]>([])
 
+  // Evita setState tras desmontar (cancelar durante una petición en vuelo)
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
+
   // Temporizador de reenvío
   useEffect(() => {
     if (countdown <= 0) return
@@ -35,8 +42,20 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     return () => clearTimeout(timer)
   }, [countdown])
 
+  const handleCancel = () => {
+    if (loading || resending) return  // no cancelar a mitad de una petición
+    Alert.alert(
+      "Cancelar registro",
+      "¿Seguro que deseas salir? Perderás el progreso del registro.",
+      [
+        { text: "Seguir registrando", style: "cancel" },
+        { text: "Sí, cancelar", style: "destructive", onPress: () => navigation.navigate("Login") },
+      ],
+    )
+  }
+
   const handleDigitChange = (value: string, index: number) => {
-    const digit = value.replace(/[^0-9]/g, "").slice(-1)
+    const digit = value.replace(/\D/g, "").slice(-1)
     const next  = [...digits]
     next[index] = digit
     setDigits(next)
@@ -60,11 +79,13 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     try {
       setLoading(true)
       await verifyOtp({ email, otp })
+      if (!mountedRef.current) return
       navigation.navigate("SetPassword", { email })
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.message || "Código incorrecto")
+      if (!mountedRef.current) return
+      Alert.alert("Error", err?.response?.data?.message || "Código incorrecto. Verifica e intenta de nuevo.")
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }
 
@@ -72,14 +93,16 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     try {
       setResending(true)
       await registerUser(registrationData)
+      if (!mountedRef.current) return
       setDigits(["", "", "", "", "", ""])
       setCountdown(RESEND_COOLDOWN)
       inputs.current[0]?.focus()
       Alert.alert("Código enviado", `Revisa tu correo: ${email}`)
     } catch (err: any) {
-      Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código")
+      if (!mountedRef.current) return
+      Alert.alert("Error", err?.response?.data?.message || "No se pudo reenviar el código. Revisa tu conexión.")
     } finally {
-      setResending(false)
+      if (mountedRef.current) setResending(false)
     }
   }
 
@@ -87,20 +110,12 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
     <View style={globalStyles.container}>
       <View style={[globalStyles.card, { borderRadius: 20 }]}>
 
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={{ alignSelf: "flex-start", marginBottom: 12 }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={{ color: colors.primary, fontWeight: "600", fontSize: 14 }}>← Atrás</Text>
-        </TouchableOpacity>
+        <BackButton onPress={() => navigation.goBack()} />
 
-        <Text style={[globalStyles.title, { textAlign: "center", marginBottom: 4 }]}>
+        <Text style={[globalStyles.title, { textAlign: "center", marginBottom: 12 }]}>
           Verificar Email
         </Text>
-        <Text style={{ color: colors.gray, marginBottom: 16, textAlign: "center", fontSize: 13 }}>
-          Paso 2 de 3 — Confirma tu correo
-        </Text>
+        <ProgressBar currentStep={2} totalSteps={3} />
 
         <Text style={{ color: colors.gray, marginBottom: 28, textAlign: "center", lineHeight: 20 }}>
           Ingresa el código de 6 dígitos{"\n"}enviado a{" "}
@@ -109,15 +124,15 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
 
         {/* 6 casillas OTP */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 32 }}>
-          {digits.map((digit, i) => (
+          {([0, 1, 2, 3, 4, 5] as const).map((pos) => (
             <TextInput
-              key={i}
-              ref={(ref) => { inputs.current[i] = ref }}
+              key={`otp-${pos}`}
+              ref={(ref) => { inputs.current[pos] = ref }}
               style={{
                 width: 44,
                 height: 54,
                 borderWidth: 2,
-                borderColor: digit ? colors.primary : colors.lightGray,
+                borderColor: digits[pos] ? colors.primary : colors.lightGray,
                 borderRadius: 10,
                 textAlign: "center",
                 fontSize: 22,
@@ -127,9 +142,12 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
               }}
               keyboardType="number-pad"
               maxLength={1}
-              value={digit}
-              onChangeText={(v) => handleDigitChange(v, i)}
-              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+              value={digits[pos]}
+              onChangeText={(v) => handleDigitChange(v, pos)}
+              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, pos)}
+              accessibilityLabel={`Dígito ${pos + 1} de 6 del código de verificación`}
+              accessibilityRole="none"
+              accessibilityHint="Ingresa un dígito numérico del 0 al 9"
             />
           ))}
         </View>
@@ -141,6 +159,10 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
             globalStyles.button,
             { borderRadius: 12, opacity: pressed || loading ? 0.7 : 1 }
           ]}
+          accessibilityRole="button"
+          accessibilityLabel="Verificar código"
+          accessibilityHint="Confirma el código de 6 dígitos ingresado"
+          accessibilityState={{ disabled: loading, busy: loading }}
         >
           {loading
             ? <ActivityIndicator color={colors.white} />
@@ -156,7 +178,14 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
               <Text style={{ fontWeight: "bold", color: colors.black }}>{countdown}s</Text>
             </Text>
           ) : (
-            <TouchableOpacity onPress={handleResend} disabled={resending}>
+            <TouchableOpacity
+              onPress={handleResend}
+              disabled={resending}
+              accessibilityRole="button"
+              accessibilityLabel="Reenviar código de verificación"
+              accessibilityHint="Envía un nuevo código a tu correo electrónico"
+              accessibilityState={{ disabled: resending, busy: resending }}
+            >
               {resending
                 ? <ActivityIndicator color={colors.primary} />
                 : (
@@ -169,14 +198,12 @@ export default function OtpVerificationScreen({ navigation, route }: Props) {
           )}
         </View>
 
-        <TouchableOpacity
-          onPress={() => navigation.navigate("Login")}
+        <LinkButton
+          label="Cancelar registro"
+          onPress={handleCancel}
           style={{ marginTop: 16 }}
-        >
-          <Text style={{ textAlign: "center", color: colors.gray, fontSize: 13 }}>
-            Cancelar registro
-          </Text>
-        </TouchableOpacity>
+          accessibilityHint="Abandona el proceso de registro y vuelve al inicio de sesión"
+        />
 
       </View>
     </View>

@@ -1,21 +1,85 @@
+# Nombre fijo del proyecto — garantiza que los volúmenes siempre se llamen
+# emaseo_postgres_data, emaseo_minio_data, etc., sin importar desde qué
+# directorio se corra docker compose (workaround para paths con espacios).
+name: emaseo
+
+# ── Variables compartidas entre ml-api y ml-worker ───────────────────────────
+# Para inferencia real: DUMMY_MODE=false en el .env de la raíz del proyecto
+# y descomentar ML_MODEL_PATH.
+x-ml-env: &ml-env
+  # La URL se construye en celery_app.py con urllib.parse.quote para que
+  # contraseñas con '+', '/' y '=' (base64) no rompan el parser de URLs.
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  DUMMY_MODE: "${DUMMY_MODE:-false}"
+  UPLOADS_DIR: /app/uploads
+  ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+  # Umbral de garbage_score para el endpoint /pre-check.
+  # Por debajo → imagen bloqueada en cliente (fail-closed desde incidente F2998975).
+  # 0.35 = más estricto que el valor anterior (0.25) para rechazar objetos personales
+  # lisos (mochila, funda) antes de gastar YOLO. El cliente ya no permite ignorarlo.
+  PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
+  # ── Gate semántico CLIP ──────────────────────────────────────────────────────
+  # Umbrales para distinguish basura real de personas/interiores/pantallas.
+  # [0, REJECT) → DESCARTADO  |  [REJECT, REVIEW) → EN_REVISION  |  [REVIEW, 1] → PENDIENTE
+  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.30}"
+  SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.62}"
+  # ── Gate de calidad ──────────────────────────────────────────────────────────
+  BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-80.0}"
+  MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
+  HF_HOME: /app/hf_cache
+
 services:
 
   # ── 1. Base de datos ──────────────────────────────────────────────────────────
   postgres:
     image: postgis/postgis:16-3.4
     container_name: emaseo-postgres
+    restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: MIC-EMASEO
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB:-MIC-EMASEO}"
+      # Las contraseñas de roles de servicio se leen por el script de init 07_db_users_isolation.sh
+      DB_PASSWORD_AUTH: "${DB_PASSWORD_AUTH}"
+      DB_PASSWORD_USERS: "${DB_PASSWORD_USERS}"
+      DB_PASSWORD_IMAGE: "${DB_PASSWORD_IMAGE}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./Backend/database/01_init_schema.sql:/docker-entrypoint-initdb.d/01_init_schema.sql
       - ./Backend/database/02_seed_data.sql:/docker-entrypoint-initdb.d/02_seed_data.sql
+      - ./Backend/database/008_refresh_tokens.sql:/docker-entrypoint-initdb.d/03_refresh_tokens.sql
+      - ./Backend/database/009_password_reset_tokens.sql:/docker-entrypoint-initdb.d/04_password_reset_tokens.sql
+      - ./Backend/database/010_incident_status_async.sql:/docker-entrypoint-initdb.d/05_incident_status_async.sql
+      - ./Backend/database/011_consolidation.sql:/docker-entrypoint-initdb.d/06_consolidation.sql
+      - ./Backend/database/012_db_users_isolation.sh:/docker-entrypoint-initdb.d/07_db_users_isolation.sh
+      - ./Backend/database/014_initial_status_history.sql:/docker-entrypoint-initdb.d/08_initial_status_history.sql
+      - ./Backend/database/015_missing_indexes.sql:/docker-entrypoint-initdb.d/09_missing_indexes.sql
+      - ./Backend/database/016_data_validation.sql:/docker-entrypoint-initdb.d/10_data_validation.sql
+      - ./Backend/database/017_audit_schema.sql:/docker-entrypoint-initdb.d/11_audit_schema.sql
+      - ./Backend/database/018_device_tokens.sql:/docker-entrypoint-initdb.d/12_device_tokens.sql
+      - ./Backend/database/019_notifications_retry.sql:/docker-entrypoint-initdb.d/13_notifications_retry.sql
+      - ./Backend/database/020_pending_registrations_to_auth.sql:/docker-entrypoint-initdb.d/14_pending_to_auth.sql
+      - ./Backend/database/021_partition_incidents.sql:/docker-entrypoint-initdb.d/15_partition_incidents.sql
+      - ./Backend/database/022_lopdp_arco_functions.sql:/docker-entrypoint-initdb.d/16_lopdp_arco_functions.sql
+      - ./Backend/database/023_user_consents.sql:/docker-entrypoint-initdb.d/17_user_consents.sql
+      - ./Backend/database/024_pgcrypto_pii.sql:/docker-entrypoint-initdb.d/18_pgcrypto_pii.sql
+      - ./Backend/database/025_rls_image_svc.sql:/docker-entrypoint-initdb.d/19_rls_image_svc.sql
+      - ./Backend/database/026_retention_policy.sql:/docker-entrypoint-initdb.d/20_retention_policy.sql
+      - ./Backend/database/027_fix_chk_prioridad_requerida.sql:/docker-entrypoint-initdb.d/21_fix_chk_prioridad.sql
+      - ./Backend/database/028_add_ubicacion_aproximada.sql:/docker-entrypoint-initdb.d/22_ubicacion_aproximada.sql
+      - ./Backend/database/029_celery_task_id.sql:/docker-entrypoint-initdb.d/23_celery_task_id.sql
+      - ./Backend/database/030_analysis_feedback.sql:/docker-entrypoint-initdb.d/24_analysis_feedback.sql
+      - ./Backend/database/031_notifications_push_index.sql:/docker-entrypoint-initdb.d/25_notifications_push_index.sql
+      - ./Backend/database/034_fix_image_urls.sql:/docker-entrypoint-initdb.d/26_fix_image_urls.sql
+    networks:
+      - emaseo_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d MIC-EMASEO"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -25,15 +89,16 @@ services:
   minio:
     image: minio/minio:latest
     container_name: emaseo-minio
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # MinIO Console
+    restart: unless-stopped
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer MinIO al host.
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 5s
@@ -48,40 +113,202 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     entrypoint: >
       /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
+        mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
         mc mb --ignore-existing local/emaseo-incidents &&
         mc anonymous set download local/emaseo-incidents &&
         echo 'Bucket emaseo-incidents listo.'
       "
     restart: on-failure
+    networks:
+      - emaseo_network
 
   # ── 4. Redis — Broker + Result Backend para Celery ────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: emaseo-redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer Redis al host.
+    environment:
+      # REDISCLI_AUTH permite que redis-cli (healthcheck) autentique automaticamente
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
     volumes:
       - redis_data:/data
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --requirepass "${REDIS_PASSWORD}"
+    networks:
+      - emaseo_network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  # ── 5. ML API — Gunicorn + UvicornWorkers (I/O-bound, sin GPU) ───────────────
+  # ── 5. Auth Service ───────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ./Backend/auth-service
+    container_name: emaseo-auth
+    restart: unless-stopped
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    # El gateway es el único punto de entrada externo.
+    environment:
+      PORT: 3002
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      DB_USER_AUTH: "${DB_USER_AUTH:-auth_svc}"
+      DB_HOST: postgres
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_AUTH: "${DB_PASSWORD_AUTH}"
+      DB_PORT: 5432
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 6. Users Service ──────────────────────────────────────────────────────────
+  users-service:
+    build:
+      context: ./Backend/users-service
+    container_name: emaseo-users
+    restart: unless-stopped
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    environment:
+      PORT: 3000
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      DB_USER_USERS: "${DB_USER_USERS:-users_svc}"
+      DB_HOST: postgres
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_USERS: "${DB_PASSWORD_USERS}"
+      DB_PORT: 5432
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 7. Image Service ──────────────────────────────────────────────────────────
+  image-service:
+    build:
+      context: ./Backend/image-service
+    container_name: emaseo-image
+    restart: unless-stopped
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    environment:
+      PORT: 5000
+      DB_USER_IMAGE: "${DB_USER_IMAGE:-image_svc}"
+      DB_HOST: postgres
+      DB_NAME: "${POSTGRES_DB:-MIC-EMASEO}"
+      DB_PASSWORD_IMAGE: "${DB_PASSWORD_IMAGE}"
+      DB_PORT: 5432
+      S3_ENDPOINT: "http://minio:9000"
+      S3_BUCKET: "${S3_BUCKET:-emaseo-incidents}"
+      S3_ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+      S3_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_PUBLIC_URL: "${S3_PUBLIC_URL}"
+      ML_SERVICE_URL: "http://ml-api:8000/predict"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ml-api:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 8. API Gateway ────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./Backend/api-gateway
+    container_name: emaseo-gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      JWT_SECRET: "${JWT_SECRET}"
+      AUTH_SERVICE_URL: "http://auth-service:3002"
+      USERS_SERVICE_URL: "http://users-service:3000"
+      IMAGE_SERVICE_URL: "http://image-service:5000"
+      ML_SERVICE_URL: "http://ml-api:8000"
+      # URL interna de MinIO para el proxy de medios — solo accesible dentro de emaseo_network.
+      MINIO_INTERNAL_URL: "http://minio:9000"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      # CORS y URL pública (sobreescribibles desde .env para distintos entornos)
+      CORS_ORIGINS: "${CORS_ORIGINS}"
+      PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:4000}"
+      NODE_ENV: "${NODE_ENV:-development}"
+      # Rate limit distribuido — usa Redis para coherencia entre réplicas del gateway
+      REDIS_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/1"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      users-service:
+        condition: service_healthy
+      image-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 9. ML API — Gunicorn + UvicornWorkers (I/O-bound, sin GPU) ───────────────
   ml-api:
     build:
       context: ./Backend/ml-service
     container_name: emaseo-ml-api
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+    # Sin ports: — solo accesible desde la red Docker interna (emaseo_network).
+    # El image-service lo llama internamente en http://ml-api:8000/predict.
     environment:
-      REDIS_URL: redis://redis:6379/0
-      DUMMY_MODE: "true"
-      UPLOADS_DIR: /app/uploads
+      <<: *ml-env
       # GUNICORN_WORKERS: 5   # override manual; por defecto = (2×cores)+1
     volumes:
       - shared_uploads:/app/uploads
@@ -92,54 +319,108 @@ services:
     # En desarrollo local reemplaza este comando por:
     #   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     command: gunicorn main:app -c gunicorn.conf.py
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
 
-  # ── 6. Celery Worker — inferencia GPU (1 proceso = 1 GPU slot) ───────────────
+  # ── 10. Celery Worker — inferencia GPU/CPU (1 proceso = 1 GPU slot) ──────────
   #
   # ESCALADO HORIZONTAL:
-  #   docker compose up --scale ml-worker=N
-  #   Cada réplica ocupa 1 GPU completa. Requiere N GPUs en el host.
-  #   Con una sola RTX 3050 usa siempre N=1.
+  #   docker compose up -d --scale ml-worker=3
+  #   Cada réplica recibe un hostname único (worker@<container-id>).
+  #   En hosts multi-GPU cada réplica ocupa 1 GPU. Con 1 sola GPU las 3 comparten.
   #
-  # Requisito GPU: NVIDIA Container Toolkit instalado en el host.
+  # GPU (opcional): descomenta el bloque "reservations" si tienes NVIDIA Container
+  # Toolkit instalado. Sin él el worker corre en CPU (más lento, pero funciona).
   # https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
   ml-worker:
     build:
       context: ./Backend/ml-service
-    # Sin container_name: permite múltiples réplicas con --scale ml-worker=N
+    restart: unless-stopped
+    # Sin container_name → permite múltiples réplicas con --scale
+    # Sin ports        → sin colisiones al hacer scale-out
     environment:
-      REDIS_URL: redis://redis:6379/0
-      DUMMY_MODE: "true"
-      UPLOADS_DIR: /app/uploads
-      # ML_MODEL_PATH: /app/models/rtdetr_l_best.pt  # descomentar con modelo real
+      <<: *ml-env
+      # Volumen monocular con MiDaS DESACTIVADO por defecto.
+      # Razón: la calibración (GROUND_DEPTH_M=3.5m, DEPTH_PILE_RATIO=0.28) está
+      # diseñada para fotos exteriores con suelo visible. En interiores o
+      # cuando MiDaS estima mal la profundidad, infla volúmenes a valores
+      # incoherentes con la banda (p.ej. nivel=MEDIO con volumen=10.49 m³).
+      # Cuando esté activo se usa estimación por banda interpolada (0.1–15 m³)
+      # que es coherente con nivel/prioridad.
+      USE_MIDAS_VOLUME: "false"
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
+      - hf_cache:/app/hf_cache  # pesos CLIP ViT-B/32 (~350 MB) — persisten entre reinicios
     depends_on:
       redis:
         condition: service_healthy
-    # worker_concurrency y prefetch_multiplier vienen de celery_app.py (ambos = 1)
-    command: celery -A celery_app worker --loglevel=info
+    # --hostname worker@%h: cada réplica aparece con nombre único en Flower/Redis.
+    # worker_concurrency=1 y prefetch_multiplier=1 configurados en celery_app.py
+    command: >
+      celery -A celery_app worker
+        -Q ml_queue,dead_letter
+        --loglevel=info
+        --hostname=worker@%h
+    # El Dockerfile hereda el HEALTHCHECK de ml-api (curl :8000/health).
+    # El worker no expone HTTP → override: verificar que el proceso Celery responde a "ping".
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping", "--timeout=5"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - emaseo_network
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        # reservations:      # ← descomentar solo si tienes GPU NVIDIA + Container Toolkit
+        #   devices:
+        #     - driver: nvidia
+        #       count: 1
+        #       capabilities: [gpu]
 
-  # ── 7. Flower — dashboard de tareas Celery ────────────────────────────────────
+  # ── 11. Flower — dashboard de tareas Celery ───────────────────────────────────
+  # Acceso: http://localhost:5555  (usuario: admin, contraseña: FLOWER_PASSWORD)
+  # PRODUCCIÓN: elimina el bloque `ports:` o ponlo detrás de un reverse proxy
+  # con TLS. Nunca expongas el puerto 5555 directamente a Internet.
   flower:
     image: mher/flower:2.0
     container_name: emaseo-flower
-    ports:
-      - "5555:5555"
+    restart: unless-stopped
+    # Sin ports: en produccion. Usar docker-compose.dev.yml para exponer Flower al host.
     environment:
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # REDIS_PASSWORD_ENCODED = REDIS_PASSWORD con '+' → %2B y '/' → %2F.
+      # Las contraseñas generadas con openssl base64 contienen esos caracteres:
+      # sin percent-encoding el parser de URLs corta el netloc en la primera '/'
+      # y trata el resto de la contraseña como puerto → ValueError.
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
+      # Flower reconoce FLOWER_BASIC_AUTH automáticamente (usuario:contraseña).
+      FLOWER_BASIC_AUTH: "${FLOWER_USER}:${FLOWER_PASSWORD}"
     depends_on:
       redis:
         condition: service_healthy
-    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    networks:
+      - emaseo_network
+    command: >
+      celery --broker=redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0
+        flower --port=5555
+          --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
 
 volumes:
   postgres_data:
@@ -148,3 +429,10 @@ volumes:
   # Volumen compartido entre ml-api (escribe) y ml-worker (lee + elimina)
   # Docker gestiona el ciclo de vida; los archivos viven solo durante la inferencia.
   shared_uploads:
+  # Pesos CLIP ViT-B/32 pre-descargados en build-time — persisten entre reinicios del worker.
+  # Si el volumen está vacío al primer arranque, CLIP se descarga del Hub en runtime (~350 MB).
+  hf_cache:
+
+networks:
+  emaseo_network:
+    driver: bridge

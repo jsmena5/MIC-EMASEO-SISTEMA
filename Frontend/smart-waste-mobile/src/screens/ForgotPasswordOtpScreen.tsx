@@ -15,7 +15,7 @@ import { requestPasswordReset, verifyPasswordResetOtp } from "../services/auth.s
 import { colors } from "../theme/colors"
 import { globalStyles } from "../theme/styles"
 
-type Props = NativeStackScreenProps<RootStackParamList, "ForgotPasswordOtp">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "ForgotPasswordOtp">>
 
 const RESEND_COOLDOWN = 60
 
@@ -35,7 +35,7 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
   }, [countdown])
 
   const handleDigitChange = (value: string, index: number) => {
-    const digit = value.replace(/[^0-9]/g, "").slice(-1)
+    const digit = value.replace(/\D/g, "").slice(-1)
     const next  = [...digits]
     next[index] = digit
     setDigits(next)
@@ -116,15 +116,15 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
 
         {/* 6 casillas OTP */}
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 32 }}>
-          {digits.map((digit, i) => (
+          {([0, 1, 2, 3, 4, 5] as const).map((pos) => (
             <TextInput
-              key={i}
-              ref={(ref) => { inputs.current[i] = ref }}
+              key={`otp-${pos}`}
+              ref={(ref) => { inputs.current[pos] = ref }}
               style={{
                 width: 44,
                 height: 54,
                 borderWidth: 2,
-                borderColor: digit ? colors.primary : colors.lightGray,
+                borderColor: digits[pos] ? colors.primary : colors.lightGray,
                 borderRadius: 10,
                 textAlign: "center",
                 fontSize: 22,
@@ -134,9 +134,9 @@ export default function ForgotPasswordOtpScreen({ navigation, route }: Props) {
               }}
               keyboardType="number-pad"
               maxLength={1}
-              value={digit}
-              onChangeText={(v) => handleDigitChange(v, i)}
-              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+              value={digits[pos]}
+              onChangeText={(v) => handleDigitChange(v, pos)}
+              onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, pos)}
             />
           ))}
         </View>

@@ -1,0 +1,111 @@
+{
+  "_README": [
+    "Set etiquetado de regresión para la clasificación de severidad (classify_severity).",
+    "Cada caso fija el nivel esperado para una combinación de features (cobertura, score,",
+    "confianza, tipo, geometría de bboxes). test_labeled_images.py corre la clasificación",
+    "REAL sobre estas features y bloquea regresiones de banda en CI (sin torch ni modelo).",
+    "",
+    "Campo 'source':",
+    "  'extracted'  → features obtenidas corriendo el pipeline real sobre una imagen real",
+    "                 vía scripts/extract_labeled_features.py (fuente de verdad).",
+    "  'estimated'  → features aproximadas a mano desde un screenshot/incidente documentado;",
+    "                 reemplazar por 'extracted' cuando se disponga de la imagen original.",
+    "",
+    "expected_nivel: 'BAJO' | 'MEDIO' | 'ALTO' | 'CRITICO' | 'RECHAZADO'",
+    "  'RECHAZADO' = la imagen cae bajo GARBAGE_SCORE_HARD_FLOOR (has_waste=false en run_inference).",
+    "",
+    "img_w/img_h y bboxes definen la geometría: la cobertura y el clustering se derivan de",
+    "ellos (no se hardcodean) para que el fixture sea internamente consistente."
+  ],
+  "cases": [
+    {
+      "name": "reported_pile_A07327C9",
+      "note": "Incidente real: ~7 fundas amontonadas junto a un poste. ANTES: MEDIA / 0.61 m³. Una pila densa de basura real debe ser ALTA.",
+      "source": "estimated",
+      "image": "reported_pile_A07327C9.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [[277, 117, 1004, 844]],
+      "confianza": 0.89,
+      "garbage_score": 0.60,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "ALTO"
+    },
+    {
+      "name": "mochila_F2998975",
+      "note": "Falso positivo documentado: mochila lisa sobre una cama. Textura uniforme → garbage_score bajo → debe rechazarse por hard floor.",
+      "source": "estimated",
+      "image": "mochila_F2998975.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [[160, 120, 1120, 840]],
+      "confianza": 0.86,
+      "garbage_score": 0.18,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "RECHAZADO"
+    },
+    {
+      "name": "vaso_closeup_5_bboxes",
+      "note": "Falso CRÍTICO reportado: vaso desechable fotografiado de cerca, 5 bboxes superpuestos. La unión de bboxes + cluster penalty deben mantenerlo bajo.",
+      "source": "estimated",
+      "image": "vaso_closeup.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [
+        [560, 390, 720, 570],
+        [565, 395, 725, 575],
+        [555, 385, 715, 565],
+        [570, 400, 730, 580],
+        [550, 380, 710, 560]
+      ],
+      "confianza": 0.56,
+      "garbage_score": 0.28,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "BAJO"
+    },
+    {
+      "name": "bolsas_pequenas_dispersas",
+      "note": "Pocas bolsas pequeñas dispersas en la acera → acumulación baja.",
+      "source": "estimated",
+      "image": "bolsas_pequenas.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [[120, 700, 290, 880], [980, 720, 1140, 900]],
+      "confianza": 0.65,
+      "garbage_score": 0.50,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "BAJO"
+    },
+    {
+      "name": "acumulacion_moderada_2_bboxes",
+      "note": "Acumulación moderada que cubre ~25% del frame con dos focos → MEDIO.",
+      "source": "estimated",
+      "image": "acumulacion_moderada.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [[80, 360, 700, 620], [720, 380, 1180, 640]],
+      "confianza": 0.72,
+      "garbage_score": 0.55,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "MEDIO"
+    },
+    {
+      "name": "botadero_masivo_disperso",
+      "note": "Botadero masivo disperso a lo largo de la cuadra (4 focos dispersos, cobertura casi total) → CRÍTICO.",
+      "source": "estimated",
+      "image": "botadero_masivo.jpg",
+      "img_w": 1280,
+      "img_h": 960,
+      "bboxes": [
+        [0, 0, 640, 480],
+        [640, 0, 1280, 480],
+        [0, 480, 640, 960],
+        [640, 480, 1280, 960]
+      ],
+      "confianza": 0.88,
+      "garbage_score": 0.70,
+      "tipo_residuo": "MIXTO",
+      "expected_nivel": "CRITICO"
+    }
+  ]
+}

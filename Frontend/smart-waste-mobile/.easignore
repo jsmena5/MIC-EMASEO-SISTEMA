@@ -1,0 +1,40 @@
+# Archivos/carpetas a EXCLUIR del upload a EAS Build
+# EAS los reconstruye en su cloud, no hay que enviarlos.
+
+node_modules/
+.expo/
+.expo-shared/
+.vscode/
+.idea/
+
+# Carpetas nativas (EAS hace expo prebuild en su lado)
+android/
+ios/
+
+# Salidas de build
+dist/
+build/
+web-build/
+*.apk
+*.aab
+*.ipa
+
+# Logs y temporales
+*.log
+*.tmp
+.DS_Store
+.cache/
+
+# Entornos locales que NO queremos en el build de produccion
+.env
+.env.local
+.env.development
+.env.development.local
+
+# Tests, docs, capturas
+__tests__/
+*.test.ts
+*.test.tsx
+docs/
+screenshots/
+*.png.bak

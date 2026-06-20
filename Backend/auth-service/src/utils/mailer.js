@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer"
 import dotenv from "dotenv"
+import { logger } from "./logger.js"
 
 dotenv.config()
 
@@ -10,7 +11,7 @@ if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
 // Singleton — se crea una sola vez al arrancar el servicio
 const transporter = nodemailer.createTransport({
   host:   process.env.SMTP_HOST || "smtp.gmail.com",
-  port:   parseInt(process.env.SMTP_PORT || "587"),
+  port:   Number.parseInt(process.env.SMTP_PORT || "587"),
   secure: false, // STARTTLS en puerto 587
   auth: {
     user: process.env.SMTP_USER,
@@ -24,7 +25,7 @@ const transporter = nodemailer.createTransport({
  * @param {string} otpCode  - Código OTP de 6 dígitos
  */
 export const sendPasswordResetEmail = async (toEmail, otpCode) => {
-  await transporter.sendMail({
+  const info = await transporter.sendMail({
     from:    process.env.EMAIL_FROM || "EMASEO EP <noreply.emaseo@gmail.com>",
     to:      toEmail,
     subject: "Recuperación de contraseña — EMASEO EP",
@@ -50,4 +51,5 @@ export const sendPasswordResetEmail = async (toEmail, otpCode) => {
       </div>
     `,
   })
+  logger.info({ to: toEmail, messageId: info.messageId }, "Email de recuperación enviado")
 }

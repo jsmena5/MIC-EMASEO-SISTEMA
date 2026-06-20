@@ -1,0 +1,329 @@
+# =============================================================================
+# docker-compose.prod.yml
+# Despliegue en VPS apuntando a servicios managed:
+#   - PostgreSQL + PostGIS → Supabase (DB_HOST=<project>.pooler.supabase.com)
+#   - Object Storage      → Cloudflare R2 (S3_ENDPOINT=https://<acct>.r2.cloudflarestorage.com)
+#
+# Uso:
+#   cp .env.production.example .env
+#   # Editar .env con credenciales reales (Supabase, R2, dominios, etc.)
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Lo que difiere del docker-compose.yml de desarrollo:
+#   - No incluye postgres ni minio (managed externos).
+#   - No incluye shared_uploads (las imágenes pasan por R2 vía image-service).
+#   - Healthchecks usan curl/wget hacia 127.0.0.1 INTRA-container (no expuesto).
+#   - Solo el api-gateway publica el puerto 4000 al host; el reverse proxy
+#     (Caddy/nginx) en el VPS termina TLS y enruta a este puerto.
+# =============================================================================
+name: emaseo-prod
+
+x-ml-env: &ml-env
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  DUMMY_MODE: "${DUMMY_MODE:-false}"
+  PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
+  ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
+  # ── Gate semántico CLIP ──────────────────────────────────────────────────────
+  # SEMANTIC_REJECT_THRESHOLD: imagen claramente NO es basura → DESCARTADO automático
+  # SEMANTIC_REVIEW_THRESHOLD: imagen probablemente es basura → PENDIENTE con prioridad
+  # Zona [REJECT, REVIEW): ambiguo → EN_REVISION para supervisor
+  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
+  SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
+  # ── Gate de calidad: blur y cobertura ────────────────────────────────────────
+  BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-0}"
+  MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
+  # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────────────────
+  HF_HOME: /app/hf_cache
+
+services:
+
+  # ── Redis (broker Celery + rate-limit-redis) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: emaseo-redis
+    restart: unless-stopped
+    environment:
+      REDISCLI_AUTH: "${REDIS_PASSWORD}"
+    volumes:
+      - redis_data:/data
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --requirepass "${REDIS_PASSWORD}"
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth Service ──────────────────────────────────────────────────────────────
+  auth-service:
+    image: ${REGISTRY:-ghcr.io/emaseo}/auth-service:${TAG:-latest}
+    build: { context: ./Backend/auth-service }
+    container_name: emaseo-auth
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      NODE_ENV: production
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:-12}"
+      DB_USER_AUTH: "${DB_USER_AUTH}"
+      DB_HOST: "${DB_HOST}"
+      DB_NAME: "${DB_NAME}"
+      DB_PASSWORD_AUTH: "${DB_PASSWORD_AUTH}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_SSL: "${DB_SSL:-true}"
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── Users Service ─────────────────────────────────────────────────────────────
+  users-service:
+    image: ${REGISTRY:-ghcr.io/emaseo}/users-service:${TAG:-latest}
+    build: { context: ./Backend/users-service }
+    container_name: emaseo-users
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-15m}"
+      BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:-12}"
+      DB_USER_USERS: "${DB_USER_USERS}"
+      DB_HOST: "${DB_HOST}"
+      DB_NAME: "${DB_NAME}"
+      DB_PASSWORD_USERS: "${DB_PASSWORD_USERS}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_SSL: "${DB_SSL:-true}"
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+      EMAIL_FROM: "${EMAIL_FROM}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── Image Service ─────────────────────────────────────────────────────────────
+  image-service:
+    image: ${REGISTRY:-ghcr.io/emaseo}/image-service:${TAG:-latest}
+    build: { context: ./Backend/image-service }
+    container_name: emaseo-image
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DB_USER_IMAGE: "${DB_USER_IMAGE}"
+      DB_HOST: "${DB_HOST}"
+      DB_NAME: "${DB_NAME}"
+      DB_PASSWORD_IMAGE: "${DB_PASSWORD_IMAGE}"
+      DB_PORT: "${DB_PORT:-5432}"
+      DB_SSL: "${DB_SSL:-true}"
+      # Cloudflare R2 (o S3 real) — sin path-style, virtual-hosted
+      S3_ENDPOINT: "${S3_ENDPOINT}"
+      S3_BUCKET: "${S3_BUCKET}"
+      S3_ACCESS_KEY_ID: "${S3_ACCESS_KEY_ID}"
+      S3_SECRET_ACCESS_KEY: "${S3_SECRET_ACCESS_KEY}"
+      S3_REGION: "${S3_REGION:-auto}"
+      S3_PUBLIC_URL: "${S3_PUBLIC_URL}"
+      ML_SERVICE_URL: "http://ml-api:8000/predict"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    depends_on:
+      ml-api:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── API Gateway (único servicio expuesto al host) ─────────────────────────────
+  api-gateway:
+    image: ${REGISTRY:-ghcr.io/emaseo}/api-gateway:${TAG:-latest}
+    build: { context: ./Backend/api-gateway }
+    container_name: emaseo-gateway
+    restart: unless-stopped
+    ports:
+      # El reverse proxy (Caddy/nginx) en el host termina TLS y enruta aquí.
+      # No publicar este puerto al WAN — sólo localhost del VPS.
+      - "127.0.0.1:4000:4000"
+    environment:
+      NODE_ENV: production
+      JWT_SECRET: "${JWT_SECRET}"
+      AUTH_SERVICE_URL: "http://auth-service:3002"
+      USERS_SERVICE_URL: "http://users-service:3000"
+      IMAGE_SERVICE_URL: "http://image-service:5000"
+      ML_SERVICE_URL: "http://ml-api:8000"
+      # En producción no hay MinIO local — el proxy /api/media apunta a R2 directo.
+      MINIO_INTERNAL_URL: "${S3_PUBLIC_URL}"
+      INTERNAL_TOKEN: "${INTERNAL_TOKEN}"
+      CORS_ORIGINS: "${CORS_ORIGINS}"
+      PUBLIC_API_URL: "${PUBLIC_API_URL}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/1"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      users-service:
+        condition: service_healthy
+      image-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── ML API (Gunicorn + Uvicorn) ───────────────────────────────────────────────
+  ml-api:
+    image: ${REGISTRY:-ghcr.io/emaseo}/ml-service:${TAG:-latest}
+    build: { context: ./Backend/ml-service }
+    container_name: emaseo-ml-api
+    restart: unless-stopped
+    environment:
+      <<: *ml-env
+      UPLOADS_DIR: /app/uploads
+      GUNICORN_WORKERS: "2"
+      HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - shared_uploads:/app/uploads
+      - hf_cache:/app/hf_cache
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: gunicorn main:app -c gunicorn.conf.py
+    networks:
+      - emaseo_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'   # pre-check es liviano; deja 3 cores libres para Node+ML
+          memory: 500M
+
+  # ── ML Worker (Celery) ────────────────────────────────────────────────────────
+  # El worker recibe la imagen vía Celery payload (no via volumen compartido).
+  # El modelo .pt debe pre-cargarse en el VPS o descargarse desde S3 al boot.
+  ml-worker:
+    image: ${REGISTRY:-ghcr.io/emaseo}/ml-service:${TAG:-latest}
+    build: { context: ./Backend/ml-service }
+    restart: unless-stopped
+    environment:
+      <<: *ml-env
+      # Estimación de volumen real con MiDaS (medir+acotar). El resultado se acota
+      # al rango de la banda del nivel en tasks.py, así que no puede inflar el
+      # volumen de forma incoherente con el nivel. MiDaS se precarga en el warmup.
+      USE_MIDAS_VOLUME: "true"
+      UPLOADS_DIR: /app/uploads
+      # 2 threads por inferencia RT-DETR × 2 tareas concurrentes = 4 threads
+      # máximo, que caben justo en los 4 vCPU del VPS sin desbordar.
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      # Fuerza HuggingFace Hub a modo offline: usa solo el caché local (hf_cache
+      # volume) sin hacer requests HTTP para verificar actualizaciones del modelo.
+      # Sin esto, cada carga de CLIP hace un request a HF que con rate-limiting
+      # puede colgar por minutos bloqueando la primera inferencia tras reinicio.
+      HUGGINGFACE_HUB_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      WORKER_CONCURRENCY: "2"   # debe coincidir con --concurrency en command
+    volumes:
+      - shared_uploads:/app/uploads
+      - ./ML/modelos:/app/models:ro
+      - hf_cache:/app/hf_cache
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A celery_app worker
+        -Q ml_queue,dead_letter
+        --loglevel=info
+        --hostname=worker@%h
+        --concurrency=2
+    healthcheck:
+      test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping", "--timeout=5"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - emaseo_network
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'   # 3 de 4 vCPU para inferencia; 1 queda para Node+ml-api
+          memory: 4G
+
+  # ── Flower (opcional — colocar detrás de proxy con TLS si se expone) ──────────
+  flower:
+    image: mher/flower:2.0
+    container_name: emaseo-flower
+    restart: unless-stopped
+    environment:
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0"
+      FLOWER_BASIC_AUTH: "${FLOWER_USER}:${FLOWER_PASSWORD}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - emaseo_network
+    command: >
+      celery --broker=redis://:${REDIS_PASSWORD_ENCODED}@redis:6379/0
+        flower --port=5555
+          --basic_auth=${FLOWER_USER}:${FLOWER_PASSWORD}
+
+volumes:
+  redis_data:
+  shared_uploads:
+  hf_cache:   # pesos CLIP ViT-B/32 pre-descargados en build; persisten entre reinicios del worker
+
+networks:
+  emaseo_network:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: "fd12:3456:789a:1::/64"

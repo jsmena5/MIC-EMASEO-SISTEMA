@@ -1,0 +1,58 @@
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in  { animation: fade-in  0.8s ease-in-out; }
+.animate-slide-up { animation: slide-up 0.6s ease-out; }
+
+:root {
+  --text:   #334155;
+  --text-h: #0f172a;
+  --bg:     #f8fafc;
+  --border: #e2e8f0;
+
+  --primary:        #4F46E5;
+  --primary-dark:   #3730A3;
+  --primary-light:  #EEF2FF;
+  --secondary:      #10B981;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--bg);
+}
+
+#root {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+h1, h2 { color: var(--text-h); margin: 0; }
+h1 { font-size: 2rem; }
+h2 { font-size: 1.4rem; }
+p  { margin: 0; }
+
+/* Leaflet fix — z-index correction for markers */
+.leaflet-pane { z-index: 1; }
+.leaflet-top, .leaflet-bottom { z-index: 2; }

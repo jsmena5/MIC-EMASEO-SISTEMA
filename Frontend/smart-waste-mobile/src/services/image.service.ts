@@ -1,54 +1,111 @@
 import api from "../utils/api"
+import { toPublicMediaUrl } from "../utils/mediaUrl"
+import type {
+  AnalysisIncidentEstado,
+  DistanceHint,
+  NivelAcum,
+  Prioridad,
+} from "../types/incident"
+
+export type { DistanceHint, AnalysisIncidentEstado }
+export type { IncidentEstado } from "../types/incident"
+
 
 export const validateImage = async (imageBase64: string) => {
   try {
-    const res = await api.post("/image/validate-image", {
-      image: imageBase64,
-    })
+    const res = await api.post("/image/validate-image", { image: imageBase64 })
     return res.data
   } catch (error) {
-    console.error("Error validando imagen", error)
+    if (__DEV__) console.warn("[image.service] Error validando imagen:", error)
     throw error
   }
 }
 
 export interface AnalysisResult {
-  success: boolean
   incident_id: string
-  zona_id: string | null
-  nivel_acumulacion: "BAJO" | "MEDIO" | "ALTO" | "CRITICO"
+  task_id?: string
+  estado: AnalysisIncidentEstado
+  prioridad: Prioridad
+  nivel_acumulacion: NivelAcum
   volumen_estimado_m3: number
-  prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA"
   tipo_residuo: string
   confianza: number
   num_detecciones: number
-  coverage_ratio: number
   tiempo_inferencia_ms: number
-  estado: string
-  message: string
+  coverage_ratio?: number
   scale_penalty_applied?: boolean
+  zona_id?: string | null
 }
 
-export interface Incident {
-  id: string
-  estado: "PENDIENTE" | "EN_ATENCION" | "RESUELTA" | "RECHAZADA"
-  prioridad: "BAJA" | "MEDIA" | "ALTA" | "CRITICA"
-  descripcion: string | null
-  created_at: string
-  image_url: string | null
-  nivel_acumulacion: "BAJO" | "MEDIO" | "ALTO" | "CRITICO" | null
+// Discriminated union for GET /image/status/:taskId responses
+export type TaskStatusResponse =
+  | { task_id: string; estado: "PROCESANDO"; message: string }
+  | { task_id: string; estado: "FALLIDO";    message: string; nota_fallo: string | null }
+  | { task_id: string; estado: "DESCARTADO"; message?: string; decision_automatica?: string | null }
+  | { task_id: string; estado: "PENDIENTE"; message?: string; decision_automatica?: string | null; confianza_decision?: number | null }
+  | (AnalysisResult & { task_id: string })
+
+// Immediate 202 response from POST /image/analyze
+export interface AnalyzeAccepted {
+  task_id: string
+  estado: "PROCESANDO"
+  message: string
+  poll_url: string
+  /** true cuando el servidor reconoció un reenvío idempotente (no creó un duplicado). */
+  idempotent_replay?: boolean
+}
+
+export interface WaitForAnalysisOptions {
+  intervalMs?: number
+  timeoutMs?: number
+  signal?: AbortSignal
+  onStatus?: (status: TaskStatusResponse) => void
+}
+
+export class TaskAnalysisFailedError extends Error {
+  constructor(
+    public readonly taskId: string,
+    message: string,
+  ) {
+    super(message)
+    this.name = "TaskAnalysisFailedError"
+  }
+}
+
+export class TaskAnalysisTimeoutError extends Error {
+  constructor(public readonly taskId: string) {
+    super("El analisis no termino dentro del tiempo esperado.")
+    this.name = "TaskAnalysisTimeoutError"
+  }
+}
+
+// El mobile siempre recibe `prioridad` con valor (la API la garantiza para incidentes
+// del ciudadano). `tipo_residuo` queda como string libre por compat con la API.
+export type Incident = Omit<
+  import("../types/incident").IncidentBase,
+  "tipo_residuo" | "prioridad"
+> & {
   tipo_residuo: string | null
-  confianza: number | null
-  num_detecciones: number | null
-  latitud?: number | null
-  longitud?: number | null
+  prioridad: Prioridad
 }
 
 export const getMyIncidents = async (): Promise<Incident[]> => {
   const res = await api.get("/incidents/me")
-  return res.data.incidents
+  const incidents: Incident[] = Array.isArray(res.data?.incidents) ? res.data.incidents : []
+  return incidents.map((inc) => ({
+    ...inc,
+    image_url: toPublicMediaUrl(inc.image_url ?? inc.imagen_auditoria_url),
+  }))
 }
 
+export const getMyIncidentById = async (id: string): Promise<Incident> => {
+  const res = await api.get(`/incidents/me/${id}`)
+  const inc = res.data as Incident
+  return { ...inc, image_url: toPublicMediaUrl(inc.image_url ?? inc.imagen_auditoria_url) }
+}
+
+// Submits the image and returns immediately with a task_id (HTTP 202).
+// The caller is responsible for polling getTaskStatus until done.
 export const analyzeImage = async (
   imageBase64: string,
   latitude: number,
@@ -57,20 +114,135 @@ export const analyzeImage = async (
   options?: {
     signal?: AbortSignal
     onUploadProgress?: (percentage: number) => void
+    ubicacion_aproximada?: boolean
+    clientCoverageRatio?: number
+    /** Clave estable por reporte: reenviarla en cada reintento evita duplicados en el servidor. */
+    idempotencyKey?: string
   }
-): Promise<AnalysisResult> => {
+): Promise<AnalyzeAccepted> => {
+  const body: Record<string, unknown> = {
+    image: imageBase64,
+    latitude,
+    longitude,
+    descripcion: descripcion ?? "",
+    ubicacion_aproximada: options?.ubicacion_aproximada ?? false,
+  }
+  if (options?.clientCoverageRatio !== undefined) {
+    body.client_coverage_ratio = options.clientCoverageRatio
+  }
+  if (options?.idempotencyKey) {
+    body.idempotency_key = options.idempotencyKey
+  }
   const res = await api.post(
     "/image/analyze",
-    { image: imageBase64, latitude, longitude, descripcion: descripcion ?? "" },
+    body,
     {
       signal: options?.signal,
       onUploadProgress: options?.onUploadProgress
         ? (e) => {
-            const pct = e.total ? Math.round((e.loaded / e.total) * 100) : 0
+            // e.loaded can exceed e.total in React Native (HTTP headers are counted
+            // in loaded but not in total). Clamp to 100 to avoid > 100% display.
+            const pct = e.total
+              ? Math.min(100, Math.round((e.loaded / e.total) * 100))
+              : 0
             options.onUploadProgress!(pct)
           }
         : undefined,
     }
   )
-  return res.data
+  return res.data as AnalyzeAccepted
+}
+
+// Single poll of GET /image/status/:taskId.
+// Returns PROCESANDO while the ML pipeline runs, FALLIDO on error,
+// or a full AnalysisResult when the incident is created.
+export const getTaskStatus = async (
+  taskId: string,
+  options?: { signal?: AbortSignal },
+): Promise<TaskStatusResponse> => {
+  const res = await api.get(`/image/status/${taskId}`, { signal: options?.signal })
+  return res.data as TaskStatusResponse
+}
+
+// ─── Pre-check de basura ──────────────────────────────────────────────────────
+
+export interface PreCheckResult {
+  garbage_score: number
+  is_garbage:    boolean
+  threshold:     number
+  /** Solo presente cuando guidance_mode=true en el request. */
+  coverage_ratio?: number
+  /** Solo presente cuando guidance_mode=true en el request. */
+  distance_hint?:  DistanceHint
+}
+
+/**
+ * Envía un thumbnail pequeño (~15 KB, 320 px de ancho) al endpoint /ml/pre-check
+ * para detectar si la imagen tiene aspecto de basura ANTES de correr YOLO.
+ *
+ * Con guidanceMode=true devuelve también coverage_ratio y distance_hint.
+ *
+ * Fail-closed: si el pre-check falla (red, timeout, server error) propaga el
+ * error y el caller decide. NO devuelve un resultado optimista que dejaría
+ * pasar reportes inválidos cuando la red es inestable.
+ */
+export async function preCheckImage(
+  thumbnailBase64: string,
+  opts?: { guidanceMode?: boolean },
+): Promise<PreCheckResult> {
+  const body: Record<string, unknown> = { image_base64: thumbnailBase64 }
+  if (opts?.guidanceMode) body.guidance_mode = true
+  const { data } = await api.post<PreCheckResult>("/ml/pre-check", body, { timeout: 12_000 })
+  return data
+}
+
+const createCanceledError = () =>
+  Object.assign(new Error("Analisis cancelado."), { code: "ERR_CANCELED" })
+
+const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createCanceledError())
+      return
+    }
+
+    const onAbort = () => {
+      clearTimeout(timeout)
+      reject(createCanceledError())
+    }
+    const cleanup = () => signal?.removeEventListener("abort", onAbort)
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+
+    signal?.addEventListener("abort", onAbort, { once: true })
+  })
+
+export const waitForAnalysisResult = async (
+  taskId: string,
+  options: WaitForAnalysisOptions = {},
+): Promise<AnalysisResult> => {
+  const intervalMs = options.intervalMs ?? 2000
+  const timeoutMs = options.timeoutMs ?? 120000
+  const startedAt = Date.now()
+
+  while (true) {
+    const status = await getTaskStatus(taskId, { signal: options.signal })
+    options.onStatus?.(status)
+
+    if (status.estado === "FALLIDO") {
+      throw new TaskAnalysisFailedError(taskId, status.message)
+    }
+
+    if (status.estado === "DESCARTADO" || status.estado !== "PROCESANDO") {
+      return status as AnalysisResult & { task_id: string }
+    }
+
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new TaskAnalysisTimeoutError(taskId)
+    }
+
+    await wait(intervalMs, options.signal)
+  }
 }

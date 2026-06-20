@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/app.js",
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "format": "prettier --write src/"
   },
   "keywords": [],
   "author": "James Mena",
@@ -14,13 +17,19 @@
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
-    "express": "^4.22.1",
+    "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.5",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "pino": "^9.6.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "nodemon": "^3.1.14",
+    "prettier": "^3.8.3",
+    "vitest": "^2.1.9"
   }
 }

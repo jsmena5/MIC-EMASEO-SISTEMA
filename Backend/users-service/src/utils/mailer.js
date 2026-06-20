@@ -5,7 +5,7 @@ dotenv.config()
 // Singleton transport — reutilizado entre requests
 const transporter = nodemailer.createTransport({
   host:   process.env.SMTP_HOST || "smtp.gmail.com",
-  port:   parseInt(process.env.SMTP_PORT || "587"),
+  port:   Number.parseInt(process.env.SMTP_PORT || "587"),
   secure: false, // STARTTLS en puerto 587
   auth: {
     user: process.env.SMTP_USER,

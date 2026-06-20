@@ -1,9 +1,8 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { Ionicons } from "@expo/vector-icons"
-import { jwtDecode } from "jwt-decode"
 import React, { useEffect, useState } from "react"
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   ScrollView,
@@ -20,27 +19,24 @@ import Animated, {
   withSpring,
 } from "react-native-reanimated"
 
+import { useAuth } from "../contexts/AuthContext"
+import { useAnalysis } from "../contexts/AnalysisContext"
 import { RootStackParamList } from "../navigation/AppNavigator"
-import { logoutUser } from "../services/auth.service"
 import { colors } from "../theme/colors"
+import ProfileBottomSheet from "../components/ProfileBottomSheet"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Home">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Home">>
 
 const { width: SW } = Dimensions.get("window")
 
-interface DecodedToken {
-  rol?: string
-  nombre?: string
-  nombre_completo?: string
-  name?: string
-  email?: string
-  sub?: string
-}
-
 export default function HomeScreen({ navigation }: Props) {
-  const [displayName, setDisplayName] = useState("")
-  const [role, setRole] = useState("")
-  const [initial, setInitial] = useState("U")
+  const { user, logout } = useAuth()
+  const { isAnalysisRunning } = useAnalysis()
+  const [showProfile, setShowProfile] = useState(false)
+
+  const displayName = user?.nombre ?? "Usuario"
+  const role = user?.rol ?? "ciudadano"
+  const initial = (user?.nombre?.[0] ?? "U").toUpperCase()
 
   const headerScale = useSharedValue(0.95)
   const headerOpacity = useSharedValue(0)
@@ -48,20 +44,6 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     headerScale.value = withSpring(1, { damping: 14 })
     headerOpacity.value = withSpring(1)
-
-    const loadUser = async () => {
-      const token = await AsyncStorage.getItem("token")
-      if (!token) return
-      try {
-        const dec = jwtDecode<DecodedToken>(token)
-        const name =
-          dec.nombre_completo ?? dec.nombre ?? dec.name ?? dec.email ?? dec.sub ?? "Usuario"
-        setDisplayName(name)
-        setRole(dec.rol ?? "ciudadano")
-        setInitial((name[0] ?? "U").toUpperCase())
-      } catch {}
-    }
-    loadUser()
   }, [])
 
   const headerStyle = useAnimatedStyle(() => ({
@@ -69,23 +51,30 @@ export default function HomeScreen({ navigation }: Props) {
     opacity: headerOpacity.value,
   }))
 
-  const handleLogout = () => {
-    Alert.alert("Cerrar sesión", "¿Estás seguro que deseas salir?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Salir",
-        style: "destructive",
-        onPress: async () => {
-          await logoutUser()
-          navigation.replace("Login")
-        },
-      },
-    ])
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch {
+      Alert.alert("Error", "No se pudo cerrar sesión. Intenta de nuevo.")
+    }
   }
 
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
+
+      {/* ── Banner análisis en curso (flotante, parte inferior) ── */}
+      {isAnalysisRunning && (
+        <TouchableOpacity
+          style={styles.analysisBanner}
+          onPress={() => navigation.navigate("Historial")}
+          activeOpacity={0.85}
+        >
+          <ActivityIndicator size="small" color="#fff" />
+          <Text style={styles.analysisBannerText}>Analizando tu reporte...</Text>
+          <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.8)" />
+        </TouchableOpacity>
+      )}
 
       {/* ── Header ── */}
       <Animated.View style={[styles.header, headerStyle]}>
@@ -103,7 +92,11 @@ export default function HomeScreen({ navigation }: Props) {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.avatarCircle} onPress={handleLogout}>
+          <TouchableOpacity
+            style={styles.avatarCircle}
+            onPress={() => setShowProfile(true)}
+            activeOpacity={0.8}
+          >
             <Text style={styles.avatarText}>{initial}</Text>
           </TouchableOpacity>
         </View>
@@ -159,21 +152,28 @@ export default function HomeScreen({ navigation }: Props) {
             label="Conciencia"
             sublabel="Ambiental"
             color="#059669"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("EnvironmentalAwareness")}
           />
           <GridCard
             icon="book-outline"
             label="Manual"
             sublabel="De uso"
             color="#7C3AED"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Manual")}
           />
           <GridCard
             icon="notifications-outline"
             label="Alertas"
             sublabel="Notificaciones"
             color="#D97706"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Alerts")}
+          />
+          <GridCard
+            icon="information-circle-outline"
+            label="Estados"
+            sublabel="Guía de reportes"
+            color="#0891B2"
+            onPress={() => navigation.navigate("Help")}
           />
         </Animated.View>
 
@@ -181,18 +181,16 @@ export default function HomeScreen({ navigation }: Props) {
         <Animated.View entering={FadeInDown.delay(550).duration(400)} style={styles.infoStrip}>
           <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
           <Text style={styles.infoStripText}>
-            Las fotos incluyen automáticamente tu ubicación GPS para despacho.
+            Las fotos incluyen automáticamente tu ubicación GPS para gestionar las incidencias.
           </Text>
         </Animated.View>
-
-        {/* ── Logout ── */}
-        <Animated.View entering={FadeInDown.delay(650).duration(400)}>
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-            <Ionicons name="log-out-outline" size={18} color={colors.error} />
-            <Text style={styles.logoutText}>Cerrar sesión</Text>
-          </TouchableOpacity>
-        </Animated.View>
       </ScrollView>
+
+      <ProfileBottomSheet
+        visible={showProfile}
+        onClose={() => setShowProfile(false)}
+        onLogout={handleLogout}
+      />
     </View>
   )
 }
@@ -205,13 +203,13 @@ function GridCard({
   sublabel,
   color,
   onPress,
-}: {
+}: Readonly<{
   icon: React.ComponentProps<typeof Ionicons>["name"]
   label: string
   sublabel: string
   color: string
   onPress: () => void
-}) {
+}>) {
   return (
     <TouchableOpacity style={styles.gridCard} onPress={onPress} activeOpacity={0.8}>
       <View style={[styles.gridCardIcon, { backgroundColor: color + "18" }]}>
@@ -449,21 +447,28 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-  // Logout
-  logoutBtn: {
+  // Analysis background banner — floating pill at the bottom
+  analysisBanner: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.gray200,
-    backgroundColor: colors.surface,
+    gap: 10,
+    backgroundColor: colors.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    elevation: 8,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    zIndex: 10,
   },
-  logoutText: {
-    color: colors.error,
-    fontWeight: "600",
-    fontSize: 15,
+  analysisBannerText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
 })

@@ -1,18 +1,79 @@
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom"
+import { useEffect, useState } from "react"
+import { Home, ClipboardList, Map, ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react"
+
+const navigation = [
+  { to: "/dashboard/home",       label: "Inicio",     Icon: Home          },
+  { to: "/dashboard/incidentes", label: "Incidentes", Icon: ClipboardList },
+  { to: "/dashboard/mapa",       label: "Mapa",       Icon: Map           },
+]
+
+const STORAGE_KEY = "sidebar-expanded"
 
 export default function Sidebar() {
-  return (
-    <div className="w-64 bg-white/80 backdrop-blur-md p-5 border-r border-white/10">
-      <h2 className="text-xl font-bold mb-8 text-green-400">
-        EMASEO EP
-      </h2>
+  const [expanded, setExpanded] = useState<boolean>(() => {
+    const saved = globalThis.window === undefined ? null : localStorage.getItem(STORAGE_KEY)
+    if (saved !== null) return saved === "true"
+    return globalThis.window === undefined ? true : window.innerWidth >= 1024
+  })
 
-      <nav className="flex flex-col gap-4">
-        <Link className="hover:text-green-400 transition" to="/dashboard/home">Home</Link>
-        <Link className="hover:text-green-400 transition" to="/dashboard/users">Usuarios</Link>
-        <Link className="hover:text-green-400 transition" to="/dashboard/reports">Reportes</Link>
-        <Link className="hover:text-green-400 transition" to="/dashboard/settings">Configuración</Link>
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, String(expanded))
+  }, [expanded])
+
+  return (
+    <aside className={[
+      "shrink-0 border-r border-slate-200 bg-white flex flex-col",
+      "transition-[width] duration-200",
+      expanded ? "w-56" : "w-[68px]",
+    ].join(" ")}>
+
+      {/* Logo */}
+      <div className="flex h-16 items-center gap-3 border-b border-slate-200 px-4">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white">
+          <ShieldCheck size={18} strokeWidth={1.8} />
+        </div>
+        {expanded && (
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">EMASEO EP</div>
+            <div className="truncate text-sm font-extrabold text-slate-900">Supervisión</div>
+          </div>
+        )}
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 space-y-1 px-2 py-3">
+        {navigation.map(({ to, label, Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            title={expanded ? undefined : label}
+            className={({ isActive }) =>
+              [
+                "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition border-l-2",
+                isActive
+                  ? "border-blue-700 bg-blue-50 text-blue-700"
+                  : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+              ].join(" ")
+            }
+          >
+            <span className="shrink-0"><Icon size={20} strokeWidth={1.8} /></span>
+            {expanded && <span className="truncate text-sm font-semibold">{label}</span>}
+          </NavLink>
+        ))}
       </nav>
-    </div>
-  );
+
+      {/* Collapse toggle */}
+      <div className="px-2 pb-3">
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition"
+          title={expanded ? "Colapsar" : "Expandir"}
+        >
+          {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+          {expanded && <span>Colapsar</span>}
+        </button>
+      </div>
+    </aside>
+  )
 }

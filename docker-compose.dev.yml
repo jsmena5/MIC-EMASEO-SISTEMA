@@ -1,0 +1,16 @@
+# Override para desarrollo local: expone MinIO, Redis y Flower al host en 127.0.0.1.
+# Usar con: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# O simplemente: .\start.ps1 -Dev
+services:
+  minio:
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  flower:
+    ports:
+      - "127.0.0.1:5555:5555"

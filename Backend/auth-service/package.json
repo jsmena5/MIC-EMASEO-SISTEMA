@@ -1,9 +1,19 @@
 {
+  "name": "auth-service",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "format": "prettier --write src/"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "prettier": "^3.8.3",
+    "vitest": "^2.1.0"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -13,6 +23,7 @@
     "express-rate-limit": "^8.3.2",
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.5",
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "pino": "^9.6.0"
   }
 }

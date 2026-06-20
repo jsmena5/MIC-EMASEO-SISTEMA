@@ -3,14 +3,18 @@ import {
   View,
   Text,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
   Image,
   ActivityIndicator,
   RefreshControl,
+  type ListRenderItem,
+  type ListRenderItemInfo,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
+import { Clock, CheckCircle, Check, Wrench, XCircle, AlertCircle, Trash2, Timer } from "lucide-react-native"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import { useFocusEffect } from "@react-navigation/native"
 import Animated, { FadeInDown } from "react-native-reanimated"
@@ -18,18 +22,67 @@ import * as Location from "expo-location"
 
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { getMyIncidents, Incident } from "../services/image.service"
+import { getPendingReports, PendingReport } from "../services/offlineQueue.service"
+import { useNetwork } from "../contexts/NetworkContext"
 import { colors } from "../theme/colors"
+import { toPublicMediaUrl } from "../utils/mediaUrl"
 
-type Props = NativeStackScreenProps<RootStackParamList, "Historial">
+type Props = Readonly<NativeStackScreenProps<RootStackParamList, "Historial">>
+
+// ─── Tipos de item de la lista combinada ─────────────────────────────────────
+
+type ListItem =
+  | { kind: "online";  data: Incident;       key: string }
+  | { kind: "pending"; data: PendingReport;  key: string }
+
+// ─── Saneamiento de texto del geocoder ───────────────────────────────────────
+// Algunos dispositivos Android devuelven "ñ" como "ð" (U+00F0) en el geocoder.
+// Además normalizamos a NFC para resolver formas descompuestas (n + tilde).
+function sanitizeText(raw: string | null | undefined): string {
+  if (!raw) return ""
+  return raw.normalize("NFC").replaceAll("ð", "ñ").replaceAll("Ð", "Ñ")
+}
+
+// ─── Filtros ─────────────────────────────────────────────────────────────────
+
+type HistorialFilter = "todos" | "cola" | "procesando" | "validos" | "resueltos" | "fallidos"
+
+const FILTERS: { key: HistorialFilter; label: string }[] = [
+  { key: "todos",      label: "Todos"     },
+  { key: "cola",       label: "En cola"   },
+  { key: "procesando", label: "Entrantes" },
+  { key: "validos",    label: "Válidos"   },
+  { key: "resueltos",  label: "Resueltos" },
+  { key: "fallidos",   label: "Fallidos"  },
+]
+
+function applyFilter(data: ListItem[], filter: HistorialFilter): ListItem[] {
+  switch (filter) {
+    case "cola":       return data.filter((i) => i.kind === "pending")
+    case "procesando": return data.filter((i) => i.kind === "online" && (i.data.estado === "PROCESANDO" || i.data.estado === "PENDIENTE"))
+    case "validos":    return data.filter((i) => i.kind === "online" && (i.data.estado === "VALIDO" || i.data.estado === "EN_ATENCION"))
+    case "resueltos":  return data.filter((i) => i.kind === "online" && i.data.estado === "RESUELTA")
+    case "fallidos":   return data.filter((i) => i.kind === "online" && (i.data.estado === "FALLIDO" || i.data.estado === "RECHAZADO" || i.data.estado === "DESCARTADO"))
+    default:           return data
+  }
+}
+
+// ─── Configuración de estados ─────────────────────────────────────────────────
+
+type LucideIcon = typeof Clock
 
 export const ESTADO_CONFIG: Record<
   Incident["estado"],
-  { label: string; color: string; bg: string; icon: React.ComponentProps<typeof Ionicons>["name"] }
+  { label: string; color: string; bg: string; LucideIcon: LucideIcon }
 > = {
-  PENDIENTE:   { label: "Pendiente",  color: "#D97706", bg: "#FEF3C7", icon: "time-outline" },
-  EN_ATENCION: { label: "En proceso", color: "#005BAC", bg: "#EBF4FF", icon: "construct-outline" },
-  RESUELTA:    { label: "Atendido",   color: "#16A34A", bg: "#DCFCE7", icon: "checkmark-circle-outline" },
-  RECHAZADA:   { label: "Rechazado",  color: "#DC2626", bg: "#FEE2E2", icon: "close-circle-outline" },
+  PROCESANDO:  { label: "Procesando",  color: "#1E40AF", bg: "#EFF6FF", LucideIcon: Timer       },
+  PENDIENTE:   { label: "Pendiente",   color: "#92400E", bg: "#FFFBEB", LucideIcon: Clock       },
+  VALIDO:      { label: "Válido",      color: "#075985", bg: "#F0F9FF", LucideIcon: Check       },
+  EN_ATENCION: { label: "En proceso",  color: "#5B21B6", bg: "#F5F3FF", LucideIcon: Wrench      },
+  RESUELTA:    { label: "Atendido",    color: "#166534", bg: "#F0FDF4", LucideIcon: CheckCircle },
+  RECHAZADO:   { label: "Rechazado",   color: "#881337", bg: "#FFF1F2", LucideIcon: XCircle     },
+  FALLIDO:     { label: "Error envío", color: "#831843", bg: "#FDF2F8", LucideIcon: AlertCircle },
+  DESCARTADO:  { label: "Descartado",  color: "#475569", bg: "#F8FAFC", LucideIcon: Trash2      },
 }
 
 export const NIVEL_COLOR: Record<string, string> = {
@@ -43,13 +96,13 @@ export function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" })
 }
 
-// ─── ReportCard ───────────────────────────────────────────────────────────────
+// ─── ReportCard (reporte del servidor) ───────────────────────────────────────
 
-interface CardProps {
+type CardProps = Readonly<{
   item: Incident
   index: number
   onPress: () => void
-}
+}>
 
 function ReportCard({ item, index, onPress }: CardProps) {
   const [address, setAddress] = useState<string | null>(null)
@@ -60,9 +113,9 @@ function ReportCard({ item, index, onPress }: CardProps) {
       Location.reverseGeocodeAsync({ latitude: item.latitud, longitude: item.longitud })
         .then(([result]) => {
           if (result) {
-            const street = result.street ?? ""
-            const area = result.district ?? result.subregion ?? result.city ?? ""
-            const parts = [street, area].filter(Boolean)
+            const street = sanitizeText(result.street)
+            const area   = sanitizeText(result.district ?? result.subregion ?? result.city)
+            const parts  = [street, area].filter(Boolean)
             setAddress(parts.length > 0 ? parts.join(", ") : null)
           }
         })
@@ -80,9 +133,9 @@ function ReportCard({ item, index, onPress }: CardProps) {
       <TouchableOpacity activeOpacity={0.82} onPress={onPress} style={styles.card}>
         {/* Thumbnail */}
         <View style={styles.thumbWrap}>
-          {item.image_url && !imgError ? (
+          {toPublicMediaUrl(item.image_url) && !imgError ? (
             <Image
-              source={{ uri: item.image_url }}
+              source={{ uri: toPublicMediaUrl(item.image_url)! }}
               style={styles.thumbImage}
               resizeMode="cover"
               onError={() => setImgError(true)}
@@ -97,7 +150,7 @@ function ReportCard({ item, index, onPress }: CardProps) {
         {/* Content */}
         <View style={styles.cardContent}>
           <View style={[styles.estadoBadge, { backgroundColor: cfg.bg }]}>
-            <Ionicons name={cfg.icon} size={11} color={cfg.color} />
+            <cfg.LucideIcon size={11} color={cfg.color} strokeWidth={2.2} />
             <Text style={[styles.estadoText, { color: cfg.color }]}>{cfg.label}</Text>
           </View>
 
@@ -127,45 +180,276 @@ function ReportCard({ item, index, onPress }: CardProps) {
   )
 }
 
+// ─── PendingCard (reporte en cola offline) ────────────────────────────────────
+
+type PendingCardProps = Readonly<{
+  item: PendingReport
+  index: number
+  isSyncing: boolean
+  isConnected: boolean
+  onRetry: () => void
+}>
+
+function PendingCard({ item, index, isSyncing, isConnected, onRetry }: PendingCardProps) {
+  return (
+    <Animated.View entering={FadeInDown.delay(index * 60).duration(380)}>
+      {/* No es TouchableOpacity: el item pendiente aún no existe en el servidor */}
+      <View style={[styles.card, styles.pendingCardBorder]}>
+        {/* Thumbnail — placeholder offline */}
+        <View style={styles.thumbWrap}>
+          <View style={[styles.thumbImage, styles.thumbFallback, styles.thumbPending]}>
+            <Ionicons name="cloud-offline-outline" size={26} color={colors.warning} />
+          </View>
+        </View>
+
+        {/* Content */}
+        <View style={styles.cardContent}>
+          {/* Badge "En cola" / "Sincronizando..." */}
+          <View style={[styles.estadoBadge, { backgroundColor: "#FEF3C7" }]}>
+            {isSyncing ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.warning}
+                style={styles.syncSpinner}
+              />
+            ) : (
+              <Ionicons name="time-outline" size={11} color={colors.warning} />
+            )}
+            <Text style={[styles.estadoText, { color: colors.warning }]}>
+              {isSyncing ? "Sincronizando..." : "En cola"}
+            </Text>
+          </View>
+
+          <Text style={styles.cardDate}>{formatDate(item.createdAt)}</Text>
+
+          <Text style={[styles.cardNivel, { color: colors.textSecondary }]}>
+            Pendiente de envio
+            {item.retries > 0 ? ` · Intento ${item.retries + 1}` : ""}
+          </Text>
+
+          {/* Retry / offline hint */}
+          {!isSyncing && isConnected && (
+            <TouchableOpacity style={styles.pendingRetryBtn} onPress={onRetry} activeOpacity={0.7}>
+              <Ionicons name="refresh-outline" size={12} color={colors.primary} />
+              <Text style={styles.pendingRetryText}>Reintentar ahora</Text>
+            </TouchableOpacity>
+          )}
+          {!isSyncing && !isConnected && (
+            <View style={styles.pendingOfflineRow}>
+              <Ionicons name="wifi-outline" size={12} color={colors.textTertiary} />
+              <Text style={styles.pendingOfflineText}>Sin conexión</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Sin chevron */}
+        <View style={styles.chevronPlaceholder} />
+
+        {/* Barra lateral warning */}
+        <View style={[styles.nivelBar, { backgroundColor: colors.warning }]} />
+      </View>
+    </Animated.View>
+  )
+}
+
+// Texto del contador de la lista según el filtro activo.
+function listCountLabel(
+  activeFilter: HistorialFilter,
+  incidents: Incident[],
+  pendingReports: PendingReport[],
+  filteredCount: number,
+): string {
+  if (activeFilter === "todos") {
+    const base = `${incidents.length} reporte${incidents.length === 1 ? "" : "s"}`
+    return pendingReports.length > 0 ? `${base} · ${pendingReports.length} en cola` : base
+  }
+  return `${filteredCount} resultado${filteredCount === 1 ? "" : "s"}`
+}
+
+// Lista combinada (online + cola offline) con cabecera y estados vacíos. Extraída
+// para mantener HistorialScreen por debajo del umbral de complejidad cognitiva.
+function HistorialList({
+  filteredData, renderItem, filteredCount, totalCount, incidents, pendingReports,
+  serverError, activeFilter, refreshing, onRefresh, onRetry, onResetFilter, onGoScan,
+}: Readonly<{
+  filteredData: ListItem[]
+  renderItem: ListRenderItem<ListItem>
+  filteredCount: number
+  totalCount: number
+  incidents: Incident[]
+  pendingReports: PendingReport[]
+  serverError: string | null
+  activeFilter: HistorialFilter
+  refreshing: boolean
+  onRefresh: () => void
+  onRetry: () => void
+  onResetFilter: () => void
+  onGoScan: () => void
+}>) {
+  return (
+    <FlatList
+      data={filteredData}
+      keyExtractor={(item) => item.key}
+      renderItem={renderItem}
+      contentContainerStyle={
+        filteredCount === 0 ? styles.emptyContainer : styles.listContent
+      }
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[colors.primary]}
+          tintColor={colors.primary}
+        />
+      }
+      ListHeaderComponent={
+        <>
+          {serverError && totalCount > 0 && (
+            <View style={styles.inlineBanner}>
+              <Ionicons name="cloud-offline-outline" size={14} color={colors.warning} />
+              <Text style={styles.inlineBannerText}>
+                Sin acceso al servidor. Mostrando datos guardados localmente.
+              </Text>
+              <TouchableOpacity onPress={onRetry} style={styles.inlineRetryBtn}>
+                <Text style={styles.inlineRetryText}>Reintentar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {totalCount > 0 && (
+            <Text style={styles.listCount}>
+              {listCountLabel(activeFilter, incidents, pendingReports, filteredCount)}
+            </Text>
+          )}
+        </>
+      }
+      ListEmptyComponent={
+        totalCount === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="document-text-outline" size={60} color={colors.gray300} />
+            <Text style={styles.emptyTitle}>Sin reportes aun</Text>
+            <Text style={styles.emptySub}>
+              Aqui apareceran las incidencias que hayas reportado.
+            </Text>
+            <TouchableOpacity style={styles.emptyBtn} onPress={onGoScan} activeOpacity={0.88}>
+              <Ionicons name="camera-outline" size={18} color="#fff" />
+              <Text style={styles.emptyBtnText}>Hacer un reporte</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons name="filter-outline" size={48} color={colors.gray300} />
+            <Text style={styles.emptyTitle}>Sin resultados</Text>
+            <Text style={styles.emptySub}>No hay reportes con este filtro.</Text>
+            <TouchableOpacity style={styles.filterResetBtn} onPress={onResetFilter} activeOpacity={0.88}>
+              <Text style={styles.filterResetText}>Ver todos</Text>
+            </TouchableOpacity>
+          </View>
+        )
+      }
+    />
+  )
+}
+
 // ─── HistorialScreen ──────────────────────────────────────────────────────────
 
 export default function HistorialScreen({ navigation }: Props) {
-  const [incidents, setIncidents] = useState<Incident[]>([])
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { pendingCount, isProcessingQueue, isConnected, triggerFlush } = useNetwork()
 
-  const fetchIncidents = useCallback(async (isRefresh = false) => {
+  const [incidents, setIncidents]           = useState<Incident[]>([])
+  const [pendingReports, setPendingReports] = useState<PendingReport[]>([])
+  const [loading, setLoading]               = useState(true)
+  const [refreshing, setRefreshing]         = useState(false)
+  const [serverError, setServerError]       = useState<string | null>(null)
+  const [activeFilter, setActiveFilter]     = useState<HistorialFilter>("todos")
+
+  // ── Cargar reportes offline (AsyncStorage, siempre disponible) ──────────────
+  const loadPending = useCallback(async () => {
+    try {
+      const pending = await getPendingReports()
+      setPendingReports(pending)
+    } catch {
+      // Fallo silencioso — no cortar la UI por un error de AsyncStorage
+    }
+  }, [])
+
+  // ── Carga principal ───────────────────────────────────────────────────────
+  const fetchAll = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
-    setError(null)
+    setServerError(null)
+
+    // Siempre carga pending primero (no requiere red)
+    await loadPending()
+
     try {
       const data = await getMyIncidents()
       setIncidents(data)
     } catch {
-      setError("No se pudo cargar el historial.\nVerifica tu conexión e inténtalo de nuevo.")
+      setServerError("No se pudo cargar el historial del servidor.\nVerifica tu conexion e intentalo de nuevo.")
     } finally {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [])
+  }, [loadPending])
 
+  // Carga al ganar foco
   useFocusEffect(
     useCallback(() => {
-      fetchIncidents()
-    }, [fetchIncidents])
+      fetchAll()
+    }, [fetchAll])
   )
 
-  function renderItem({ item, index }: { item: Incident; index: number }) {
+  // Refresca la cola cuando pendingCount cambia
+  useEffect(() => {
+    loadPending()
+  }, [pendingCount, loadPending])
+
+  // Auto-polling: si hay incidentes en PROCESANDO, refresca cada 5 s
+  const hasProcessing = incidents.some((i) => i.estado === "PROCESANDO")
+  useEffect(() => {
+    if (!hasProcessing) return
+    const timer = setInterval(() => {
+      getMyIncidents()
+        .then((data) => setIncidents(data))
+        .catch(() => {})
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [hasProcessing])
+
+  // ── Lista combinada y filtrada ────────────────────────────────────────────
+  const listData: ListItem[] = [
+    ...pendingReports.map((r) => ({ kind: "pending" as const, data: r, key: `p_${r.id}` })),
+    ...incidents.map((i) => ({ kind: "online" as const, data: i, key: `o_${i.id}` })),
+  ]
+  const totalCount    = listData.length
+  const filteredData  = applyFilter(listData, activeFilter)
+  const filteredCount = filteredData.length
+
+  // ── Render de cada item ──────────────────────────────────────────────────
+  function renderItem({ item, index }: ListRenderItemInfo<ListItem>) {
+    if (item.kind === "pending") {
+      return (
+        <PendingCard
+          item={item.data}
+          index={index}
+          isSyncing={isProcessingQueue}
+          isConnected={isConnected}
+          onRetry={triggerFlush}
+        />
+      )
+    }
     return (
       <ReportCard
-        item={item}
+        item={item.data}
         index={index}
-        onPress={() => navigation.navigate("ReportDetail", { incident: item })}
+        onPress={() => navigation.navigate("ReportDetail", { incident: item.data })}
       />
     )
   }
 
+  // ── Layout ────────────────────────────────────────────────────────────────
   return (
     <View style={styles.root}>
       <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
@@ -175,7 +459,7 @@ export default function HistorialScreen({ navigation }: Props) {
         <View style={styles.hdecCircle1} />
         <View style={styles.hdecCircle2} />
         <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.navigate("Home")} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={22} color="#fff" />
           </TouchableOpacity>
           <View>
@@ -185,60 +469,68 @@ export default function HistorialScreen({ navigation }: Props) {
         </View>
       </View>
 
-      {/* Body */}
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Cargando historial…</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Ionicons name="cloud-offline-outline" size={52} color={colors.gray300} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={() => fetchIncidents()} activeOpacity={0.85}>
-            <Ionicons name="refresh-outline" size={16} color="#fff" />
-            <Text style={styles.retryText}>Reintentar</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={incidents}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={
-            incidents.length === 0 ? styles.emptyContainer : styles.listContent
-          }
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => fetchIncidents(true)}
-              colors={[colors.primary]}
-              tintColor={colors.primary}
-            />
-          }
-          ListHeaderComponent={
-            incidents.length > 0 ? (
-              <Text style={styles.listCount}>{incidents.length} reporte{incidents.length !== 1 ? "s" : ""}</Text>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="document-text-outline" size={60} color={colors.gray300} />
-              <Text style={styles.emptyTitle}>Sin reportes aún</Text>
-              <Text style={styles.emptySub}>Aquí aparecerán las incidencias que hayas reportado.</Text>
+      {/* Filter bar */}
+      {!loading && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterBar}
+          contentContainerStyle={styles.filterBarContent}
+        >
+          {FILTERS.map((f) => {
+            const active = f.key === activeFilter
+            return (
               <TouchableOpacity
-                style={styles.emptyBtn}
-                onPress={() => navigation.navigate("Scan")}
-                activeOpacity={0.88}
+                key={f.key}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveFilter(f.key)}
+                activeOpacity={0.8}
               >
-                <Ionicons name="camera-outline" size={18} color="#fff" />
-                <Text style={styles.emptyBtnText}>Hacer un reporte</Text>
+                <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  {f.label}
+                </Text>
               </TouchableOpacity>
-            </View>
-          }
-        />
+            )
+          })}
+        </ScrollView>
       )}
+
+      {/* Body */}
+      {(() => {
+        if (loading) return (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Cargando historial...</Text>
+          </View>
+        )
+        if (serverError && totalCount === 0) return (
+          <View style={styles.center}>
+            <Ionicons name="cloud-offline-outline" size={52} color={colors.gray300} />
+            <Text style={styles.errorText}>{serverError}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={() => fetchAll()} activeOpacity={0.85}>
+              <Ionicons name="refresh-outline" size={16} color="#fff" />
+              <Text style={styles.retryText}>Reintentar</Text>
+            </TouchableOpacity>
+          </View>
+        )
+        return (
+          <HistorialList
+            filteredData={filteredData}
+            renderItem={renderItem}
+            filteredCount={filteredCount}
+            totalCount={totalCount}
+            incidents={incidents}
+            pendingReports={pendingReports}
+            serverError={serverError}
+            activeFilter={activeFilter}
+            refreshing={refreshing}
+            onRefresh={() => fetchAll(true)}
+            onRetry={() => fetchAll()}
+            onResetFilter={() => setActiveFilter("todos")}
+            onGoScan={() => navigation.navigate("Scan")}
+          />
+        )
+      })()}
     </View>
   )
 }
@@ -306,7 +598,43 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Loading / Error
+  // Filter bar
+  filterBar: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray200,
+    flexGrow: 0,
+  },
+  filterBarContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: colors.gray100,
+    borderWidth: 1,
+    borderColor: colors.gray200,
+    minHeight: 36,
+    justifyContent: "center",
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.gray800,
+    lineHeight: 18,
+  },
+  filterChipTextActive: {
+    color: "#fff",
+  },
+
+  // Loading / Error states
   center: {
     flex: 1,
     justifyContent: "center",
@@ -339,6 +667,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  // Inline error banner (cuando hay datos offline pero falla el servidor)
+  inlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  inlineBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.warning,
+    lineHeight: 17,
+  },
+  inlineRetryBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: colors.warning,
+  },
+  inlineRetryText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
   // List
   listContent: {
     padding: 16,
@@ -355,7 +714,7 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  // Card
+  // Card (compartido por ReportCard y PendingCard)
   card: {
     flexDirection: "row",
     alignItems: "center",
@@ -368,6 +727,12 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
+  pendingCardBorder: {
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+  },
+
+  // Thumbnail
   thumbWrap: {
     width: 80,
     height: 80,
@@ -382,6 +747,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  thumbPending: {
+    backgroundColor: "#FFF7ED",
+  },
+
+  // Card content
   cardContent: {
     flex: 1,
     padding: 12,
@@ -421,11 +791,42 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginRight: 10,
   },
+  chevronPlaceholder: {
+    width: 30,
+    marginLeft: 4,
+  },
   nivelBar: {
     width: 4,
     alignSelf: "stretch",
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
+  },
+  syncSpinner: {
+    transform: [{ scale: 0.65 }],
+  },
+
+  // Pending card retry
+  pendingRetryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  pendingRetryText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  pendingOfflineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  pendingOfflineText: {
+    fontSize: 12,
+    color: colors.textTertiary,
   },
 
   // Empty state
@@ -470,5 +871,17 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 15,
+  },
+  filterResetBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 22,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
+    marginTop: 4,
+  },
+  filterResetText: {
+    color: colors.primary,
+    fontWeight: "700",
+    fontSize: 14,
   },
 })

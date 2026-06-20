@@ -1,0 +1,64 @@
+# =============================================================================
+# Caddyfile — reverse proxy con TLS automático (Let's Encrypt) para el VPS.
+#
+# Coloca este archivo en /etc/caddy/Caddyfile del VPS.
+# Caddy se encarga de:
+#   - Obtener y renovar certificados Let's Encrypt automáticamente
+#   - Redirigir HTTP → HTTPS
+#   - Terminar TLS antes del API Gateway (que escucha solo en 127.0.0.1:4000)
+#
+# Después de cambios:  sudo systemctl reload caddy
+# =============================================================================
+
+# API Gateway — único punto de entrada del backend
+micemaseo.duckdns.org {
+	encode zstd gzip
+
+	# Cabeceras de seguridad básicas (Helmet ya cubre la mayoría, pero las
+	# repetimos en el proxy por si algún endpoint nuevo las omite).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options    nosniff
+		X-Frame-Options           DENY
+		Referrer-Policy           strict-origin-when-cross-origin
+		# CSP lo gestiona el frontend; aquí solo evitamos que el gateway envíe
+		# inline scripts. Si el OpenAPI UI lo necesita, ajustar localmente.
+	}
+
+	# Rate limit lo gestiona el gateway (rate-limit-redis); Caddy solo enruta.
+	reverse_proxy 127.0.0.1:4000 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+
+		# Timeouts explícitos (el default de Caddy ronda los 100 s). Orden buscado:
+		# gateway 120 s < cliente axios 125 s < Caddy 130 s, para que cualquier
+		# error lo genere el gateway (502/504 limpio) y no un corte de Caddy.
+		transport http {
+			dial_timeout 10s
+			response_header_timeout 130s
+		}
+	}
+}
+
+# Supervisor panel — si lo despliegas en el mismo VPS (en lugar de Vercel/Pages)
+# panel.tu-dominio.ec {
+# 	encode zstd gzip
+# 	# Descomenta si despliegas los paneles en el VPS (no en Cloudflare Pages).
+# 	# El container del panel (nginx) escucha en 127.0.0.1:8080.
+# 	reverse_proxy 127.0.0.1:8080
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+# 		X-Content-Type-Options    nosniff
+# 		X-Frame-Options           DENY
+# 		Referrer-Policy           strict-origin-when-cross-origin
+# 	}
+# }
+
+# Imágenes desde R2 con dominio propio (opcional — alternativa: usar el
+# subdomain custom de Cloudflare R2 directamente con TLS automático).
+# storage.tu-dominio.ec {
+# 	reverse_proxy https://<account-id>.r2.cloudflarestorage.com {
+# 		header_up Host <account-id>.r2.cloudflarestorage.com
+# 	}
+# }

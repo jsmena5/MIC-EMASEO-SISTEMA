@@ -1,16 +1,14 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import { LoginUser, PasswordResetData } from "../types/user.types"
 import api from "../utils/api"
+import { saveSecure, getSecure, deleteSecure } from "../utils/secureStorage"
 
 export const loginUser = async (data: LoginUser) => {
   const res = await api.post("/auth/login", data)
 
   const { token, refreshToken } = res.data
 
-  await AsyncStorage.multiSet([
-    ["token",        token],
-    ["refreshToken", refreshToken],
-  ])
+  await saveSecure("emaseo_access_token", token)
+  await saveSecure("emaseo_refresh_token", refreshToken)
 
   return res
 }
@@ -27,20 +25,22 @@ export const verifyPasswordResetOtp = (email: string, otp: string) =>
 export const resetPassword = async (data: PasswordResetData) => {
   const res = await api.post("/auth/reset-password", data)
   const { token, refreshToken } = res.data
-  await AsyncStorage.multiSet([
-    ["token",        token],
-    ["refreshToken", refreshToken],
-  ])
+  await saveSecure("emaseo_access_token", token)
+  await saveSecure("emaseo_refresh_token", refreshToken)
   return res
 }
+
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  api.post("/auth/change-password", { currentPassword, newPassword })
 
 // Notifica al backend para revocar el refresh token y limpia el almacenamiento local.
 // Si el backend falla igual limpiamos (el token expirará solo en 7 días).
 export const logoutUser = async () => {
   try {
-    const refreshToken = await AsyncStorage.getItem("refreshToken")
+    const refreshToken = await getSecure("emaseo_refresh_token")
     if (refreshToken) await api.post("/auth/logout", { refreshToken })
   } finally {
-    await AsyncStorage.multiRemove(["token", "refreshToken"])
+    await deleteSecure("emaseo_access_token")
+    await deleteSecure("emaseo_refresh_token")
   }
 }

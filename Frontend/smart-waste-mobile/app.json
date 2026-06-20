@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "smart-waste-mobile",
+    "name": "EMASEO EP IA",
     "slug": "smart-waste-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,26 +8,39 @@
     "scheme": "smartwastemobile",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#001828"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bryanortiz.smartwastemobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Necesitamos acceso a la cámara para detectar acumulaciones de basura."
+      }
     },
     "android": {
+      "package": "com.bryanortiz.smartwastemobile",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#003F7A",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-location",
         {
@@ -40,16 +53,46 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#001828",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#001828"
+          }
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Necesitamos acceso a la cámara para detectar acumulaciones de basura.",
+          "enableFrameProcessors": true
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "buildArchs": ["arm64-v8a"],
+            "enableBundleCompression": true
           }
         }
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c259a64b-d63f-4a3d-bc7f-a9afcded7a48"
+      }
+    },
+    "owner": "bryanandreso",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c259a64b-d63f-4a3d-bc7f-a9afcded7a48"
     }
   }
 }

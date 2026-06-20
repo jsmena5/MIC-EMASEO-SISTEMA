@@ -3,18 +3,34 @@
     "mAP50": 0.4175,
     "mAP50_95": 0.2102,
     "precision": 0.6622,
-    "recall": 0.3529
+    "recall": 0.3529,
+    "dataset": "data_v1 — 1 clase (garbage), test set 43 imágenes",
+    "entrenamiento": "CPU (Colab), 100 epochs, batch=4, lr=0.01"
   },
   "yolo11m": {
     "mAP50": 0.4383,
     "mAP50_95": 0.2226,
     "precision": 0.4353,
-    "recall": 0.4941
+    "recall": 0.4941,
+    "dataset": "data_v1 — 1 clase (garbage), test set 43 imágenes",
+    "entrenamiento": "CPU (Colab), 100 epochs, batch=4, lr=0.01"
   },
-  "rtdetr_l": {
+  "rtdetr_l_v1": {
     "mAP50": 0.4752,
-    "mAP50_95": 0.245,
+    "mAP50_95": 0.2450,
     "precision": 0.5523,
-    "recall": 0.4353
+    "recall": 0.4353,
+    "dataset": "data_v1 — 1 clase (garbage), test set 43 imágenes",
+    "entrenamiento": "CPU (Colab), 100 epochs, batch=4, lr=0.01"
+  },
+  "rtdetr_l_v2": {
+    "mAP50": 0.8802,
+    "mAP50_95": 0.6069,
+    "precision": 0.8840,
+    "recall": 0.8203,
+    "best_epoch": 64,
+    "dataset": "dataset_entrenamiento — 1 clase (garbage), val set 623 imágenes (11.557 train)",
+    "entrenamiento": "GPU (Google Colab T4), 100 epochs (patience 25, best epoch 64), batch=16, AdamW, lr=0.0001, AMP=true, múltiples sesiones reanudadas",
+    "nota": "Métricas del mejor checkpoint (best.pt) sobre conjunto de validación. El modelo supera al v1 en todas las métricas."
   }
 }

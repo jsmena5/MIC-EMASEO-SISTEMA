@@ -1,24 +1,19 @@
-import AsyncStorage from "@react-native-async-storage/async-storage"
 import axios, { InternalAxiosRequestConfig } from "axios"
-import { navigationRef } from "./navigationService"
+import { API_URL } from "../config/env"
+import { notifyAuthSessionExpired, notifyAuthTokenUpdated } from "./authSessionEvents"
+import { saveSecure, getSecure, deleteSecure } from "./secureStorage"
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL
-
-if (!BASE_URL) {
-  throw new Error(
-    "[api.ts] EXPO_PUBLIC_API_URL no está definida.\n" +
-    "Crea el archivo .env.development con: EXPO_PUBLIC_API_URL=https://<tu-tunnel>.trycloudflare.com/api"
-  )
-}
+const BASE_URL = API_URL
 
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 50000, // necesario para DB + SMTP (Gmail puede tardar 8s+)
+  // 125 s > proxyTimeout de 120 s en el gateway; el cliente espera más que el proxy.
+  timeout: 125000,
 })
 
 // ─── Request interceptor — adjunta el access token automáticamente ────────────
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem("token")
+  const token = await getSecure("emaseo_access_token")
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
@@ -60,7 +55,7 @@ api.interceptors.response.use(
       originalRequest._retry ||
       originalRequest.url?.includes("/auth/")
     ) {
-      return Promise.reject(error)
+      throw error
     }
 
     // Encolar si ya hay un refresh en curso
@@ -80,17 +75,16 @@ api.interceptors.response.use(
     isRefreshing = true
 
     try {
-      const refreshToken = await AsyncStorage.getItem("refreshToken")
+      const refreshToken = await getSecure("emaseo_refresh_token")
       if (!refreshToken) throw new Error("no_refresh_token")
 
       // Usamos axios directamente (no la instancia `api`) para que esta
       // llamada no pase por el interceptor de respuesta y cause un bucle.
       const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken })
 
-      await AsyncStorage.multiSet([
-        ["token", data.token],
-        ["refreshToken", data.refreshToken],
-      ])
+      await saveSecure("emaseo_access_token", data.token)
+      await saveSecure("emaseo_refresh_token", data.refreshToken)
+      notifyAuthTokenUpdated(data.token)
 
       processQueue(null, data.token)
 
@@ -99,12 +93,11 @@ api.interceptors.response.use(
 
     } catch (refreshError) {
       processQueue(refreshError, null)
-      await AsyncStorage.multiRemove(["token", "refreshToken"])
+      await deleteSecure("emaseo_access_token")
+      await deleteSecure("emaseo_refresh_token")
+      notifyAuthSessionExpired()
 
-      // Redirigir a Login solo si el navegador ya está montado
-      if (navigationRef.isReady()) navigationRef.navigate("Login")
-
-      return Promise.reject(refreshError)
+      throw refreshError
 
     } finally {
       isRefreshing = false

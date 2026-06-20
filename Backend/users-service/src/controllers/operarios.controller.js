@@ -1,4 +1,7 @@
 import { pool } from "../db.js"
+import crypto from "node:crypto"
+
+const BCRYPT_ROUNDS = Number.parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 
 // ===============================
 // GET /api/users/operarios
@@ -6,22 +9,20 @@ import { pool } from "../db.js"
 export const getOperarios = async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
-        o.id,
-        o.user_id,
-        o.nombre,
-        o.apellido,
-        o.cedula,
-        o.telefono,
-        o.zona_id,
-        o.cargo,
+      SELECT
+        u.id,
+        u.nombre,
+        u.apellido,
+        u.cedula,
+        u.telefono,
+        u.zona_id,
+        u.cargo,
         u.email,
-        u.username,
         u.rol,
         u.estado
-      FROM operations.operarios o
-      JOIN auth.users u ON u.id = o.user_id
-      ORDER BY o.created_at DESC
+      FROM app_auth.users u
+      WHERE u.rol = 'OPERARIO'
+      ORDER BY u.created_at DESC
     `)
 
     res.json(result.rows)
@@ -39,10 +40,10 @@ export const getOperarioById = async (req, res) => {
 
   try {
     const result = await pool.query(`
-      SELECT o.*, u.email, u.username, u.rol, u.estado
-      FROM operations.operarios o
-      JOIN auth.users u ON u.id = o.user_id
-      WHERE o.id = $1
+      SELECT u.id, u.nombre, u.apellido, u.cedula, u.telefono,
+             u.zona_id, u.cargo, u.email, u.rol, u.estado
+      FROM app_auth.users u
+      WHERE u.id = $1 AND u.rol = 'OPERARIO'
     `, [id])
 
     if (result.rows.length === 0) {
@@ -51,6 +52,7 @@ export const getOperarioById = async (req, res) => {
 
     res.json(result.rows[0])
   } catch (error) {
+    console.error(error)
     res.status(500).json({ message: "Error" })
   }
 }
@@ -58,37 +60,63 @@ export const getOperarioById = async (req, res) => {
 // ===============================
 // POST /api/users/operarios
 // ===============================
+const ROL_LABEL = {
+  CIUDADANO: "ciudadana",
+  SUPERVISOR: "supervisor",
+  OPERARIO:   "operario",
+  ADMIN:      "administrador",
+}
+
 export const createOperario = async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { nombre, apellido, cedula, telefono, email, rol, cargo } = req.body
+    const { nombre, apellido, cedula, telefono, email, cargo, password, zona_id } = req.body
+
+    const conflicto = await client.query(
+      `SELECT
+         (email = $1)                             AS email_conflicto,
+         (cedula IS NOT NULL AND cedula = $2)     AS cedula_conflicto
+       FROM app_auth.users
+       WHERE rol = 'OPERARIO'
+         AND (email = $1 OR (cedula IS NOT NULL AND cedula = $2))
+       LIMIT 1`,
+      [email, cedula ?? null]
+    )
+    if (conflicto.rows.length > 0) {
+      const { email_conflicto, cedula_conflicto } = conflicto.rows[0]
+      const campos = [...(email_conflicto ? ["correo"] : []), ...(cedula_conflicto ? ["cédula"] : [])].join(" y ")
+      return res.status(409).json({
+        message: `El ${campos} ya está registrado en otra cuenta operario.`,
+      })
+    }
 
     await client.query("BEGIN")
 
-    // 1. Crear user
-    const userResult = await client.query(`
-      INSERT INTO auth.users (username, email, password_hash, rol)
-      VALUES ($1, $2, crypt('123456', gen_salt('bf')), $3)
-      RETURNING id
-    `, [cedula, email, rol])
+    const isProvidedPassword = password && password.length >= 8
+    const initialPassword = isProvidedPassword
+      ? password
+      : crypto.randomBytes(12).toString("base64url")
 
-    const userId = userResult.rows[0].id
-
-    // 2. Crear perfil
     await client.query(`
-      INSERT INTO operations.operarios 
-      (user_id, nombre, apellido, cedula, telefono, cargo)
-      VALUES ($1, $2, $3, $4, $5, $6)
-    `, [userId, nombre, apellido, cedula, telefono, cargo])
+      INSERT INTO app_auth.users
+        (email, password_hash, rol, nombre, apellido, cedula, telefono, cargo, zona_id)
+      VALUES ($1, crypt($2, gen_salt('bf', $3)), 'OPERARIO', $4, $5, $6, $7, $8, $9)
+    `, [email, initialPassword, BCRYPT_ROUNDS, nombre, apellido, cedula, telefono, cargo, zona_id ?? null])
 
     await client.query("COMMIT")
 
-    res.status(201).json({ message: "Operario creado" })
+    const response = { message: "Operario creado" }
+    if (!isProvidedPassword) response.password_temporal = initialPassword
+
+    res.status(201).json(response)
 
   } catch (error) {
     await client.query("ROLLBACK")
     console.error(error)
+    if (error.code === "23505") {
+      return res.status(409).json({ message: "Email o cédula ya registrados" })
+    }
     res.status(500).json({ message: "Error creando operario" })
   } finally {
     client.release()
@@ -100,45 +128,24 @@ export const createOperario = async (req, res) => {
 // ===============================
 export const updateOperario = async (req, res) => {
   const { id } = req.params
-  const { nombre, apellido, telefono, cargo, estado } = req.body
-
-  const client = await pool.connect()
+  const { nombre, apellido, telefono, cargo, estado, zona_id } = req.body
 
   try {
-    await client.query("BEGIN")
+    const { rowCount } = await pool.query(`
+      UPDATE app_auth.users
+      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4, estado=$5, zona_id=$6, updated_at=NOW()
+      WHERE id=$7 AND rol = 'OPERARIO'
+    `, [nombre, apellido, telefono, cargo, estado, zona_id ?? null, id])
 
-    const op = await client.query(
-      `SELECT user_id FROM operations.operarios WHERE id = $1`,
-      [id]
-    )
-
-    if (op.rows.length === 0) {
+    if (rowCount === 0) {
       return res.status(404).json({ message: "No encontrado" })
     }
-
-    const userId = op.rows[0].user_id
-
-    await client.query(`
-      UPDATE operations.operarios
-      SET nombre=$1, apellido=$2, telefono=$3, cargo=$4
-      WHERE id=$5
-    `, [nombre, apellido, telefono, cargo, id])
-
-    await client.query(`
-      UPDATE auth.users
-      SET estado=$1
-      WHERE id=$2
-    `, [estado, userId])
-
-    await client.query("COMMIT")
 
     res.json({ message: "Actualizado" })
 
   } catch (error) {
-    await client.query("ROLLBACK")
+    console.error(error)
     res.status(500).json({ message: "Error actualizando" })
-  } finally {
-    client.release()
   }
 }
 
@@ -146,26 +153,23 @@ export const updateOperario = async (req, res) => {
 // DELETE /api/users/operarios/:id
 // ===============================
 export const deleteOperario = async (req, res) => {
-  const { id } = req.params
-
   try {
-    const op = await pool.query(
-      `SELECT user_id FROM operations.operarios WHERE id=$1`,
-      [id]
+    const { rowCount } = await pool.query(
+      `UPDATE app_auth.users
+       SET estado = 'INACTIVO', updated_at = NOW()
+       WHERE id = $1 AND rol = 'OPERARIO'
+       RETURNING id`,
+      [req.params.id]
     )
 
-    if (op.rows.length === 0) {
+    if (rowCount === 0) {
       return res.status(404).json({ message: "No encontrado" })
     }
 
-    const userId = op.rows[0].user_id
-
-    // elimina todo por cascade
-    await pool.query(`DELETE FROM auth.users WHERE id=$1`, [userId])
-
-    res.json({ message: "Eliminado" })
+    res.json({ message: "Operario desactivado" })
 
   } catch (error) {
-    res.status(500).json({ message: "Error eliminando" })
+    console.error(error)
+    res.status(500).json({ message: "Error eliminando operario" })
   }
 }
