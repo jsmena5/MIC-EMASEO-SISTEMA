@@ -12,6 +12,9 @@ WORKDIR /app
 # Configurar antes del pip install para que PyTorch/HF usen estos paths desde el inicio.
 ENV TORCH_HOME=/app/torch_cache
 ENV HF_HOME=/app/hf_cache
+# open_clip descarga pesos OpenAI (RN50, ViT-B-32/openai) vía urllib a XDG_CACHE_HOME/clip/.
+# Sin esto van a ~/.cache/clip/ que no existe para appuser → fallo en runtime.
+ENV XDG_CACHE_HOME=/app/torch_cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \

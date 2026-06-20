@@ -29,11 +29,16 @@ x-ml-env: &ml-env
   # ── Gate semántico CLIP ────────────────────────────────────────────
   SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
   SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
+  # RN50/openai es ~15-20x más rápido que ViT-B-32 en CPU (convoluciones vs atención).
+  # ViT-B-32 tardaba 60-90s por imagen; RN50 tarda ~3-5s. Calidad suficiente para gate.
+  CLIP_MODEL_NAME: "${CLIP_MODEL_NAME:-RN50}"
+  CLIP_PRETRAINED: "${CLIP_PRETRAINED:-openai}"
   # ── Gate de calidad: blur y cobertura ────────────────────────────
   BLUR_VARIANCE_MIN: "${BLUR_VARIANCE_MIN:-0}"
   MIN_COVERAGE_UNION: "${MIN_COVERAGE_UNION:-0.03}"
-  # ── Cache de pesos CLIP (HuggingFace Hub) ────────────────────────
+  # ── Cache de pesos CLIP (HuggingFace Hub y OpenAI) ──────────────
   HF_HOME: /app/hf_cache
+  XDG_CACHE_HOME: /app/torch_cache
   # ── Cloudflare R2 (descarga directa de imágenes en el worker gRPC) ───────
   S3_ENDPOINT: "${S3_ENDPOINT}"
   S3_BUCKET: "${S3_BUCKET}"
