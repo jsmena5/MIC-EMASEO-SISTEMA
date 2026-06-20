@@ -718,13 +718,9 @@ def run_inference_from_s3(
         )
         return
 
-    # Delegar en la lógica de inferencia existente, ya con la imagen en disco
-    # La tarea run_inference limpia el archivo local al finalizar (Path.unlink)
-    return run_inference(
-        self,
-        str(image_path),
-        image_width,
-        image_height,
-        client_coverage_ratio,
-    )
+    # Delegar en la lógica de inferencia existente, ya con la imagen en disco.
+    # run_inference.run() llama la función subyacente sin el binding automático
+    # de Celery, por lo que self debe pasarse explícitamente. Usamos el self de
+    # run_inference_from_s3 para que retry() y task_id operen sobre esta tarea.
+    return run_inference.run(self, str(image_path), image_width, image_height, client_coverage_ratio)
 
