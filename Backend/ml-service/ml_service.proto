@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package emaseo.ml;
+
+service MLService {
+  // Encola la tarea de inferencia y devuelve un task_id
+  rpc Predict (PredictRequest) returns (PredictResponse);
+  
+  // Consulta el estado de una tarea
+  rpc PredictStatus (PredictStatusRequest) returns (PredictStatusResponse);
+}
+
+message PredictRequest {
+  // Ahora pasamos la llave de S3 en lugar del pesado payload en Base64
+  string s3_key = 1;
+  int32 image_width = 2;
+  int32 image_height = 3;
+  optional float client_coverage_ratio = 4;
+}
+
+message PredictResponse {
+  string task_id = 1;
+  string status = 2;
+}
+
+message PredictStatusRequest {
+  string task_id = 1;
+}
+
+message PredictStatusResponse {
+  string task_id = 1;
+  string status = 2;
+  // Representación JSON del resultado para mantener compatibilidad 
+  // con la estructura dinámica actual de la IA (dictionaries en Python).
+  string result_json = 3;
+  string error_message = 4;
+}

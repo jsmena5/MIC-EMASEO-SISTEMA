@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     curl \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -25,6 +26,16 @@ RUN pip install --no-cache-dir --timeout=120 -r requirements.txt
 COPY celery_app.py tasks.py main.py gunicorn.conf.py config_classes.py ml_utils.py semantic_gate.py grpc_server.py ./
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
+# El .proto se copia junto al resto del código del servicio (ver gen_proto.sh).
+# Si no existe, el build falla aquí con un mensaje claro en lugar de fallar en runtime.
+COPY ml_service.proto ./ml_service.proto
+
+# Generar stubs gRPC. grpc_server.py hace sys.exit(1) si no los encuentra.
+RUN python -m grpc_tools.protoc \
+      -I /app \
+      --python_out=/app \
+      --grpc_python_out=/app \
+      /app/ml_service.proto
 
 RUN pip install --no-cache-dir "pytest>=8.0.0" \
     && mkdir -p /app/uploads /app/torch_cache /app/hf_cache \
@@ -38,8 +49,17 @@ USER appuser
 
 EXPOSE 8000 50051
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD bash -c "curl -f http://localhost:8000/health && nc -z localhost 50051"
 
-# Arranca FastAPI (Gunicorn) y el servidor gRPC en paralelo
-CMD ["bash", "-c", "python grpc_server.py & gunicorn main:app -c gunicorn.conf.py"]
+# Arranca gRPC y Gunicorn en paralelo.
+# - trap propaga SIGTERM/SIGINT a ambos procesos (shutdown limpio de Docker).
+# - Si el servidor gRPC muere (exit != 0), kill mata a Gunicorn y el
+#   contenedor termina con código de error → Docker lo reinicia.
+# - wait $GRPC_PID captura el exit code del gRPC después de que Gunicorn termina.
+CMD ["bash", "-c", \
+  "python grpc_server.py & GRPC_PID=$!; \
+  trap 'kill $GRPC_PID 2>/dev/null' SIGTERM SIGINT; \
+  gunicorn main:app -c gunicorn.conf.py & GUNICORN_PID=$!; \
+  wait $GRPC_PID || (kill $GUNICORN_PID 2>/dev/null; exit 1); \
+  wait $GUNICORN_PID"]

@@ -14,11 +14,11 @@ Esto elimina el cuello de botella principal de latencia: transferir ~10 MB de
 Base64 en JSON por la red interna.
 """
 
-import asyncio
 import json
 import logging
 import os
 import sys
+import uuid
 from concurrent import futures
 from pathlib import Path
 
@@ -54,11 +54,10 @@ class MLServiceServicer(ml_service_pb2_grpc.MLServiceServicer):
     def Predict(self, request, context):
         """
         Encola una tarea de inferencia en Celery y devuelve el task_id.
-        
+
         El request contiene s3_key (e.g. 'incidents/abc.jpg') en lugar de
         la imagen en Base64, lo que elimina el mayor cuello de botella de red.
         """
-        import uuid
         task_id = str(uuid.uuid4())
 
         kwargs = {}

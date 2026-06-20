@@ -7,6 +7,8 @@ FROM node:22-alpine
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY src/ ./src/
+# El proto debe estar accesible en /app/proto/ para mlCircuitBreaker.js
+COPY proto/ml_service.proto ./proto/ml_service.proto
 RUN chown -R node:node /app
 USER node
 EXPOSE 5000

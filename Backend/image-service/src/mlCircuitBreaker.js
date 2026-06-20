@@ -25,11 +25,10 @@ import { fileURLToPath } from "url"
 
 const require = createRequire(import.meta.url)
 
-// ── Cargar stubs gRPC generados por protoc ────────────────────────────────────
-// Los stubs viven en el repositorio bajo Backend/proto/generated/node/
-// y se generan con: bash Backend/proto/gen_proto_node.sh
+// ── Cargar definición gRPC desde el .proto ───────────────────────────────────
+// En el contenedor, ml_service.proto se copia a /app/proto/ml_service.proto.
+// En desarrollo local, se busca también en Backend/proto/ (dos niveles arriba de src/).
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PROTO_GEN_PATH = path.resolve(__dirname, "../../../proto/generated/node")
 
 let grpc, protoLoader, packageDefinition, mlProto, mlServiceStub
 
@@ -37,7 +36,8 @@ try {
   grpc        = require("@grpc/grpc-js")
   protoLoader = require("@grpc/proto-loader")
 
-  const PROTO_PATH = path.resolve(__dirname, "../../../proto/ml_service.proto")
+  // /app/proto/ml_service.proto (Docker: src/ → ../proto/)
+  const PROTO_PATH = path.resolve(__dirname, "../proto/ml_service.proto")
   packageDefinition = protoLoader.loadSync(PROTO_PATH, {
     keepCase:     true,
     longs:        String,

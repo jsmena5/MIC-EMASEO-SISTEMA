@@ -234,11 +234,21 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    command: bash -c "python grpc_server.py & gunicorn main:app -c gunicorn.conf.py"
+    command: >
+      bash -c "
+        python grpc_server.py & GRPC_PID=$!;
+        trap 'kill $$GRPC_PID 2>/dev/null' SIGTERM SIGINT;
+        gunicorn main:app -c gunicorn.conf.py & GUNICORN_PID=$!;
+        wait $$GRPC_PID || (kill $$GUNICORN_PID 2>/dev/null; exit 1);
+        wait $$GUNICORN_PID"
     networks:
       - emaseo_network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # Verifica tanto el servidor HTTP (Gunicorn) como el gRPC (50051).
+      # Si el gRPC está caído (silencioso en background), el healthcheck falla
+      # y depends_on: service_healthy en image-service detiene el tráfico.
+      test: ["CMD", "bash", "-c",
+        "curl -f http://localhost:8000/health && nc -z localhost 50051"]
       interval: 30s
       timeout: 5s
       retries: 3
