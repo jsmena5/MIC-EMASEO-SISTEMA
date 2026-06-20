@@ -146,37 +146,36 @@ def _get_model():
 
 @signals.worker_process_init.connect
 def _preload_model_on_startup(**kwargs):
-    """Pre-carga RT-DETR en CADA hijo después del fork (no en el padre).
+    """Pre-carga RT-DETR, CLIP y MiDaS en CADA hijo después del fork.
 
     worker_process_init fires en cada proceso hijo tras el fork — esto evita
-    el deadlock conocido de PyTorch+fork: si el padre carga el modelo (con
+    el deadlock conocido de PyTorch+fork: si el padre carga modelos (con
     threadpools internos OMP/MKL) y luego forkea, los hijos heredan referencias
-    a hilos que no existen → futex_wait_queue_me eterno → tareas nunca completan.
+    a hilos que no existen → futex_wait_queue_me eterno.
 
-    CLIP (semantic_gate) se carga lazy en el primer verify_is_garbage() real
-    para evitar un segundo deadlock: open_clip.create_model_and_transforms() +
-    hf_hub_download() dentro de un ForkPoolWorker cuelga ~300 s incluso con
-    HF_HUB_OFFLINE=1 (huggingface_hub hace al menos un request de telemetría
-    que bloquea en TCP hasta el soft_time_limit).
+    CLIP y MiDaS se cargan aquí porque el entorno tiene:
+      HF_HUB_OFFLINE=1            → sin requests HTTP a HuggingFace
+      HF_HUB_DISABLE_TELEMETRY=1  → sin requests de telemetría
+
+    Con ambas flags el hf_hub_download() es completamente local (usa hf_cache
+    volumen) y no hay deadlock TCP. Sin ellas, cargar CLIP desde un ForkPoolWorker
+    cuelga ~300 s bloqueando la primera inferencia real.
+
+    El bloqueo aquí es intencional: el worker no acepta tareas hasta que los
+    tres modelos estén listos — elimina el cold-start de 3-4 min en la primera
+    inferencia real.
     """
     if not DUMMY_MODE:
+        t0 = time.time()
         _get_model()
-
-
-@signals.worker_ready.connect
-def _submit_warmup_tasks(**kwargs):
-    """Envía tareas de warm-up de CLIP justo cuando los workers están listos.
-
-    worker_ready fires en el PROCESO PADRE (no en un ForkPoolWorker), por eso
-    no hay riesgo de deadlock TCP/fork. Las tareas de warm-up se encolan en
-    Redis y cada worker las toma en contexto de ejecución normal (seguro).
-    Resultado: CLIP queda cargado antes de que llegue el primer request real.
-    """
-    if not DUMMY_MODE:
-        concurrency = int(os.environ.get("WORKER_CONCURRENCY", "2"))
-        for _ in range(concurrency):
-            warmup_clip_task.delay()
-        logger.info("[startup] %d tarea(s) de warm-up CLIP enviadas", concurrency)
+        logger.info("[startup] RT-DETR listo en %.1fs", time.time() - t0)
+        t1 = time.time()
+        _warm_up_clip()
+        logger.info("[startup] CLIP listo en %.1fs", time.time() - t1)
+        t2 = time.time()
+        _warm_up_midas()
+        logger.info("[startup] MiDaS listo en %.1fs", time.time() - t2)
+        logger.info("[startup] Worker listo para inferencia (total %.1fs)", time.time() - t0)
 
 
 @celery.task(
