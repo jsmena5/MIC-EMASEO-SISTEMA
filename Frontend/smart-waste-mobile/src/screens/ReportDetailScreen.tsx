@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   View,
   Text,
@@ -8,10 +8,13 @@ import {
   StyleSheet,
   StatusBar,
   Linking,
+  Animated,
+  Platform,
 } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import { NativeStackScreenProps } from "@react-navigation/native-stack"
 import * as Location from "expo-location"
+import MapView, { Marker, PROVIDER_DEFAULT } from "react-native-maps"
 
 import { RootStackParamList } from "../navigation/AppNavigator"
 import { Incident, getMyIncidentById } from "../services/image.service"
@@ -164,6 +167,98 @@ function AiReceiptCard({ incident }: Readonly<{ incident: Incident }>) {
   )
 }
 
+// ─── IncidentMap ─────────────────────────────────────────────────────────────
+// Mapa embebido con el marcador del incidente y botón de navegación.
+
+function IncidentMap({
+  lat,
+  lon,
+  address,
+}: Readonly<{ lat: number; lon: number; address: string | null }>) {
+  const pulseAnim = useRef(new Animated.Value(1)).current
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.4, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 900, useNativeDriver: true }),
+      ]),
+    )
+    pulse.start()
+    return () => pulse.stop()
+  }, [pulseAnim])
+
+  const openInMaps = () => {
+    const label = encodeURIComponent("Incidente EMASEO")
+    const url =
+      Platform.OS === "ios"
+        ? `maps:?q=${label}&ll=${lat},${lon}`
+        : `geo:${lat},${lon}?q=${lat},${lon}(${label})`
+    Linking.openURL(url).catch(() =>
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lon}`),
+    )
+  }
+
+  return (
+    <View style={styles.mapContainer}>
+      <MapView
+        style={styles.map}
+        provider={PROVIDER_DEFAULT}
+        initialRegion={{
+          latitude:       lat,
+          longitude:      lon,
+          latitudeDelta:  0.003,
+          longitudeDelta: 0.003,
+        }}
+        scrollEnabled={false}
+        zoomEnabled={false}
+        pitchEnabled={false}
+        rotateEnabled={false}
+        accessibilityLabel="Mapa de ubicación del incidente"
+      >
+        <Marker
+          coordinate={{ latitude: lat, longitude: lon }}
+          title="Incidente reportado"
+          description={address ?? `${lat.toFixed(5)}, ${lon.toFixed(5)}`}
+        >
+          {/* Marcador personalizado con anillo pulsante */}
+          <View style={styles.markerWrapper}>
+            <Animated.View
+              style={[
+                styles.markerPulse,
+                { transform: [{ scale: pulseAnim }] },
+              ]}
+            />
+            <View style={styles.markerCore}>
+              <Ionicons name="location" size={16} color="#fff" />
+            </View>
+          </View>
+        </Marker>
+      </MapView>
+
+      {/* Capa de info + botón de navegación sobre el mapa */}
+      <View style={styles.mapOverlay}>
+        <View style={styles.mapAddressChip}>
+          <Ionicons name="location-outline" size={13} color={colors.primary} />
+          <Text style={styles.mapAddressText} numberOfLines={1}>
+            {address ?? `${lat.toFixed(5)}, ${lon.toFixed(5)}`}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.mapNavBtn}
+          onPress={openInMaps}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Abrir en el mapa del dispositivo"
+        >
+          <Ionicons name="navigate-outline" size={16} color="#fff" />
+          <Text style={styles.mapNavBtnText}>Navegar</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  )
+}
+
 export default function ReportDetailScreen({ route, navigation }: Readonly<Props>) {
   const [incident, setIncident] = useState<Incident>(route.params.incident)
 
@@ -206,55 +301,15 @@ export default function ReportDetailScreen({ route, navigation }: Readonly<Props
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── Ubicación ──────────────────────────────────────────────── */}
+        {/* ── Mapa embebido / fallback ───────────────────────────────── */}
         {hasCoords ? (
-          <TouchableOpacity
-            style={styles.mapCard}
-            activeOpacity={0.75}
-            onPress={() =>
-              Linking.openURL(
-                `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`,
-              )
-            }
-          >
-            <View style={styles.mapCardLeft}>
-              <View style={styles.mapPin}>
-                <Ionicons name="location" size={22} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.mapCardTitle}>Ver ubicación</Text>
-                <Text style={styles.mapCardCoords}>{`${lat!.toFixed(5)}, ${lon!.toFixed(5)}`}</Text>
-              </View>
-            </View>
-            <Ionicons name="open-outline" size={18} color={colors.primary} />
-          </TouchableOpacity>
+          <IncidentMap lat={lat!} lon={lon!} address={address} />
         ) : (
-          <View style={[styles.mapCard, { opacity: 0.5 }]}>
-            <Ionicons name="map-outline" size={22} color={colors.gray400} />
-            <Text style={[styles.mapCardTitle, { color: colors.gray400, marginLeft: 10 }]}>
-              Ubicación no disponible
-            </Text>
+          <View style={[styles.mapContainer, styles.mapFallback]}>
+            <Ionicons name="map-outline" size={32} color={colors.gray400} />
+            <Text style={styles.mapFallbackText}>Ubicación no disponible</Text>
           </View>
         )}
-
-        {/* ── Dirección geocodificada ────────────────────────────────── */}
-        <View style={styles.addressRow}>
-          <Ionicons
-            name="location-outline"
-            size={16}
-            color={address ? colors.primary : colors.gray400}
-          />
-          <Text
-            style={address ? styles.addressText : styles.coordText}
-            numberOfLines={2}
-          >
-            {(() => {
-              if (address) return address
-              if (hasCoords) return `${lat!.toFixed(5)}, ${lon!.toFixed(5)}`
-              return "Sin coordenadas registradas"
-            })()}
-          </Text>
-        </View>
 
         {/* ── Foto de la incidencia ──────────────────────────────────── */}
         {toPublicMediaUrl(incident.image_url) && !imgError ? (
@@ -356,70 +411,96 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
   },
 
-  // Location card (replaces MapView)
-  mapCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surface,
+  // ── Map ──────────────────────────────────────────────────────────────────────
+  mapContainer: {
     marginHorizontal: 16,
     marginTop: 16,
     marginBottom: 4,
-    borderRadius: 14,
-    padding: 16,
-    elevation: 2,
+    borderRadius: 16,
+    overflow: "hidden",
+    height: 220,
+    elevation: 3,
     shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
   },
-  mapCardLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
+  map: {
+    ...StyleSheet.absoluteFillObject,
   },
-  mapPin: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primaryLight,
+  mapFallback: {
+    backgroundColor: colors.gray100,
     justifyContent: "center",
     alignItems: "center",
+    gap: 10,
   },
-  mapCardTitle: {
+  mapFallbackText: {
     fontSize: 14,
-    fontWeight: "700",
-    color: colors.primary,
-    marginBottom: 2,
-  },
-  mapCardCoords: {
-    fontSize: 11,
     color: colors.textTertiary,
-    fontFamily: "monospace",
   },
-
-  // Address
-  addressRow: {
+  mapOverlay: {
+    position: "absolute",
+    bottom: 10,
+    left: 10,
+    right: 10,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
   },
-  addressText: {
+  mapAddressChip: {
     flex: 1,
-    fontSize: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  mapAddressText: {
+    flex: 1,
+    fontSize: 12,
     fontWeight: "600",
     color: colors.textPrimary,
   },
-  coordText: {
-    flex: 1,
-    fontSize: 13,
-    color: colors.textSecondary,
+  mapNavBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+  },
+  mapNavBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  // Marcador personalizado con anillo pulsante
+  markerWrapper: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  markerPulse: {
+    position: "absolute",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: `${colors.primary}40`,
+  },
+  markerCore: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
   },
 
   // Image
