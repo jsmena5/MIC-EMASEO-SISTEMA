@@ -34,11 +34,11 @@ celery.conf.update(
     task_serializer="json",
     result_serializer="json",
     accept_content=["json"],
-    # ── Concurrencia: 2 inferencias paralelas en 4 vCPU CPU-only ────────────────
-    # Con OMP_NUM_THREADS=2 cada inferencia usa 2 threads → 2×2=4 hilos máximo.
-    # El --concurrency del comando de arranque sobreescribe este valor si difieren;
-    # se deja en 2 como default documentado para entornos locales sin argumento.
-    worker_concurrency=2,
+    # ── Concurrencia: 1 inferencia a la vez con OMP_NUM_THREADS=3 ───────────────
+    # En CPU-only, CLIP encode_image tarda 60-90s con 2 workers compitiendo por
+    # los mismos cores. Con concurrency=1 y OMP=3 baja a ~3-5s por inferencia.
+    # El --concurrency del comando de arranque sobreescribe este valor si difieren.
+    worker_concurrency=1,
     worker_prefetch_multiplier=1,   # Redis NO pre-asigna tareas a un worker ocupado
     # ── Confiabilidad ante caídas ────────────────────────────────────────────────
     task_acks_late=True,            # ACK post-ejecución: caída del worker → re-encola

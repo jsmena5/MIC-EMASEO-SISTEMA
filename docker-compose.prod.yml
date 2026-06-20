@@ -273,10 +273,11 @@ services:
       # volumen de forma incoherente con el nivel. MiDaS se precarga en el warmup.
       USE_MIDAS_VOLUME: "true"
       UPLOADS_DIR: /app/uploads
-      # 2 threads por inferencia RT-DETR × 2 tareas concurrentes = 4 threads
-      # máximo, que caben justo en los 4 vCPU del VPS sin desbordar.
-      OMP_NUM_THREADS: "2"
-      MKL_NUM_THREADS: "2"
+      # 1 inferencia a la vez con acceso total a los cores del worker.
+      # Con 2 workers paralelos y OMP=2, cada CLIP encode_image tomaba 60-90s
+      # porque se pisaban en CPU. Con concurrencia=1 y OMP=3 baja a ~3-5s.
+      OMP_NUM_THREADS: "3"
+      MKL_NUM_THREADS: "3"
       # Fuerza HuggingFace Hub a modo offline: usa solo el caché local (hf_cache
       # volume) sin hacer requests HTTP para verificar actualizaciones del modelo.
       # Sin esto, cada carga de CLIP hace un request a HF que con rate-limiting
@@ -284,7 +285,7 @@ services:
       HUGGINGFACE_HUB_OFFLINE: "1"
       HF_HUB_OFFLINE: "1"
       HF_HUB_DISABLE_TELEMETRY: "1"
-      WORKER_CONCURRENCY: "2"   # debe coincidir con --concurrency en command
+      WORKER_CONCURRENCY: "1"   # debe coincidir con --concurrency en command
     volumes:
       - shared_uploads:/app/uploads
       - ./ML/modelos:/app/models:ro
@@ -297,7 +298,7 @@ services:
         -Q ml_queue,dead_letter
         --loglevel=info
         --hostname=worker@%h
-        --concurrency=2
+        --concurrency=1
     healthcheck:
       test: ["CMD", "celery", "-A", "celery_app", "inspect", "ping", "--timeout=5"]
       interval: 60s
