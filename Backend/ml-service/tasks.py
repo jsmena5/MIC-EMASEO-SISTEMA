@@ -442,6 +442,10 @@ def _apply_midas_volume(metricas, img, detecciones, img_w, img_h, client_coverag
     time_limit=360,       # 6 min: fuerza terminación si soft_time_limit se ignoró
 )
 def run_inference(self, image_path: str, image_width: int = 1280, image_height: int = 960, client_coverage_ratio: float | None = None):
+    return _run_inference_body(self, image_path, image_width, image_height, client_coverage_ratio)
+
+
+def _run_inference_body(task_ctx, image_path: str, image_width: int = 1280, image_height: int = 960, client_coverage_ratio: float | None = None):
     if DUMMY_MODE:
         time.sleep(2)
         return {
@@ -470,8 +474,8 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
 
     from PIL import Image
 
-    logger.info("[run_inference] START task_id=%s image=%s", self.request.id, image_path)
-    print(f"[run_inference] START task_id={self.request.id} image={image_path}", flush=True)
+    logger.info("[run_inference] START task_id=%s image=%s", task_ctx.request.id, image_path)
+    print(f"[run_inference] START task_id={task_ctx.request.id} image={image_path}", flush=True)
 
     try:
         img = Image.open(image_path).convert("RGB")
@@ -623,7 +627,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
         except OSError:
             pass
         _retry_or_dlq(
-            self, exc,
+            task_ctx, exc,
             payload={
                 "image_path":   image_path,
                 "image_width":  image_width,
@@ -633,7 +637,7 @@ def run_inference(self, image_path: str, image_width: int = 1280, image_height: 
     except Exception as exc:
         # Reintenta con backoff exponencial; si agota max_retries → DLQ
         _retry_or_dlq(
-            self, exc,
+            task_ctx, exc,
             payload={
                 "image_path":   image_path,
                 "image_width":  image_width,
@@ -718,8 +722,8 @@ def run_inference_from_s3(
         )
         return
 
-    # Delegar en la lógica de inferencia. run_inference.__wrapped__ es la función
-    # Python original antes del decorador @celery.task(bind=True), por lo que
-    # acepta (self, image_path, ...) sin que Celery inyecte un segundo self.
-    return run_inference.__wrapped__(self, str(image_path), image_width, image_height, client_coverage_ratio)
+    # Delegar en la lógica de inferencia compartida.
+    # _run_inference_body es una función Python pura (no tarea Celery) que
+    # recibe task_ctx explícitamente — sin el doble-self de bind=True.
+    return _run_inference_body(self, str(image_path), image_width, image_height, client_coverage_ratio)
 
