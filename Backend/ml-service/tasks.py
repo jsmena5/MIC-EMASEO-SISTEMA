@@ -718,9 +718,8 @@ def run_inference_from_s3(
         )
         return
 
-    # Delegar en la lógica de inferencia existente, ya con la imagen en disco.
-    # run_inference.run() llama la función subyacente sin el binding automático
-    # de Celery, por lo que self debe pasarse explícitamente. Usamos el self de
-    # run_inference_from_s3 para que retry() y task_id operen sobre esta tarea.
-    return run_inference.run(self, str(image_path), image_width, image_height, client_coverage_ratio)
+    # Delegar en la lógica de inferencia. run_inference.__wrapped__ es la función
+    # Python original antes del decorador @celery.task(bind=True), por lo que
+    # acepta (self, image_path, ...) sin que Celery inyecte un segundo self.
+    return run_inference.__wrapped__(self, str(image_path), image_width, image_height, client_coverage_ratio)
 
