@@ -129,7 +129,7 @@ export function AnalysisProvider({ children }: Readonly<{ children: React.ReactN
           return
         }
 
-        if (status.estado === "PENDIENTE" && status.decision_automatica === "REVISION_REQUERIDA") {
+        if (status.estado === "PENDIENTE" && "decision_automatica" in status && status.decision_automatica === "REVISION_REQUERIDA") {
           Alert.alert(
             "Reporte en revisión",
             "La IA no pudo determinar con certeza si hay basura en la imagen. Un supervisor revisará tu reporte y recibirás una notificación con la decisión. Puedes ver el estado en tu historial.",

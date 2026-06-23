@@ -69,7 +69,7 @@ function AiReceiptCard({ incident }: Readonly<{ incident: Incident }>) {
       {/* Encabezado del recibo */}
       <View style={styles.receiptHeader}>
         <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-          <Ionicons name={cfg.icon} size={14} color={cfg.color} />
+          <cfg.LucideIcon size={14} color={cfg.color} />
           <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
         </View>
         <Text style={styles.receiptDate}>{formatDate(incident.created_at)}</Text>
