@@ -5,14 +5,12 @@ const BASE = `${API_URL}/users/supervisores`
 
 export interface Supervisor {
   id: string
-  user_id: string
   nombre: string
   apellido: string
   cedula: string
   telefono: string
   zona_id: string | null
   email: string
-  username: string
   rol: string
   estado: "ACTIVO" | "INACTIVO" | "SUSPENDIDO"
 }

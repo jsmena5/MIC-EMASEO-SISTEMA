@@ -104,7 +104,7 @@ function AssignModal({
           >
             <option value="">Sin supervisor</option>
             {supervisores.map((s) => (
-              <option key={s.user_id} value={s.user_id}>
+              <option key={s.id} value={s.id}>
                 {s.nombre} {s.apellido} — {s.email}
               </option>
             ))}
