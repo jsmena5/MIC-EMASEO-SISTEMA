@@ -79,8 +79,20 @@ export const updateZona = async (req, res) => {
           [oldSupId, id]
         )
       }
-      // Asignar zona al nuevo supervisor (también limpia si antes tenía otra zona)
       if (newSupId) {
+        // Si el nuevo supervisor ya tenía otra zona asignada, desasignarlo de ella primero
+        const { rows: prevZona } = await client.query(
+          "SELECT zona_id FROM app_auth.users WHERE id = $1",
+          [newSupId]
+        )
+        const zonaAnteriorDelSup = prevZona[0]?.zona_id ?? null
+        if (zonaAnteriorDelSup && zonaAnteriorDelSup !== id) {
+          await client.query(
+            "UPDATE operations.zones SET supervisor_id = NULL WHERE id = $1 AND supervisor_id = $2",
+            [zonaAnteriorDelSup, newSupId]
+          )
+        }
+        // Asignar zona al nuevo supervisor
         await client.query(
           "UPDATE app_auth.users SET zona_id = $1 WHERE id = $2",
           [id, newSupId]

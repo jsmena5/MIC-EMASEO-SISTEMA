@@ -45,7 +45,7 @@ function Modal({ title, onClose, children }: Readonly<{ title: string; onClose: 
 function AssignModal({
   zona, supervisores, onClose, onSaved,
 }: Readonly<{
-  zona: Zona; supervisores: Supervisor[]; onClose: () => void; onSaved: () => void
+  zona: Zona; supervisores: Supervisor[]; onClose: () => void; onSaved: () => Promise<void>
 }>) {
   const [supId,   setSupId]   = useState<string>(zona.supervisor_id ?? "")
   const [nombre,  setNombre]  = useState(zona.nombre)
@@ -63,7 +63,8 @@ function AssignModal({
         supervisor_id: supId || null,
         activa,
       })
-      onSaved(); onClose()
+      await onSaved()
+      onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al guardar")
     } finally {
@@ -103,11 +104,14 @@ function AssignModal({
             className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 transition"
           >
             <option value="">Sin supervisor</option>
-            {supervisores.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nombre} {s.apellido} — {s.email}
-              </option>
-            ))}
+            {supervisores.map((s) => {
+              const yaAsignado = s.zona_id !== null && s.zona_id !== zona.id
+              return (
+                <option key={s.id} value={s.id}>
+                  {s.nombre} {s.apellido} — {s.email}{yaAsignado ? " (ya tiene zona)" : ""}
+                </option>
+              )
+            })}
           </select>
         </div>
         <div className="flex items-center gap-3">
@@ -335,6 +339,7 @@ export default function Zonas() {
     try {
       const [z, s] = await Promise.all([listZonas(), getSupervisores()])
       setZonas(z.zonas); setSupervisores(s)
+      setSelected((prev) => prev ? (z.zonas.find((zona) => zona.id === prev.id) ?? null) : null)
     } catch {
       setError("No se pudieron cargar las zonas")
     } finally {
