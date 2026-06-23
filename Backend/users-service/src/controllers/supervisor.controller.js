@@ -15,12 +15,19 @@ export const getSupervisores = async (req, res) => {
         u.apellido,
         u.cedula,
         u.telefono,
-        u.zona_id,
         u.email,
         u.rol,
-        u.estado
+        u.estado,
+        COALESCE(
+          jsonb_agg(jsonb_build_object('id', z.id, 'nombre', z.nombre, 'codigo', z.codigo))
+            FILTER (WHERE z.id IS NOT NULL),
+          '[]'::jsonb
+        ) AS zonas
       FROM app_auth.users u
+      LEFT JOIN operations.supervisor_zones sz ON sz.supervisor_id = u.id
+      LEFT JOIN operations.zones z ON z.id = sz.zona_id
       WHERE u.rol = 'SUPERVISOR' AND u.estado = 'ACTIVO'
+      GROUP BY u.id
       ORDER BY u.created_at DESC
     `)
 
@@ -38,9 +45,17 @@ export const getSupervisorById = async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT u.id, u.nombre, u.apellido, u.cedula, u.telefono,
-             u.zona_id, u.email, u.rol, u.estado
+             u.email, u.rol, u.estado,
+             COALESCE(
+               jsonb_agg(jsonb_build_object('id', z.id, 'nombre', z.nombre, 'codigo', z.codigo))
+                 FILTER (WHERE z.id IS NOT NULL),
+               '[]'::jsonb
+             ) AS zonas
       FROM app_auth.users u
+      LEFT JOIN operations.supervisor_zones sz ON sz.supervisor_id = u.id
+      LEFT JOIN operations.zones z ON z.id = sz.zona_id
       WHERE u.id = $1 AND u.rol = 'SUPERVISOR'
+      GROUP BY u.id
     `, [id])
 
     if (result.rows.length === 0) {

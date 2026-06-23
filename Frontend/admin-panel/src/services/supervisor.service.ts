@@ -9,7 +9,7 @@ export interface Supervisor {
   apellido: string
   cedula: string
   telefono: string
-  zona_id: string | null
+  zona_id?: string | null
   email: string
   rol: string
   estado: "ACTIVO" | "INACTIVO" | "SUSPENDIDO"

@@ -43,9 +43,9 @@ function Modal({ title, onClose, children }: Readonly<{ title: string; onClose: 
 }
 
 function AssignModal({
-  zona, supervisores, onClose, onSaved,
+  zona, supervisores, todasLasZonas, onClose, onSaved,
 }: Readonly<{
-  zona: Zona; supervisores: Supervisor[]; onClose: () => void; onSaved: () => Promise<void>
+  zona: Zona; supervisores: Supervisor[]; todasLasZonas: Zona[]; onClose: () => void; onSaved: () => Promise<void>
 }>) {
   const [supId,   setSupId]   = useState<string>(zona.supervisor_id ?? "")
   const [nombre,  setNombre]  = useState(zona.nombre)
@@ -105,10 +105,13 @@ function AssignModal({
           >
             <option value="">Sin supervisor</option>
             {supervisores.map((s) => {
-              const yaAsignado = s.zona_id !== null && s.zona_id !== zona.id
+              const otrasZonas = todasLasZonas
+                .filter((z) => z.id !== zona.id && z.supervisor_id === s.id)
+                .map((z) => z.nombre)
+              const label = otrasZonas.length > 0 ? ` (también en: ${otrasZonas.join(", ")})` : ""
               return (
                 <option key={s.id} value={s.id}>
-                  {s.nombre} {s.apellido} — {s.email}{yaAsignado ? " (ya tiene zona)" : ""}
+                  {s.nombre} {s.apellido} — {s.email}{label}
                 </option>
               )
             })}
@@ -535,6 +538,7 @@ export default function Zonas() {
         <AssignModal
           zona={editTarget}
           supervisores={supervisores}
+          todasLasZonas={zonas}
           onClose={() => setEditTarget(null)}
           onSaved={load}
         />

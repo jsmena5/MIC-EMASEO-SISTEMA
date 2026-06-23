@@ -41,8 +41,8 @@ const TRANSICIONES_VALIDAS = {
 //   page (default 1), limit (default 20)
 //
 // Restricción de zona por rol:
-//   SUPERVISOR — ve SOLO los incidentes de su zona (app_auth.users.zona_id). El parámetro
-//                ?zona_id= se ignora; la zona se fuerza desde la BD para evitar escalada de
+//   SUPERVISOR — ve SOLO los incidentes de sus zonas (operations.supervisor_zones). El parámetro
+//                ?zona_id= se ignora; las zonas se fuerzan desde la BD para evitar escalada de
 //                privilegios donde un supervisor consultaría incidentes de otra zona.
 //   ADMIN      — ve todos los incidentes; puede filtrar opcionalmente con ?zona_id=.
 
@@ -70,12 +70,11 @@ export const listIncidents = async (req, res) => {
 
   if (userRol === "SUPERVISOR") {
     try {
-      const { rows: userRows } = await pool.query(
-        `SELECT zona_id FROM app_auth.users WHERE id = $1`,
+      const { rows: zonaRows } = await pool.query(
+        `SELECT zona_id FROM operations.supervisor_zones WHERE supervisor_id = $1`,
         [userId],
       )
-      const zonaDelSupervisor = userRows[0]?.zona_id ?? null
-      if (!zonaDelSupervisor) {
+      if (zonaRows.length === 0) {
         // Supervisor sin zona asignada: devolver lista vacía en lugar de exponer
         // todos los incidentes o fallar con un 500 confuso.
         return res.json({
@@ -84,7 +83,9 @@ export const listIncidents = async (req, res) => {
           _aviso: "Este supervisor no tiene zona asignada. Contacte al administrador.",
         })
       }
-      zonaEfectiva = zonaDelSupervisor
+      // Si tiene múltiples zonas, filtrar por cualquiera de ellas con ANY(array)
+      const zonaIds = zonaRows.map((r) => r.zona_id)
+      zonaEfectiva = zonaIds
     } catch (err) {
       console.error("[supervisor] listIncidents — resolución zona supervisor:", err.message)
       return res.status(500).json({ error: "Error al determinar la zona del supervisor." })
@@ -99,7 +100,17 @@ export const listIncidents = async (req, res) => {
 
   if (estado)              { params.push(estado);              conditions.push(`i.estado = $${params.length}`) }
   if (prioridad)           { params.push(prioridad);           conditions.push(`i.prioridad = $${params.length}`) }
-  if (zonaEfectiva)        { params.push(zonaEfectiva);        conditions.push(`i.zona_id = $${params.length}`) }
+  if (zonaEfectiva) {
+    if (Array.isArray(zonaEfectiva)) {
+      // SUPERVISOR con múltiples zonas
+      params.push(zonaEfectiva)
+      conditions.push(`i.zona_id = ANY($${params.length}::uuid[])`)
+    } else {
+      // ADMIN filtrando por zona_id específica
+      params.push(zonaEfectiva)
+      conditions.push(`i.zona_id = $${params.length}`)
+    }
+  }
   if (decision_automatica) { params.push(decision_automatica); conditions.push(`i.decision_automatica = $${params.length}`) }
 
   if (fecha_desde) {
@@ -758,15 +769,14 @@ export const mapaZonas = async (req, res) => {
     const client = await pool.connect()
     try {
 
-      // Resolver zona efectiva: SUPERVISOR solo ve sus incidentes, ADMIN ve todo
-      let zonaFiltro = null
+      // Resolver zonas efectivas: SUPERVISOR solo ve sus zonas, ADMIN ve todo
+      let zonaFiltro = null  // null = sin restricción (ADMIN)
       if (userRol === 'SUPERVISOR') {
-        const { rows: userRows } = await client.query(
-          'SELECT zona_id FROM app_auth.users WHERE id = $1',
+        const { rows: szRows } = await client.query(
+          'SELECT zona_id FROM operations.supervisor_zones WHERE supervisor_id = $1',
           [userId]
         )
-        zonaFiltro = userRows[0]?.zona_id ?? null
-        if (!zonaFiltro) {
+        if (szRows.length === 0) {
           return res.status(200).json({
             zonas: { type: 'FeatureCollection', features: [] },
             incidentes: [],
@@ -775,12 +785,13 @@ export const mapaZonas = async (req, res) => {
             _aviso: 'Supervisor sin zona asignada. Contacte al administrador.',
           })
         }
+        zonaFiltro = szRows.map((r) => r.zona_id)  // array de UUIDs
       }
 
       // A. Zonas como GeoJSON con conteos y supervisor asignado.
-      // SUPERVISOR: solo su zona. ADMIN: todas las zonas.
+      // SUPERVISOR: solo sus zonas. ADMIN: todas las zonas.
       const zonasWhere = zonaFiltro
-        ? `WHERE z.activa = TRUE AND z.id = $1`
+        ? `WHERE z.activa = TRUE AND z.id = ANY($1::uuid[])`
         : `WHERE z.activa = TRUE`
       const zonasParams = zonaFiltro ? [zonaFiltro] : []
 
@@ -826,7 +837,7 @@ export const mapaZonas = async (req, res) => {
       let incidentesParams
 
       if (hasBounds) {
-        const zoneClause = zonaFiltro ? `AND i.zona_id = $5::uuid` : ''
+        const zoneClause = zonaFiltro ? `AND i.zona_id = ANY($5::uuid[])` : ''
         incidentesQuery = `
           SELECT
             i.id, i.estado, i.prioridad, i.descripcion, i.zona_id, i.created_at,
@@ -848,7 +859,7 @@ export const mapaZonas = async (req, res) => {
           ? [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), zonaFiltro, pageSize, offset]
           : [Number(sw_lon), Number(sw_lat), Number(ne_lon), Number(ne_lat), pageSize, offset]
       } else {
-        const zoneClause = zonaFiltro ? `AND i.zona_id = $1::uuid` : ''
+        const zoneClause = zonaFiltro ? `AND i.zona_id = ANY($1::uuid[])` : ''
         incidentesQuery = `
           SELECT
             i.id, i.estado, i.prioridad, i.descripcion, i.zona_id, i.created_at,
@@ -933,20 +944,22 @@ export const mapaZonas = async (req, res) => {
 }
 
 // ─── GET /api/supervisor/mi-zona ─────────────────────────────────────────────
-// Devuelve la zona asignada al supervisor autenticado.
-// ADMIN no tiene zona propia → devuelve zona: null.
+// Devuelve todas las zonas asignadas al supervisor autenticado.
+// ADMIN no tiene zona propia → devuelve zonas: [].
+// Retorna zona (primera) para compatibilidad + zonas (array completo).
 
 export const getMiZona = async (req, res) => {
   const userId = req.headers['x-user-id']
   try {
     const { rows } = await pool.query(
       `SELECT z.id, z.codigo, z.nombre
-       FROM app_auth.users u
-       JOIN operations.zones z ON z.id = u.zona_id
-       WHERE u.id = $1`,
+       FROM operations.supervisor_zones sz
+       JOIN operations.zones z ON z.id = sz.zona_id
+       WHERE sz.supervisor_id = $1
+       ORDER BY z.nombre`,
       [userId]
     )
-    return res.json({ zona: rows[0] ?? null })
+    return res.json({ zona: rows[0] ?? null, zonas: rows })
   } catch (err) {
     console.error('[getMiZona]', err)
     return res.status(500).json({ error: 'Error al obtener zona' })

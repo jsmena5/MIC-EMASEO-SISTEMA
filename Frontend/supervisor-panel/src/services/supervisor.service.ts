@@ -117,7 +117,7 @@ export interface MiZona {
   nombre: string
 }
 
-export async function getMiZona(): Promise<{ zona: MiZona | null }> {
+export async function getMiZona(): Promise<{ zona: MiZona | null; zonas: MiZona[] }> {
   const res = await authenticatedFetch(`${API_URL}/supervisor/mi-zona`)
   if (!res.ok) throw new Error('Error al obtener zona')
   return res.json()

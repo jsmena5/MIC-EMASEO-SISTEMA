@@ -22,9 +22,29 @@ export const listZonas = async (_req, res) => {
   }
 }
 
+// ─── GET /api/users/zonas/:id/supervisores ────────────────────────────────────
+// Lista todos los supervisores asignados a una zona (relación N:M).
+
+export const listZonaSupervisores = async (req, res) => {
+  const { id } = req.params
+  try {
+    const { rows } = await pool.query(`
+      SELECT u.id, u.nombre, u.apellido, u.email, sz.asignado_at
+      FROM operations.supervisor_zones sz
+      JOIN app_auth.users u ON u.id = sz.supervisor_id
+      WHERE sz.zona_id = $1
+      ORDER BY u.nombre
+    `, [id])
+    return res.json({ supervisores: rows })
+  } catch (err) {
+    console.error("[zone] listZonaSupervisores:", err.message)
+    return res.status(500).json({ error: "Error al obtener supervisores de zona" })
+  }
+}
+
 // ─── PUT /api/users/zonas/:id ─────────────────────────────────────────────────
-// Mantiene sincronizadas operations.zones.supervisor_id y app_auth.users.zona_id
-// en una sola transacción para que el mapa del supervisor filtre correctamente.
+// Mantiene sincronizadas operations.zones.supervisor_id y
+// operations.supervisor_zones (junction 1:N) en una sola transacción.
 
 export const updateZona = async (req, res) => {
   const { id } = req.params
@@ -54,7 +74,7 @@ export const updateZona = async (req, res) => {
   try {
     await client.query("BEGIN")
 
-    // Leer supervisor anterior de esta zona (para limpiar su zona_id si cambia)
+    // Leer supervisor anterior de esta zona
     const { rows: prev } = await client.query(
       "SELECT supervisor_id FROM operations.zones WHERE id = $1",
       [id]
@@ -72,30 +92,20 @@ export const updateZona = async (req, res) => {
     }
 
     if (supervisorCambia) {
-      // Quitar zona al supervisor anterior si era distinto
+      // Quitar de la junction al supervisor anterior si cambió
       if (oldSupId && oldSupId !== newSupId) {
         await client.query(
-          "UPDATE app_auth.users SET zona_id = NULL WHERE id = $1 AND zona_id = $2",
+          "DELETE FROM operations.supervisor_zones WHERE supervisor_id = $1 AND zona_id = $2",
           [oldSupId, id]
         )
       }
+      // Agregar al nuevo supervisor en la junction (acepta múltiples zonas)
       if (newSupId) {
-        // Si el nuevo supervisor ya tenía otra zona asignada, desasignarlo de ella primero
-        const { rows: prevZona } = await client.query(
-          "SELECT zona_id FROM app_auth.users WHERE id = $1",
-          [newSupId]
-        )
-        const zonaAnteriorDelSup = prevZona[0]?.zona_id ?? null
-        if (zonaAnteriorDelSup && zonaAnteriorDelSup !== id) {
-          await client.query(
-            "UPDATE operations.zones SET supervisor_id = NULL WHERE id = $1 AND supervisor_id = $2",
-            [zonaAnteriorDelSup, newSupId]
-          )
-        }
-        // Asignar zona al nuevo supervisor
         await client.query(
-          "UPDATE app_auth.users SET zona_id = $1 WHERE id = $2",
-          [id, newSupId]
+          `INSERT INTO operations.supervisor_zones (supervisor_id, zona_id)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [newSupId, id]
         )
       }
     }

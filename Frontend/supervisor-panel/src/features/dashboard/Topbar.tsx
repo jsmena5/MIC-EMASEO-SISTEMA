@@ -25,7 +25,7 @@ export default function Topbar() {
   const user = getStoredUser()
   const [menuOpen,   setMenuOpen]   = useState(false)
   const [pendientes, setPendientes] = useState<number | null>(null)
-  const [zonaNombre, setZonaNombre] = useState<string | null>(null)
+  const [zonas, setZonas] = useState<{ id: string; nombre: string }[]>([])
   const menuRef = useRef<HTMLDivElement | null>(null)
 
   const title = PAGE_LABEL[location.pathname] ?? "Panel de supervisión"
@@ -53,7 +53,7 @@ export default function Topbar() {
 
   useEffect(() => {
     getMiZona()
-      .then(({ zona }) => { if (zona) setZonaNombre(zona.nombre) })
+      .then(({ zonas: zs }) => { setZonas(zs ?? []) })
       .catch(() => {})
   }, [])
 
@@ -76,10 +76,12 @@ export default function Topbar() {
       <h1 className="min-w-0 flex-1 truncate text-base font-extrabold text-slate-900 sm:text-lg">{title}</h1>
 
       <div className="flex items-center gap-3">
-        {zonaNombre && (
+        {zonas.length > 0 && (
           <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
             <MapPin size={11} strokeWidth={2.5} className="text-slate-400" />
-            {zonaNombre}
+            {zonas.length === 1
+              ? zonas[0].nombre
+              : zonas.map((z) => z.nombre).join(" · ")}
           </span>
         )}
 
