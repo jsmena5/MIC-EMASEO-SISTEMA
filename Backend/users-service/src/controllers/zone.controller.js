@@ -15,8 +15,6 @@ export const listZonas = async (_req, res) => {
       LEFT JOIN app_auth.users u ON u.id = z.supervisor_id
       ORDER BY z.nombre
     `)
-    // Lista de zonas casi estática — cache 10 minutos
-    res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=60')
     return res.json({ zonas: rows })
   } catch (err) {
     console.error("[zone] listZonas:", err.message)
