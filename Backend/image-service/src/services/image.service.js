@@ -879,7 +879,9 @@ export async function recoverStaleIncidents() {
 //   • completed + has_waste=true  → finalizeIncident (transición PENDIENTE)
 //   • completed + has_waste=false → finalizeNegativeCase (EN_REVISION o DESCARTADO)
 //   • failed                      → markIncidentAsFailed (imagen conservada en S3)
-//   • pending/processing          → no hacer nada (próxima iteración)
+//   • pending/processing          → esperar próxima iteración, SALVO que el incidente
+//                                   lleve > STUCK_PROCESANDO_MAX_MS atascado: entonces
+//                                   la tarea se da por perdida y se marca FALLIDO.
 //
 // NOTA: la imagen ya está en S3 (pending_s3_key). En todos los casos de fallo
 // la imagen se conserva como imagen_auditoria_url — NO se elimina.
@@ -900,9 +902,15 @@ async function finalizeRecoveredTask(incidentId, pending_s3_key, result, log, lo
   log(`✓ Incidente recuperado exitosamente — PENDIENTE prioridad=${result.prioridad}`)
 }
 
+// Edad máxima en PROCESANDO antes de rendirse. Si Celery sigue reportando
+// "pending"/"processing" pasado este límite, la tarea se considera perdida
+// (worker murió mid-task o el resultado expiró en Redis) y el incidente se
+// marca FALLIDO para que no quede atascado indefinidamente en "Entrantes".
+const STUCK_PROCESANDO_MAX_MS = 30 * 60 * 1000  // 30 min
+
 // Procesa una sola tarea Celery huérfana. La imagen ya está en S3 (pending_s3_key)
 // y se conserva como auditoría en todos los casos de fallo — NO se elimina.
-async function recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key) {
+async function recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key, stuckMs = 0) {
   const log      = (msg) => console.log(`[image-service] [recovery=${incidentId}] ${msg}`)
   const logError = (msg) => console.error(`[image-service] [recovery=${incidentId}] ${msg}`)
 
@@ -910,6 +918,19 @@ async function recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_ke
     const { status, result, error } = await checkMlTaskStatus(celery_task_id)
 
     if (status === "pending" || status === "processing") {
+      // Tarea perdida: Celery reporta "pending" para task_ids que ya no existen
+      // (worker caído o resultado expirado). Sin este corte, el incidente queda
+      // PROCESANDO para siempre porque nunca llega a "completed" ni "failed".
+      if (stuckMs >= STUCK_PROCESANDO_MAX_MS) {
+        logError(`Tarea Celery perdida (${status} tras ${Math.round(stuckMs / 60000)} min) — marcando FALLIDO`)
+        await markIncidentAsFailed(
+          incidentId,
+          `recovery: tarea ML sin resultado tras ${Math.round(stuckMs / 60000)} min (worker caído o resultado expirado)`,
+          logError,
+          { s3Key: pending_s3_key },
+        )
+        return
+      }
       log(`Tarea Celery aún en progreso (${status}) — próxima iteración`)
       return
     }
@@ -936,7 +957,8 @@ export async function recoverCeleryTasks() {
   let rows
   try {
     const result = await pool.query(
-      `SELECT id, celery_task_id, pending_s3_key
+      `SELECT id, celery_task_id, pending_s3_key,
+              EXTRACT(EPOCH FROM (NOW() - updated_at)) * 1000 AS stuck_ms
        FROM incidents.incidents
        WHERE estado          = 'PROCESANDO'
          AND celery_task_id  IS NOT NULL
@@ -953,8 +975,8 @@ export async function recoverCeleryTasks() {
 
   console.log(`[image-service] recoverCeleryTasks: revisando ${rows.length} tarea(s) Celery pendiente(s)`)
 
-  for (const { id: incidentId, celery_task_id, pending_s3_key } of rows) {
-    await recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key)
+  for (const { id: incidentId, celery_task_id, pending_s3_key, stuck_ms } of rows) {
+    await recoverSingleCeleryTask(incidentId, celery_task_id, pending_s3_key, Number(stuck_ms))
   }
 }
 

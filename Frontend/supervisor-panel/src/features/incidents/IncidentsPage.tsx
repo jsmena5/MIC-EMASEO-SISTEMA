@@ -15,6 +15,7 @@ import IncidentRail from "./IncidentRail"
 import IncidentPreview from "./IncidentPreview"
 import ReviewModal from "./ReviewModal"
 import CaseTimeline from "./CaseTimeline"
+import InfoTooltip from "../../shared/components/InfoTooltip"
 
 // ── Tarjetas de conteo por grupo ──────────────────────────────────────────────
 
@@ -37,7 +38,7 @@ const GROUP_FILTERS: Record<string, Partial<IncidentFilters>> = {
   descartados: { sin_supervisar: false, estado: "DESCARTADO" },
 }
 
-function StatCard({ label, value, color, dot, active, onClick, loading }: Readonly<{
+function StatCard({ label, value, color, dot, active, onClick, loading, tooltip }: Readonly<{
   label: string
   value: number
   color: string
@@ -45,12 +46,12 @@ function StatCard({ label, value, color, dot, active, onClick, loading }: Readon
   active: boolean
   onClick: () => void
   loading: boolean
+  tooltip?: string
 }>) {
   return (
-    <button
-      onClick={onClick}
+    <div
       className={[
-        "flex-1 min-w-[110px] rounded-2xl border p-4 text-left transition",
+        "flex-1 min-w-[110px] rounded-2xl border p-4 transition",
         active
           ? "border-[#005BAC] bg-[#EBF4FF] shadow-sm"
           : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm",
@@ -58,12 +59,15 @@ function StatCard({ label, value, color, dot, active, onClick, loading }: Readon
     >
       <div className="flex items-center gap-2 mb-2">
         <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: dot }} />
-        <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</span>
+        <button onClick={onClick} className="text-left text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 outline-none">
+          {label}
+        </button>
+        {tooltip && <InfoTooltip text={tooltip} />}
       </div>
-      <div className="text-2xl font-black tabular-nums" style={{ color }}>
+      <button onClick={onClick} className="block w-full text-left text-2xl font-black tabular-nums outline-none" style={{ color }}>
         {loading ? <span className="text-slate-300">—</span> : value}
-      </div>
-    </button>
+      </button>
+    </div>
   )
 }
 
@@ -252,6 +256,7 @@ export default function IncidentsPage() {
           active={activeGroup === "entrantes"}
           onClick={() => handleGroupClick("entrantes")}
           loading={groupLoading}
+          tooltip="Reportes que aún no clasificas. Incluye los que la IA todavía está analizando (Procesando) y los que ya están listos para tu revisión (Pendientes). Si este número no baja al filtrar 'Pendientes', es que hay casos atascados en análisis; se resuelven solos en unos minutos."
         />
         <StatCard
           label="Válidos"
@@ -261,6 +266,7 @@ export default function IncidentsPage() {
           active={activeGroup === "validos"}
           onClick={() => handleGroupClick("validos")}
           loading={groupLoading}
+          tooltip="Casos que confirmaste como acumulación real de residuos y están listos para asignarse a un equipo operativo."
         />
         <StatCard
           label="Rechazados"
@@ -270,6 +276,7 @@ export default function IncidentsPage() {
           active={activeGroup === "rechazados"}
           onClick={() => handleGroupClick("rechazados")}
           loading={groupLoading}
+          tooltip="Reportes que descartaste manualmente (no es basura, imagen borrosa, duplicado, etc.). Es una decisión final."
         />
         <StatCard
           label="Descartados"
@@ -279,6 +286,7 @@ export default function IncidentsPage() {
           active={activeGroup === "descartados"}
           onClick={() => handleGroupClick("descartados")}
           loading={groupLoading}
+          tooltip="Reportes que la IA rechazó automáticamente (no detectó residuos con suficiente confianza) o que fallaron por un error técnico. Puedes reabrir un descartado si crees que la IA se equivocó."
         />
         <StatCard
           label="Revisados"
@@ -288,6 +296,7 @@ export default function IncidentsPage() {
           active={false}
           onClick={() => handleGroupClick(null)}
           loading={groupLoading}
+          tooltip="Total de reportes que ya pasaron por el análisis de la IA en tu zona (todos menos los que aún están procesándose). Es el acumulado histórico, no una bandeja de trabajo."
         />
       </div>
 
