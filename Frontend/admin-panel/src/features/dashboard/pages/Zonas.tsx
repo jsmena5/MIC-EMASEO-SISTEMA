@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer } from "react-leaflet"
 import type { Layer, PathOptions } from "leaflet"
 import type { Feature, FeatureCollection, Polygon, MultiPolygon } from "geojson"
 import {
-  listZonas, updateZona, importZonas,
+  listZonas, updateZona, importZonas, rezonificarIncidentes,
 } from "../../../services/zona.service"
 import type { Zona } from "../../../services/zona.service"
 import { getSupervisores } from "../../../services/supervisor.service"
@@ -396,6 +396,129 @@ function ImportModal({ zonasExistentes, onClose, onImported }: Readonly<{ zonasE
   )
 }
 
+// ─── Re-zonificar modal ───────────────────────────────────────────────────────
+//
+// Recalcula la zona_id de los incidentes según la geometría ACTUAL de las zonas.
+// Flujo en dos pasos para evitar sustos: primero un dry-run que solo cuenta cuántos
+// incidentes cambiarían; el botón de aplicar solo aparece tras ver ese número.
+
+function RezonificarModal({ onClose, onApplied }: Readonly<{ onClose: () => void; onApplied: () => void }>) {
+  const [soloHuerfanos, setSoloHuerfanos] = useState(false)
+  const [conteo,  setConteo]  = useState<number | null>(null)  // resultado del dry-run
+  const [aplicado, setAplicado] = useState<number | null>(null) // resultado del apply
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState("")
+
+  // Un cambio de modo invalida el conteo previo (era de otro filtro).
+  const cambiarModo = (v: boolean) => { setSoloHuerfanos(v); setConteo(null) }
+
+  const calcular = async () => {
+    setLoading(true); setError("")
+    try {
+      const res = await rezonificarIncidentes({ soloHuerfanos, dryRun: true })
+      setConteo(res.incidentes_a_rezonificar ?? 0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al calcular")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const aplicar = async () => {
+    setLoading(true); setError("")
+    try {
+      const res = await rezonificarIncidentes({ soloHuerfanos })
+      setAplicado(res.incidentes_rezonificados ?? 0)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al re-zonificar")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (aplicado != null) {
+    return (
+      <Modal title="Re-zonificación completada" onClose={() => { onApplied(); onClose() }}>
+        <div className="space-y-4">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+            <div className="text-3xl font-black text-emerald-700">{aplicado}</div>
+            <div className="text-sm font-semibold text-emerald-600">
+              incidente{aplicado === 1 ? "" : "s"} reasignado{aplicado === 1 ? "" : "s"} a su zona correcta
+            </div>
+          </div>
+          <button
+            onClick={() => { onApplied(); onClose() }}
+            className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 transition"
+          >
+            Cerrar
+          </button>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal title="Re-zonificar incidentes" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Recalcula a qué zona pertenece cada incidente usando la geometría <strong>actual</strong> de
+          las zonas. Útil después de <strong>editar, mover o importar</strong> polígonos: los reportes
+          ya existentes conservan la zona que tenían al crearse y no se actualizan solos.
+        </p>
+
+        <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={soloHuerfanos}
+            onChange={(e) => cambiarModo(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+          />
+          <span className="text-xs text-slate-600">
+            <strong className="text-slate-800">Solo incidentes sin zona</strong> — reasigna únicamente los
+            huérfanos (los que quedaron sin zona). No re-mueve los que ya tienen una asignada.
+          </span>
+        </label>
+
+        {error && <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+
+        {conteo != null && (
+          <div className={`rounded-xl border px-4 py-3 text-sm ${conteo === 0 ? "border-slate-200 bg-slate-50 text-slate-600" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {conteo === 0
+              ? "Nada que reasignar: todos los incidentes ya están en la zona que les corresponde."
+              : <><strong>{conteo}</strong> incidente{conteo === 1 ? "" : "s"} cambiará{conteo === 1 ? "" : "n"} de zona si aplicas ahora.</>}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+          >
+            Cancelar
+          </button>
+          {conteo == null || conteo === 0 ? (
+            <button
+              onClick={() => void calcular()}
+              disabled={loading}
+              className="flex-1 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-500 disabled:opacity-60 transition"
+            >
+              {loading ? "Calculando…" : "Calcular cambios"}
+            </button>
+          ) : (
+            <button
+              onClick={() => void aplicar()}
+              disabled={loading}
+              className="flex-1 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-500 disabled:opacity-60 transition"
+            >
+              {loading ? "Aplicando…" : `Reasignar ${conteo} incidente${conteo === 1 ? "" : "s"}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Zonas() {
@@ -405,6 +528,7 @@ export default function Zonas() {
   const [error,       setError]       = useState("")
   const [editTarget,  setEditTarget]  = useState<Zona | null>(null)
   const [showImport,  setShowImport]  = useState(false)
+  const [showRezonificar, setShowRezonificar] = useState(false)
   const [selected,    setSelected]    = useState<Zona | null>(null)
 
   const load = async () => {
@@ -467,15 +591,27 @@ export default function Zonas() {
             })()}
           </p>
         </div>
-        <button
-          onClick={() => setShowImport(true)}
-          className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition"
-        >
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-          </svg>
-          Importar GeoJSON
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowRezonificar(true)}
+            title="Recalcular la zona de los incidentes tras editar polígonos"
+            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 transition"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Re-zonificar
+          </button>
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-bold text-indigo-700 hover:bg-indigo-100 transition"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Importar GeoJSON
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -615,6 +751,9 @@ export default function Zonas() {
       )}
       {showImport && (
         <ImportModal zonasExistentes={zonas} onClose={() => setShowImport(false)} onImported={load} />
+      )}
+      {showRezonificar && (
+        <RezonificarModal onClose={() => setShowRezonificar(false)} onApplied={load} />
       )}
     </div>
   )

@@ -42,7 +42,7 @@ export const updateZona = async (id: string, data: UpdateZonaPayload): Promise<{
 
 export const importZonas = async (
   features: Feature<Polygon | MultiPolygon>[],
-): Promise<{ zonas: Zona[]; imported: number }> => {
+): Promise<{ zonas: Zona[]; imported: number; incidentes_rezonificados?: number }> => {
   const res = await authenticatedFetch(`${API_URL}/users/zonas/import`, {
     method: "POST",
     body: JSON.stringify({ features }),
@@ -50,6 +50,44 @@ export const importZonas = async (
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.error ?? "Error al importar zonas")
+  }
+  return res.json()
+}
+
+export interface RezonificarOpts {
+  /** Solo reasigna incidentes sin zona (zona_id NULL); no re-mueve el resto. */
+  soloHuerfanos?: boolean
+  /** No escribe; solo cuenta cuántos incidentes cambiarían. */
+  dryRun?: boolean
+}
+
+export interface RezonificarResult {
+  dry_run?: boolean
+  solo_huerfanos: boolean
+  /** Presente cuando dry_run=true: cuántos cambiarían. */
+  incidentes_a_rezonificar?: number
+  /** Presente cuando se aplica: cuántos se reasignaron. */
+  incidentes_rezonificados?: number
+}
+
+/**
+ * Recalcula la zona_id de los incidentes según la geometría actual de las zonas,
+ * replicando el trigger fn_assign_zone (ST_Covers + zona más específica).
+ * Pensado para correr tras editar/mover polígonos de zonas existentes.
+ */
+export const rezonificarIncidentes = async (
+  { soloHuerfanos = false, dryRun = false }: RezonificarOpts = {},
+): Promise<RezonificarResult> => {
+  const params = new URLSearchParams()
+  if (soloHuerfanos) params.set("solo_huerfanos", "true")
+  if (dryRun)        params.set("dry_run", "true")
+  const qs = params.toString()
+  const res = await authenticatedFetch(`${API_URL}/users/zonas/rezonificar${qs ? `?${qs}` : ""}`, {
+    method: "POST",
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? "Error al re-zonificar incidentes")
   }
   return res.json()
 }
