@@ -100,6 +100,14 @@ backups/
 *.sqlite
 *.db
 
+# Excepción: las migraciones SÍ se versionan (son DDL, no dumps con datos).
+# Sin esto, cada migración nueva quedaba ignorada por *.sql y requería git add -f,
+# causando drift entre el schema de producción y el versionado.
+!Backend/database/migrations/
+!Backend/database/migrations/*.sql
+!Backend/database/seeds/
+!Backend/database/seeds/*.sql
+
 # ── Docker ─────────────────────────────────────────────────────────────────────
 docker-compose.override.yml
 .dockerignore
