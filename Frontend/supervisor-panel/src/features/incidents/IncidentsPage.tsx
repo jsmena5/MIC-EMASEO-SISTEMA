@@ -20,7 +20,8 @@ import InfoTooltip from "../../shared/components/InfoTooltip"
 // ── Tarjetas de conteo por grupo ──────────────────────────────────────────────
 
 interface GroupCount {
-  entrantes: number
+  entrantes: number   // PENDIENTE — lo accionable, cuadra con la lista al hacer click
+  procesando: number  // PROCESANDO — en análisis IA; informativo, no accionable
   validos: number
   rechazados: number
   descartados: number
@@ -38,7 +39,7 @@ const GROUP_FILTERS: Record<string, Partial<IncidentFilters>> = {
   descartados: { sin_supervisar: false, estado: "DESCARTADO" },
 }
 
-function StatCard({ label, value, color, dot, active, onClick, loading, tooltip }: Readonly<{
+function StatCard({ label, value, color, dot, active, onClick, loading, tooltip, hint }: Readonly<{
   label: string
   value: number
   color: string
@@ -47,6 +48,7 @@ function StatCard({ label, value, color, dot, active, onClick, loading, tooltip 
   onClick: () => void
   loading: boolean
   tooltip?: string
+  hint?: string
 }>) {
   return (
     <div
@@ -67,6 +69,9 @@ function StatCard({ label, value, color, dot, active, onClick, loading, tooltip 
       <button onClick={onClick} className="block w-full text-left text-2xl font-black tabular-nums outline-none" style={{ color }}>
         {loading ? <span className="text-slate-300">—</span> : value}
       </button>
+      {!loading && hint && (
+        <div className="mt-0.5 text-[10px] font-semibold text-slate-400">{hint}</div>
+      )}
     </div>
   )
 }
@@ -106,7 +111,7 @@ export default function IncidentsPage() {
   const [mobileView,    setMobileView]    = useState<"list" | "detail">("list")
 
   // Conteos de grupos para las tarjetas
-  const [groupCounts, setGroupCounts] = useState<GroupCount>({ entrantes: 0, validos: 0, rechazados: 0, descartados: 0, revisados: 0 })
+  const [groupCounts, setGroupCounts] = useState<GroupCount>({ entrantes: 0, procesando: 0, validos: 0, rechazados: 0, descartados: 0, revisados: 0 })
   const [groupLoading, setGroupLoading] = useState(true)
   const [activeGroup, setActiveGroup] = useState<ActiveGroup>(null)
 
@@ -125,7 +130,6 @@ export default function IncidentsPage() {
     setGroupLoading(true)
     try {
       const [procesando, pendiente, validos, rechazados, descartados, fallidos, revisados] = await Promise.all([
-        // ENTRANTES = PROCESANDO + PENDIENTE (aún no clasificados por supervisor)
         getIncidents({ estado: "PROCESANDO",  limit: 1, page: 1 }),
         getIncidents({ estado: "PENDIENTE",   limit: 1, page: 1 }),
         getIncidents({ estado: "VALIDO",      limit: 1, page: 1 }),
@@ -135,7 +139,12 @@ export default function IncidentsPage() {
         getIncidents({ sin_supervisar: false, limit: 1, page: 1 }),
       ])
       setGroupCounts({
-        entrantes:   procesando.pagination.total + pendiente.pagination.total,
+        // ENTRANTES = solo PENDIENTE (lo accionable, lo que muestra la lista al
+        // hacer click). Los PROCESANDO NO se cuentan aquí: son transitorios y, si
+        // se atascan, el backend los degrada a FALLIDO (recoverStaleIncidents).
+        // Contar PROCESANDO inflaba la tarjeta vs. una lista vacía ("Todo al día").
+        entrantes:   pendiente.pagination.total,
+        procesando:  procesando.pagination.total,
         validos:     validos.pagination.total,
         rechazados:  rechazados.pagination.total,
         descartados: descartados.pagination.total + fallidos.pagination.total,
@@ -256,7 +265,8 @@ export default function IncidentsPage() {
           active={activeGroup === "entrantes"}
           onClick={() => handleGroupClick("entrantes")}
           loading={groupLoading}
-          tooltip="Reportes que aún no clasificas. Incluye los que la IA todavía está analizando (Procesando) y los que ya están listos para tu revisión (Pendientes). Si este número no baja al filtrar 'Pendientes', es que hay casos atascados en análisis; se resuelven solos en unos minutos."
+          hint={groupCounts.procesando > 0 ? `+${groupCounts.procesando} en análisis IA` : undefined}
+          tooltip="Reportes listos para tu revisión (estado Pendiente). Al hacer click verás exactamente estos casos. Los que la IA aún está analizando se cuentan aparte ('en análisis IA') y aparecen aquí en cuanto terminan; si alguno falla, pasa a Descartados automáticamente."
         />
         <StatCard
           label="Válidos"

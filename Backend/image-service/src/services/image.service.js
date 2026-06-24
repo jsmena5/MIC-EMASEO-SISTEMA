@@ -842,27 +842,40 @@ export async function getTaskStatus(taskId, userId) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// recoverStaleIncidents — Recuperación en arranque (sin celery_task_id)
+// recoverStaleIncidents — Barrido de PROCESANDO irrecuperables
 // ──────────────────────────────────────────────────────────────────────────────
 //
-// Solo marca FALLIDO incidentes que nunca llegaron a enviar la tarea al ML
-// (celery_task_id IS NULL). Los incidentes con celery_task_id son gestionados
-// por recoverCeleryTasks() y NO deben tocarse aquí.
+// Marca FALLIDO los incidentes PROCESANDO que NINGÚN otro recovery puede rescatar:
+//
+//   a) celery_task_id IS NULL          — nunca se envió la tarea al ML.
+//   b) celery_task_id IS NOT NULL      — se envió la tarea, pero la imagen nunca
+//      AND pending_s3_key IS NULL        llegó a S3, así que recoverCeleryTasks()
+//                                         (que exige pending_s3_key NOT NULL para
+//                                         poder conservar la imagen de auditoría)
+//                                         lo ignora. Sin este barrido el incidente
+//                                         queda PROCESANDO para siempre, inflando
+//                                         la tarjeta "Entrantes" del supervisor.
+//
+// Los PROCESANDO con celery_task_id Y pending_s3_key SÍ los gestiona
+// recoverCeleryTasks() y NO deben tocarse aquí.
+//
+// El umbral de 10 min asegura que no pisemos incidentes recién creados que aún
+// están legítimamente en proceso.
 
 export async function recoverStaleIncidents() {
   try {
     const { rowCount } = await pool.query(
       `UPDATE incidents.incidents
        SET estado              = 'FALLIDO',
-           nota_fallo          = 'Proceso interrumpido — recuperación en arranque',
+           nota_fallo          = 'Proceso interrumpido — sin imagen para reintentar',
            decision_automatica = 'ERROR_TECNICO',
            updated_at          = NOW()
        WHERE estado          = 'PROCESANDO'
-         AND celery_task_id  IS NULL
+         AND pending_s3_key   IS NULL
          AND updated_at      < NOW() - INTERVAL '10 minutes'`
     )
     if (rowCount > 0) {
-      console.warn(`[image-service] recoverStaleIncidents: ${rowCount} incidente(s) sin task_id marcados como FALLIDO`)
+      console.warn(`[image-service] recoverStaleIncidents: ${rowCount} incidente(s) PROCESANDO irrecuperable(s) marcados como FALLIDO`)
     }
   } catch (err) {
     console.error("[image-service] recoverStaleIncidents error:", err.message)
