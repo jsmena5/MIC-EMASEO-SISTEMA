@@ -15,6 +15,10 @@ export const listZonas = async (_req, res) => {
       LEFT JOIN app_auth.users u ON u.id = z.supervisor_id
       ORDER BY z.nombre
     `)
+    // Listado mutable: el admin edita asignaciones y debe verlas de inmediato.
+    // Sin esto el navegador/Cloudflare sirve una respuesta cacheada y obliga a
+    // hacer hard refresh (Ctrl+Shift+R) para ver el supervisor recién asignado.
+    res.set("Cache-Control", "no-store")
     return res.json({ zonas: rows })
   } catch (err) {
     console.error("[zone] listZonas:", err.message)
