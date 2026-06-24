@@ -1,119 +1,111 @@
 #!/usr/bin/env python3
 """
-Genera un GeoJSON de la zona "Los Chillos" EXTENDIDA para cubrir Sangolquí
-(cantón Rumiñahui), listo para subir desde el panel admin
+Genera un GeoJSON de la zona "Valle de Sangolquí" (cantón Rumiñahui) como zona
+PROPIA e independiente, lista para subir desde el panel admin
 (Importar zonas desde GeoJSON → POST /api/users/zonas/import).
 
 POR QUÉ ESTE SCRIPT
-El import hace upsert por `codigo` y REEMPLAZA la geometría completa de la zona.
-Para no perder el polígono real de Los Chillos (que en producción incluye ajustes
-hechos en vivo, p. ej. el fix La Merced 2026-06-18), hay que partir de la geometría
-ACTUAL de producción y unirle Sangolquí. Este script hace esa unión localmente.
+Sangolquí (cantón Rumiñahui) está FUERA del DMQ, así que no es una de las 8
+administraciones zonales del repo. Se agrega como una zona nueva más —igual que
+ya se hizo con otros valles para demostrar que la cobertura se expande vía import
+GeoJSON desde el panel, sin tocar la BD a mano.
+
+Como el import hace upsert por `codigo` y el código ZN-SANGOLQUI no existe aún,
+el import CREA la zona nueva sin afectar Los Chillos ni ninguna zona existente
+(cero riesgo de sobrescribir geometría ajustada en vivo en producción).
+
+GEOMETRÍA
+Se usa el LÍMITE ADMINISTRATIVO REAL del cantón desde OpenStreetMap
+(relation 113713, admin_level=6), no un rectángulo. En OSM el cantón Rumiñahui
+está mapeado con el nombre de su cabecera, "Sangolqui".
+El script descarga la geometría en vivo de OSM y, si no hay red, cae al GeoJSON
+cacheado en el repo (scripts/sangolqui_osm_geom.json), reproducible.
 
 USO
-1) Exporta la geometría actual de Los Chillos desde producción (solo lectura):
-       GET /api/users/zonas
-   Guarda la respuesta JSON completa en un archivo, p. ej. zonas_prod.json
-   (Es el objeto { "zonas": [...] } tal cual lo devuelve la API.)
+    python scripts/extend_los_chillos_sangolqui.py
 
-2) Ejecuta:
-       python scripts/extend_los_chillos_sangolqui.py zonas_prod.json
-
-   Sin argumento, usa la geometría del repo (migración 053) como fallback
-   — NO recomendado para producción porque no tiene los ajustes en vivo.
-
-3) Se genera `los_chillos_sangolqui.geojson`. Súbelo desde el panel admin.
-   Como conserva el `codigo` ZN-LOS-CHILLOS, el import ACTUALIZA esa zona
-   (no crea una nueva).
+Se genera `sangolqui.geojson`. Súbelo desde el panel admin
+(Zonas → Importar zonas desde GeoJSON). Como el `codigo` es ZN-SANGOLQUI y no
+existe, el import CREA la zona (no toca las demás).
 
 REQUISITOS: shapely (ya presente en el entorno de scripts del repo).
 """
 import json
 import sys
+import urllib.request
 from pathlib import Path
 
-from shapely.geometry import box, shape, mapping
-from shapely.ops import unary_union
+from shapely.geometry import shape, mapping, Point, MultiPolygon
 
-# Bounding box del casco urbano del cantón Rumiñahui:
-# Sangolquí, San Rafael, San Pedro del Tingo, Alangasí (N), Cotogchoa (S).
-# (xmin/lon, ymin/lat, xmax/lon, ymax/lat) en WGS84 / EPSG:4326.
-SANGOLQUI_BBOX = (-78.470, -0.375, -78.395, -0.270)
+# Cantón Rumiñahui en OSM = relation 113713 (admin_level=6, name "Sangolqui").
+OSM_RELATION_ID = 113713
+NOMINATIM_LOOKUP = (
+    "https://nominatim.openstreetmap.org/lookup"
+    f"?osm_ids=R{OSM_RELATION_ID}&format=json&polygon_geojson=1"
+)
+USER_AGENT = "mic-emaseo-zones/1.0 (baortiz7@espe.edu.ec)"
 
-# Punto de control: centro de Sangolquí. El resultado DEBE contenerlo.
-SANGOLQUI_CENTER = (-78.448, -0.332)  # (lon, lat)
+# Identidad de la zona en la BD. El `codigo` no debe colisionar con los existentes
+# (ZN-CALDERON, ZN-LOS-CHILLOS, ZN-TUMBACO, ...) para que el import CREE una zona
+# nueva. Máx 20 chars (límite de la columna operations.zones.codigo).
+ZONA_CODIGO = "ZN-SANGOLQUI"
+ZONA_NOMBRE = "Valle de Sangolquí"
+ZONA_DESC = "Cantón Rumiñahui (Sangolquí), fuera del DMQ — cobertura ampliada vía import"
 
-# Identidad de la zona en la BD. El `codigo` debe coincidir con el de producción
-# para que el import actualice la zona existente en vez de crear una nueva.
-ZONA_CODIGO = "ZN-LOS-CHILLOS"
-ZONA_NOMBRE = "Los Chillos"
-ZONA_DESC = "Valle de Los Chillos + Sangolquí (Rumiñahui) para cobertura de pruebas"
+# Punto de control: cabecera cantonal de Sangolquí. El resultado DEBE contenerlo.
+SANGOLQUI_CENTER = (-78.4481, -0.3308)  # (lon, lat) WGS84 / EPSG:4326
 
-OUTPUT = Path(__file__).resolve().parent.parent / "los_chillos_sangolqui.geojson"
+CACHE = Path(__file__).resolve().parent / "sangolqui_osm_geom.json"
+OUTPUT = Path(__file__).resolve().parent.parent / "sangolqui.geojson"
 
 
-def cargar_geom_actual(args) -> "shapely.geometry.base.BaseGeometry":
-    """Devuelve la geometría actual de Los Chillos.
-
-    - Con argumento: la lee del export de la API ({ "zonas": [...] }), buscando
-      por codigo ZN-LOS-CHILLOS o por nombre 'Los Chillos'.
-    - Sin argumento: fallback al GeoJSON del repo (migración 053). Avisa que NO
-      incluye ajustes hechos en vivo en producción.
-    """
-    if len(args) >= 2:
-        export = json.loads(Path(args[1]).read_text(encoding="utf-8"))
-        zonas = export.get("zonas", export if isinstance(export, list) else [])
-        for z in zonas:
-            cod = (z.get("codigo") or "").upper()
-            nom = (z.get("nombre") or "").lower()
-            if cod in ("ZN-LOS-CHILLOS", "ZN-ORIENTE-01") or "los chillos" in nom:
-                if not z.get("geom"):
-                    sys.exit(f"La zona '{z.get('nombre')}' no trae geometría en el export.")
-                print(f"[OK] Geometria tomada del export de produccion: {z.get('nombre')} ({cod})")
-                return shape(z["geom"])
-        sys.exit("No se encontró 'Los Chillos' en el export. Revisa el archivo.")
-
-    # Fallback: repo (sin ajustes en vivo)
-    print("[AVISO] Sin export de produccion: usando geometria del repo (migracion 053).")
-    print("  Esto NO incluye ajustes hechos en vivo (p. ej. fix La Merced).")
-    repo_geojson = Path(__file__).resolve().parent.parent / "Backend" / "database" / "migrations" / "dmq_zones.geojson"
-    fc = json.loads(repo_geojson.read_text(encoding="utf-8"))
-    for f in fc.get("features", []):
-        props = f.get("properties", {})
-        nom = (props.get("nombre") or props.get("name") or "").lower()
-        cod = (props.get("codigo") or props.get("CODE") or "").upper()
-        if cod == "ZN-LOS-CHILLOS" or "los chillos" in nom or "chillos" in nom:
-            return shape(f["geometry"])
-    sys.exit("No se encontró 'Los Chillos' en el GeoJSON del repo tampoco.")
+def cargar_geom_osm() -> "shapely.geometry.base.BaseGeometry":
+    """Geometría del cantón desde OSM (en vivo); si falla la red, usa el cache del repo."""
+    try:
+        req = urllib.request.Request(NOMINATIM_LOOKUP, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        geom_json = data[0]["geojson"]
+        print(f"[OK] Geometria descargada de OSM (relation {OSM_RELATION_ID}).")
+        # Refresca el cache para futuras corridas offline.
+        CACHE.write_text(json.dumps(geom_json, separators=(",", ":")), encoding="utf-8")
+    except Exception as e:  # red caída, rate limit, etc.
+        if not CACHE.exists():
+            sys.exit(f"[ERROR] Sin red y sin cache ({CACHE}). Detalle: {e}")
+        print(f"[AVISO] No se pudo consultar OSM ({e}). Usando cache del repo.")
+        geom_json = json.loads(CACHE.read_text(encoding="utf-8"))
+    return shape(geom_json)
 
 
 def main() -> None:
-    actual = cargar_geom_actual(sys.argv)
-    sangolqui = box(*SANGOLQUI_BBOX)
+    geom = cargar_geom_osm()
 
-    # Unión y normalización a MultiPolygon válido.
-    extendida = unary_union([actual, sangolqui])
-    if not extendida.is_valid:
-        extendida = extendida.buffer(0)  # repara auto-intersecciones
+    # Repara auto-intersecciones si las hubiera.
+    if not geom.is_valid:
+        geom = geom.buffer(0)
 
-    # Verificación: el resultado debe contener el centro de Sangolquí.
-    from shapely.geometry import Point
-    if not extendida.contains(Point(*SANGOLQUI_CENTER)):
-        sys.exit("[ERROR] la geometria resultante NO cubre el centro de Sangolqui. Abortando.")
+    # Normaliza a MultiPolygon (lo que la BD/PostGIS espera de forma consistente).
+    if geom.geom_type == "Polygon":
+        geom = MultiPolygon([geom])
+
+    # Verificación dura: el resultado debe contener la cabecera de Sangolquí.
+    if not geom.contains(Point(*SANGOLQUI_CENTER)):
+        sys.exit("[ERROR] la geometria NO cubre el centro de Sangolqui. Abortando.")
 
     feature = {
         "type": "Feature",
         "properties": {"codigo": ZONA_CODIGO, "nombre": ZONA_NOMBRE, "descripcion": ZONA_DESC},
-        "geometry": mapping(extendida),
+        "geometry": mapping(geom),
     }
     fc = {"type": "FeatureCollection", "features": [feature]}
     OUTPUT.write_text(json.dumps(fc), encoding="utf-8")
 
     print(f"[OK] Generado: {OUTPUT}")
-    print(f"  Tipo geometria: {extendida.geom_type}")
+    print(f"  Codigo: {ZONA_CODIGO}  |  Nombre: {ZONA_NOMBRE}")
+    print(f"  Tipo geometria: {geom.geom_type}")
     print(f"  Cubre Sangolqui: si")
     print("  Subelo desde el panel admin -> Zonas -> Importar zonas desde GeoJSON.")
-    print(f"  El codigo '{ZONA_CODIGO}' hara que ACTUALICE la zona existente (no crea otra).")
+    print(f"  El codigo '{ZONA_CODIGO}' es nuevo: el import CREA la zona (no toca las demas).")
 
 
 if __name__ == "__main__":

@@ -136,6 +136,31 @@ Editar: nombre, supervisor asignado, geometría
 Eliminar: solo si sin incidentes activos
 ```
 
+#### Importar zonas desde GeoJSON (`ImportModal` + `zonaImport.ts`)
+El import hace **upsert por `codigo`** (`POST /api/users/zonas/import` →
+`ON CONFLICT (codigo) DO UPDATE`). Reglas que el panel hace visibles para que el
+operador entienda qué pasará **antes** de confirmar:
+
+- **`codigo`** — identificador único, máx 20 chars (límite de `operations.zones.codigo`).
+  Convención: `ZN-NOMBRE` en mayúsculas (p. ej. `ZN-SANGOLQUI`). Si el código
+  **ya existe**, la zona se **actualiza** (reemplaza su geometría); si es **nuevo**,
+  se **crea**. Para agregar una zona sin tocar las demás → usar un código inexistente.
+- **`nombre`** — texto visible. **`descripcion`** — opcional.
+
+UX (en `Zonas.tsx`):
+- Botón **«Descargar plantilla»** → genera `plantilla-zona.geojson` (`TEMPLATE_GEOJSON`).
+- Ayuda colapsable explicando los campos y la regla de upsert.
+- **Preview con detección de colisiones** (`analizarPreview` en `zonaImport.ts`):
+  por cada Feature compara su código contra las zonas existentes y muestra badge
+  `NUEVA` (verde) / `ACTUALIZA` (ámbar, con el nombre que reemplazará) y avisos
+  (código faltante / >20 chars / nombre faltante / código duplicado en el archivo).
+  La lógica es pura y está cubierta por `zonaImport.test.ts`.
+
+> Las zonas de prueba que demuestran la expansión vía import (valles, y Sangolquí
+> del cantón Rumiñahui — fuera del DMQ) se generan con
+> `scripts/extend_los_chillos_sangolqui.py`, que toma el límite real de OSM.
+> En producción **no se toca la BD a mano**: siempre se sube por este panel.
+
 ### 5.6 Mapa (`/dashboard/mapa`) — `MapaAdmin.tsx`
 ```
 Leaflet con todos los polígonos de zonas
