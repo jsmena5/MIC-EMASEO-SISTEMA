@@ -310,6 +310,56 @@ export const rezonificarIncidentes = async (req, res) => {
   }
 }
 
+// ─── DELETE /api/users/zonas/:id ──────────────────────────────────────────────
+// Elimina una zona. La BD se encarga de las referencias:
+//   • incidents.incidents.zona_id → ON DELETE SET NULL (los incidentes quedan sin
+//     zona, no se borran; pueden re-zonificarse luego).
+//   • operations.supervisor_zones.zona_id → ON DELETE CASCADE (se limpia la junction).
+//
+// GUARD: se bloquea el borrado si la zona tiene incidentes ACTIVOS
+// (PENDIENTE, VALIDO, EN_ATENCION) para no perder seguimiento de trabajo en curso.
+// Los incidentes en estados terminales no bloquean (quedarían sin zona, que es
+// aceptable para datos históricos).
+
+export const deleteZona = async (req, res) => {
+  const { id } = req.params
+
+  try {
+    const { rows: zona } = await pool.query(
+      "SELECT id, codigo, nombre FROM operations.zones WHERE id = $1",
+      [id]
+    )
+    if (zona.length === 0) {
+      return res.status(404).json({ error: "Zona no encontrada" })
+    }
+
+    // Guard: no borrar si hay incidentes activos en la zona.
+    const { rows: activos } = await pool.query(
+      `SELECT COUNT(*)::int AS n
+         FROM incidents.incidents
+        WHERE zona_id = $1
+          AND estado IN ('PENDIENTE', 'VALIDO', 'EN_ATENCION')`,
+      [id]
+    )
+    if (activos[0].n > 0) {
+      return res.status(409).json({
+        error: `No se puede eliminar: la zona tiene ${activos[0].n} incidente(s) activo(s). ` +
+               `Reasígnalos o ciérralos primero (puedes usar Re-zonificar tras ajustar las zonas).`,
+        incidentes_activos: activos[0].n,
+      })
+    }
+
+    // El borrado dispara ON DELETE SET NULL (incidents) y CASCADE (supervisor_zones).
+    await pool.query("DELETE FROM operations.zones WHERE id = $1", [id])
+
+    console.warn(`[zone] deleteZona: eliminada ${zona[0].codigo} (${zona[0].nombre})`)
+    return res.json({ deleted: true, zona: zona[0] })
+  } catch (err) {
+    console.error("[zone] deleteZona:", err.message)
+    return res.status(500).json({ error: "Error al eliminar zona: " + err.message })
+  }
+}
+
 // ─── GET /api/users/config/:clave ─────────────────────────────────────────────
 
 export const getConfig = async (req, res) => {

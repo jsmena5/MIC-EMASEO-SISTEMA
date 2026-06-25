@@ -4,6 +4,7 @@ import {
   updateZona,
   importZonas,
   rezonificarIncidentes,
+  deleteZona,
   getConfig,
   setConfigValue,
 } from "../controllers/zone.controller.js"
@@ -12,6 +13,7 @@ const router = Router()
 
 router.get("/zonas",             listZonas)
 router.put("/zonas/:id",         updateZona)
+router.delete("/zonas/:id",      deleteZona)
 router.post("/zonas/import",     importZonas)
 router.post("/zonas/rezonificar", rezonificarIncidentes)
 

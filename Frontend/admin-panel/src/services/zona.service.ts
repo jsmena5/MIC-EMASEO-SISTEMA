@@ -40,6 +40,19 @@ export const updateZona = async (id: string, data: UpdateZonaPayload): Promise<{
   return res.json()
 }
 
+export const deleteZona = async (
+  id: string,
+): Promise<{ deleted: boolean; zona: { codigo: string; nombre: string } }> => {
+  const res = await authenticatedFetch(`${API_URL}/users/zonas/${id}`, {
+    method: "DELETE",
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error ?? "Error al eliminar zona")
+  }
+  return res.json()
+}
+
 export const importZonas = async (
   features: Feature<Polygon | MultiPolygon>[],
 ): Promise<{ zonas: Zona[]; imported: number; incidentes_rezonificados?: number }> => {

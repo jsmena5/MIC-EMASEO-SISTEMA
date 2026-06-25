@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, GeoJSON as GeoJSONLayer } from "react-leaflet"
 import type { Layer, PathOptions } from "leaflet"
 import type { Feature, FeatureCollection, Polygon, MultiPolygon } from "geojson"
 import {
-  listZonas, updateZona, importZonas, rezonificarIncidentes,
+  listZonas, updateZona, importZonas, rezonificarIncidentes, deleteZona,
 } from "../../../services/zona.service"
 import type { Zona } from "../../../services/zona.service"
 import { getSupervisores } from "../../../services/supervisor.service"
@@ -54,6 +54,8 @@ function AssignModal({
   const [activa,  setActiva]  = useState(zona.activa)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState("")
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const handleSave = async () => {
     setSaving(true); setError("")
@@ -70,6 +72,21 @@ function AssignModal({
       setError(err instanceof Error ? err.message : "Error al guardar")
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true); setError("")
+    try {
+      await deleteZona(zona.id)
+      await onSaved()
+      onClose()
+    } catch (err) {
+      // El backend devuelve 409 con mensaje si la zona tiene incidentes activos.
+      setError(err instanceof Error ? err.message : "Error al eliminar")
+      setConfirmDelete(false)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -139,6 +156,41 @@ function AssignModal({
           >
             {saving ? "Guardando…" : "Guardar"}
           </button>
+        </div>
+
+        {/* Zona de peligro: eliminar (con confirmación inline) */}
+        <div className="mt-2 border-t border-slate-100 pt-3">
+          {!confirmDelete ? (
+            <button
+              onClick={() => { setConfirmDelete(true); setError("") }}
+              className="text-xs font-semibold text-red-600 hover:text-red-700 transition"
+            >
+              Eliminar esta zona
+            </button>
+          ) : (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5">
+              <p className="text-xs text-red-700">
+                ¿Eliminar <strong>{zona.nombre}</strong> ({zona.codigo})? Los incidentes históricos quedarán sin zona.
+                No se puede deshacer.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+                >
+                  No, cancelar
+                </button>
+                <button
+                  onClick={() => void handleDelete()}
+                  disabled={deleting}
+                  className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 disabled:opacity-60 transition"
+                >
+                  {deleting ? "Eliminando…" : "Sí, eliminar"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </Modal>
