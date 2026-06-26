@@ -56,6 +56,9 @@ FULL_FRAME_PENALTY            = 0.20  # multiplicador para close-up de objeto ú
 ISOLATION_COVERAGE_THRESHOLD  = 0.55  # cobertura alta moderada → penalización suave
 ISOLATION_DET_THRESHOLD       = 1     # máximo de detecciones para considerar Caso 1
 ISOLATION_PENALTY             = 0.40  # multiplicador moderado (bajado de 0.65 tras mochila F2998975)
+ISOLATION_MAX_SINGLE_PENALTY  = 0.65  # techo del penalty para 1 sola detección aislada;
+                                       # impide que garbage_score alto cancele la penalización
+                                       # (bug: mochila texturizada → t_score≈1.0 → penalty≈1.0)
 
 # Diversidad geométrica requerida para alcanzar banda CRÍTICO.
 CRITICO_MIN_DETS = 3  # mínimo de detecciones dispersas para confirmar CRÍTICO
@@ -80,7 +83,9 @@ GARBAGE_SCORE_HARD_FLOOR = 0.20
 # La guarda geométrica de CRÍTICO (≥3 detecciones dispersas) capea estas pilas en ALTO.
 PILE_RESCUE_MAX_DETS     = 2      # solo blobs únicos/pocos (1-2 cajas)
 PILE_RESCUE_MIN_COVERAGE = 0.18   # la(s) caja(s) deben cubrir un trozo real del frame
-PILE_RESCUE_MIN_SCORE    = 0.45   # garbage_score que confirma textura de basura real
+PILE_RESCUE_MIN_SCORE    = 0.58   # garbage_score que confirma textura de basura real
+                                   # (subido de 0.45: objetos texturizados como mochilas/carteras
+                                   # alcanzaban 0.45-0.55 y activaban el rescate indebidamente)
 PILE_RESCUE_DET_FLOOR    = 1.0    # piso del det_factor cuando se confirma pila real
 
 # ── Constantes para estimación de volumen MiDaS ───────────────────────────────
@@ -277,7 +282,11 @@ def _apply_scale_penalty(effective_ratio, num_detecciones, coverage_ratio, garba
 
     if (is_single and coverage_ratio > ISOLATION_COVERAGE_THRESHOLD) or (num_detecciones >= 2 and clustered):
         t_score = min(1.0, garbage_score / GARBAGE_SCORE_THRESHOLD)
-        penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
+        raw_penalty = ISOLATION_PENALTY + (1.0 - ISOLATION_PENALTY) * t_score
+        # Para 1 sola detección, acotar el penalty máximo: un objeto único grande
+        # (mochila, laptop, botella) puede tener garbage_score alto por textura,
+        # lo que elevaría raw_penalty≈1.0 y cancelaría la penalización por completo.
+        penalty = min(raw_penalty, ISOLATION_MAX_SINGLE_PENALTY) if is_single else raw_penalty
         return effective_ratio * penalty, penalty < 0.999
 
     return effective_ratio, False

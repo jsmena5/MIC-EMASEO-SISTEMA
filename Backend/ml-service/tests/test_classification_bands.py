@@ -41,6 +41,7 @@ from ml_utils import (
     ISOLATION_COVERAGE_THRESHOLD,
     GARBAGE_SCORE_THRESHOLD,
     GARBAGE_SCORE_HARD_FLOOR,
+    ISOLATION_MAX_SINGLE_PENALTY,
     PILE_RESCUE_MAX_DETS,
     PILE_RESCUE_MIN_COVERAGE,
     PILE_RESCUE_MIN_SCORE,
@@ -431,12 +432,13 @@ class TestMochilaFalsePositive:
       1. Hard floor del garbage_score (Paso 1b): rechazo inmediato.
       2. ISOLATION_PENALTY más agresivo (0.40): degrada effective_ratio.
       3. Interpolación por garbage_score: penaliza fuerte si score bajo.
+      4. ISOLATION_MAX_SINGLE_PENALTY techo: impide que garbage_score alto
+         cancele la penalización de objeto único.
 
-    Una mochila tiene:
-      - Textura uniforme (1 color dominante)        → color_score ≈ 0.1
-      - Bordes suaves (tela)                        → edge_score ≈ 0.15
-      - Posición central (no inferior)              → pos_score ≈ 0.5
-      → garbage_score ≈ 0.45×0.1 + 0.40×0.15 + 0.15×0.5 ≈ 0.18
+    Mochila lisa (F2998975): garbage_score ≈ 0.18 → rechazada por hard floor.
+    Mochila texturizada (2026-06-26): cuero acolchado con costuras y zipper;
+      alta entropía de color + bordes = garbage_score ≈ 0.50-0.55 → pasa hard
+      floor pero debe quedar en BAJO/MEDIO por ISOLATION_MAX_SINGLE_PENALTY.
     """
 
     def test_mochila_below_hard_floor_returns_no_waste(self):
@@ -490,6 +492,52 @@ class TestMochilaFalsePositive:
             f"isolation+interpolación debe limitarlo a MEDIO máximo (≤2 m³)"
         )
 
+    def test_mochila_texturizada_con_isolation_cap(self):
+        """
+        Mochila texturizada (incidente 2026-06-26, cuero acolchado + zipper):
+        garbage_score≈0.52, coverage≈0.50, 1 detección.
+
+        Antes del fix: pile_rescue activaba (score≥0.45) → det_factor=1.0;
+        luego t_score=1.0 → penalty=1.0 → sin penalización → MEDIO (1.3 m³).
+
+        Después del fix:
+          - pile_rescue NO activa (score<0.58)
+          - isolation penalty acotado a ISOLATION_MAX_SINGLE_PENALTY
+          → effective_ratio baja → BAJO o MEDIO con volumen reducido
+        """
+        dets = [make_det(100, 100, 1180, 860, conf=0.86)]  # cubre ~50% del frame
+        coverage = _coverage_union(dets, IMG_W, IMG_H)
+        assert coverage > ISOLATION_COVERAGE_THRESHOLD
+
+        r = _classify_severity(
+            coverage_ratio=coverage,
+            confianza=0.86,
+            num_detecciones=1,
+            garbage_score=0.52,  # cuero acolchado texturizado pero no basura
+            tipo_residuo="MIXTO",
+            detecciones=dets,
+            img_w=IMG_W,
+            img_h=IMG_H,
+        )
+
+        assert r["pile_rescue_applied"] is False, (
+            "Con garbage_score=0.52 < PILE_RESCUE_MIN_SCORE=0.58, no debe rescatar"
+        )
+        assert r["scale_penalty_applied"] is True, (
+            "Con 1 detección y coverage>0.55 la penalización de isolación debe activarse"
+        )
+        assert r["effective_ratio"] <= ISOLATION_MAX_SINGLE_PENALTY * coverage * 1.01, (
+            f"effective_ratio={r['effective_ratio']:.3f} excede el techo esperado "
+            f"({ISOLATION_MAX_SINGLE_PENALTY} × {coverage:.3f})"
+        )
+        assert r["nivel"] in ("BAJO", "MEDIO"), (
+            f"Mochila texturizada no debe superar MEDIO, got {r['nivel']} "
+            f"(eff={r['effective_ratio']:.3f}, vol={r['volumen']})"
+        )
+        assert r["volumen"] <= 1.30, (
+            f"Volumen {r['volumen']} m³ excesivo para mochila — debe quedar ≤1.30 m³"
+        )
+
     def test_real_garbage_isolation_not_over_penalized(self):
         """
         Sanity: una bolsa REAL de basura con buena textura (score=0.65) y
@@ -524,6 +572,12 @@ class TestMochilaFalsePositive:
         )
         assert GARBAGE_SCORE_HARD_FLOOR < GARBAGE_SCORE_THRESHOLD, (
             "HARD_FLOOR debe ser estrictamente menor que THRESHOLD"
+        )
+        assert 0.50 <= ISOLATION_MAX_SINGLE_PENALTY <= 0.80, (
+            f"ISOLATION_MAX_SINGLE_PENALTY={ISOLATION_MAX_SINGLE_PENALTY} fuera de rango [0.50, 0.80]"
+        )
+        assert ISOLATION_MAX_SINGLE_PENALTY < 1.0, (
+            "El techo de penalización para objeto único nunca debe ser 1.0 (sin efecto)"
         )
 
 
