@@ -200,9 +200,9 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
           `INSERT INTO ai.analysis_results
              (incident_id, incident_created_at, modelo_nombre, tipo_residuo,
               nivel_acumulacion, volumen_estimado_m3, confianza, detecciones,
-              tiempo_inferencia_ms)
+              tiempo_inferencia_ms, garbage_prob, garbage_score, semantic_top_label)
            VALUES ($1, $2, $3, $4::ai.waste_type,
-                   $5::ai.accumulation_level, $6, $7, $8::jsonb, $9)`,
+                   $5::ai.accumulation_level, $6, $7, $8::jsonb, $9, $10, $11, $12)`,
           [
             incidentId,
             incidentCreatedAt,
@@ -214,6 +214,11 @@ async function finalizeIncident(incidentId, s3Key, mlResult, logError) {
             JSON.stringify(mlResult.detecciones),
             // Constraint chk_inferencia_positiva: NULL o > 0 (nunca 0)
             mlResult.tiempo_inferencia_ms > 0 ? mlResult.tiempo_inferencia_ms : null,
+            // Trazabilidad de los gates (migración 063): permiten auditar por SQL
+            // por qué un falso positivo pasó a PENDIENTE.
+            mlResult.garbage_prob ?? null,
+            mlResult.garbage_score ?? null,
+            mlResult.semantic_top_label ?? null,
           ]
         )
 
@@ -298,11 +303,12 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
             `INSERT INTO ai.analysis_results
                (incident_id, incident_created_at, modelo_nombre,
                 tipo_residuo, nivel_acumulacion,
-                volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms)
+                volumen_estimado_m3, confianza, detecciones, tiempo_inferencia_ms,
+                garbage_prob, garbage_score, semantic_top_label)
              SELECT $1, i.created_at, $2,
                     CASE WHEN $3::text IS NOT NULL THEN $3::ai.waste_type      END,
                     CASE WHEN $4::text IS NOT NULL THEN $4::ai.accumulation_level END,
-                    $5, $6, $7::jsonb, $8
+                    $5, $6, $7::jsonb, $8, $9, $10, $11
              FROM incidents.incidents i
              WHERE i.id = $1
              ON CONFLICT (incident_id) DO NOTHING`,
@@ -318,6 +324,11 @@ async function finalizeNegativeCase(incidentId, s3Key, mlResult, logError) {
               // devuelve 0 cuando rechaza temprano (p. ej. blur), así que
               // normalizamos 0 → NULL para no violar el constraint.
               mlResult.tiempo_inferencia_ms > 0 ? mlResult.tiempo_inferencia_ms : null,
+              // Trazabilidad de los gates (migración 063): clave para auditar
+              // por qué CLIP rechazó o marcó dudoso este caso.
+              mlResult.garbage_prob ?? null,
+              mlResult.garbage_score ?? null,
+              mlResult.semantic_top_label ?? null,
             ]
           )
         }

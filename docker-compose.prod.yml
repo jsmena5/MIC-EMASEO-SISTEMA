@@ -27,7 +27,11 @@ x-ml-env: &ml-env
   PRE_CHECK_THRESHOLD: "${PRE_CHECK_THRESHOLD:-0.35}"
   ML_MODEL_PATH: /app/models/rtdetr_l_best.pt
   # ── Gate semántico CLIP ────────────────────────────────────────────
-  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.12}"
+  # REJECT subido 0.12 → 0.20 (2026-06-25): con 0.12 (casi el baseline de ruido
+  # para ~30 positivos vs ~145 negativos) escapaban falsos positivos como botellas
+  # de gaseosa (F564E34A) y mascotas. 0.20 descarta lo obvio sin perder basura real
+  # borderline (esa cae en zona ambigua → EN_REVISIÓN, no se pierde).
+  SEMANTIC_REJECT_THRESHOLD: "${SEMANTIC_REJECT_THRESHOLD:-0.20}"
   SEMANTIC_REVIEW_THRESHOLD: "${SEMANTIC_REVIEW_THRESHOLD:-0.50}"
   # RN50/openai es ~15-20x más rápido que ViT-B-32 en CPU (convoluciones vs atención).
   # ViT-B-32 tardaba 60-90s por imagen; RN50 tarda ~3-5s. Calidad suficiente para gate.

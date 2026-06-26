@@ -175,6 +175,17 @@ _NEGATIVE_PROMPTS = [
     "kitchen utensils and cookware",
     "fruits and vegetables on a surface",
     "a market stall with fresh produce",
+    # ── Bebidas embotelladas (no basura — botella entera con líquido) ──────────
+    # Caso reportado F564E34A: foto de botellas de gaseosa sobre una mesa
+    # clasificada como basura MEDIO con 1.30 m³. La botella con etiqueta y
+    # líquido de color tiene alta entropía → pasa garbage_score; CLIP debe
+    # reconocerla como producto, no como residuo.
+    "a plastic soda bottle on a table",
+    "bottles of soda or soft drink",
+    "a full plastic bottle with a colored drink",
+    "soda or cola bottles indoors",
+    "a beverage bottle held in hand or on a surface",
+    "a sealed plastic bottle with liquid inside",
     # ── Mobiliario y objetos del hogar ────────────────────────────────────────
     "furniture in a clean room",
     "a sofa or chair indoors",
@@ -245,6 +256,12 @@ _NEGATIVE_PROMPTS = [
     "stray dogs walking on a sidewalk",
     "cows or livestock on a rural road",
     "chickens or hens in a yard",
+    # Caso reportado: foto de un perro clasificada como abundante basura.
+    # El pelaje texturizado dispara garbage_score y RT-DETR (sin clase "perro").
+    "a close-up photo of a pet dog",
+    "a dog lying down indoors at home",
+    "a cat or dog looking at the camera",
+    "a furry animal filling the frame",
     # ── Ropa tendida y lavandería ─────────────────────────────────────────────
     "laundry hanging to dry on a line",
     "clothes hung on a fence or balcony",
